@@ -736,6 +736,41 @@ height" d)
 (check ":hires gives up its deepest level" 3
        (display-profile-draw-depth *hires-profile*))
 
+;; The roster's number columns are right-aligned: ROSTER-CELL pushes
+;; short values towards the field's right edge so the digits (and the
+;; heading over them) line up down the table.
+(check "a full-width roster value starts at its column" 15
+       (roster-cell 15 "112"))
+(check "a two-character roster value gives up one cell" 16
+       (roster-cell 15 "10"))
+(check "a one-character roster value gives up two cells" 17
+       (roster-cell 15 "4"))
+(check "a negative armor class still right-aligns" 16
+       (roster-cell 15 "-2"))
+(check "a heading right-aligns like the values under it" 16
+       (roster-cell 15 "AC"))
+(check "an oversized value starts at its column, never before it" 15
+       (roster-cell 15 "1234"))
+(check "an explicit field width overrides the default" 18
+       (roster-cell 15 "AC" 5))
+(check "the empty string sits at the field's right edge" 18
+       (roster-cell 15 ""))
+
+;; Every profile must leave each numeric column room for the full
+;; field, or a wide value would collide with the column after it.
+(dolist (p *display-profiles*)
+  (let ((cols (display-profile-roster-cols p))
+        (order '(:ac :hit :hpts :spl :spts :cl))
+        (tight '()))
+    (loop for (key next) on order
+          while next
+          do (when (< (- (getf cols next) (getf cols key))
+                      +roster-num-cells+)
+               (push key tight)))
+    (check (format nil "~S leaves every number column its full field"
+                   (display-profile-name p))
+           nil tight)))
+
 (let ((outer-w *fp-view-width*)
       (outer-dir *gfx-dir*)
       (outer-depth *draw-depth*))

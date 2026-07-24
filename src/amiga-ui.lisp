@@ -1326,7 +1326,8 @@ name, armor class (with equipment and spell effects), then
 max/current hit points and max/current spell points, and the class
 code.  The current points are picked out in white; a downed hero's
 name and hit points turn amber.  Columns come from the profile's
-ROSTER-COLS character cells."
+ROSTER-COLS character cells; the numbers are right-aligned in their
+column (ROSTER-CELL) so their digits line up down the table."
   (let* ((ox (ui-layout-bx l))
          (cw (ui-layout-cw l))
          (cols (display-profile-roster-cols *display-profile*))
@@ -1336,18 +1337,20 @@ ROSTER-COLS character cells."
     (labels ((col (cell pen text)
                (amiga.gfx:set-a-pen rp pen)
                (amiga.gfx:move-to rp (+ ox (* cw cell)) y)
-               (amiga.gfx:gfx-text rp text)))
+               (amiga.gfx:gfx-text rp text))
+             (num (cell pen text)          ; right-aligned number column
+               (col (roster-cell cell text) pen text)))
       (col (getf cols :no) 0 (format nil "~D" (1+ index)))
       (col (getf cols :name) (if down 3 0)
            (let ((name (hero-name hero)))
              (if (> (length name) name-w) (subseq name 0 name-w) name)))
-      (col (getf cols :ac) 0
+      (num (getf cols :ac) 0
            (format nil "~D" (hero-effective-ac hero game)))
-      (col (getf cols :hit) 0 (format nil "~D" (hero-max-hp hero)))
-      (col (getf cols :hpts) (if down 3 1)
+      (num (getf cols :hit) 0 (format nil "~D" (hero-max-hp hero)))
+      (num (getf cols :hpts) (if down 3 1)
            (format nil "~D" (hero-hp hero)))
-      (col (getf cols :spl) 0 (format nil "~D" (hero-max-sp hero)))
-      (col (getf cols :spts) 1 (format nil "~D" (hero-sp hero)))
+      (num (getf cols :spl) 0 (format nil "~D" (hero-max-sp hero)))
+      (num (getf cols :spts) 1 (format nil "~D" (hero-sp hero)))
       (col (getf cols :cl) 0 (hero-class-abbrev hero)))
     (amiga.gfx:set-a-pen rp 1)))
 
@@ -1372,13 +1375,16 @@ roster (not while a menu model or a location eats them)."
           (cols (display-profile-roster-cols *display-profile*)))
       (labels ((col (cell text)
                  (amiga.gfx:move-to rp (+ ox (* cw cell)) y)
-                 (amiga.gfx:gfx-text rp text)))
+                 (amiga.gfx:gfx-text rp text))
+               ;; a number column's heading sits over its values, so it
+               ;; is right-aligned in the same field they are
+               (num (cell text) (col (roster-cell cell text) text)))
         (col (getf cols :name) "CHARACTER")
-        (col (getf cols :ac)   "AC")
-        (col (getf cols :hit)  "HIT")
-        (col (getf cols :hpts) "PTS")
-        (col (getf cols :spl)  "SPL")
-        (col (getf cols :spts) "PTS")
+        (num (getf cols :ac)   "AC")
+        (num (getf cols :hit)  "HIT")
+        (num (getf cols :hpts) "PTS")
+        (num (getf cols :spl)  "SPL")
+        (num (getf cols :spts) "PTS")
         (col (getf cols :cl)   "CL")))
     (let ((y (+ (ui-layout-party-y l) (ui-layout-base l)))
           (row-y (ui-layout-party-y l))

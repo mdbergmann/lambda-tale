@@ -186,6 +186,11 @@ profile, not a patch.)
   class code via `hero-class-abbrev` — always **two characters**, so
   the name column keeps the room; a downed hero's name and hit
   points turn amber) — the layout must reserve room for **7 rows**.
+  The number columns are **right-aligned** in a fixed field
+  (`roster-cell`, `+roster-num-cells+`), heading included, so digits
+  of different width line up down the table; a profile's
+  `roster-cols` must therefore leave every numeric column that much
+  room before the next one.
   What the status line used to carry moved: the key reference to the
   **help page** (`h`/`?`, `help-lines`), position/facing/clock to the
   **map footer**, contextual prompts (win/lose) into the message log.

@@ -120,7 +120,8 @@ message log on the right (in the engine's compact 5x7 microfont on
 the Amiga) with a slim strip of active-effect icons below it, laid
 out in effect order — an effect granting a compass shows the live
 rose in its slot — and the numbered party roster (`# CHARACTER AC
-HIT PTS SPL PTS CL`, two-letter class codes) at the bottom.
+HIT PTS SPL PTS CL`, two-letter class codes, the number columns
+right-aligned under their headings) at the bottom.
 Locations (shops, taverns) and the character sheet **take over the
 message area**: their menu renders at the top of the log page with
 the trailing log lines still scrolling underneath, while the view

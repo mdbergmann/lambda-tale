@@ -47,6 +47,29 @@ absolute path under *ENGINE-DIR*."
                               ;   (the Bard's Tale table — max/current
                               ;   hit and spell points, class code)
 
+;;; The roster's numeric columns (AC, HIT, PTS, SPL, PTS) are
+;;; right-aligned inside a fixed field so values of different width
+;;; line up under one another and under their heading:
+;;;
+;;;    AC HIT PTS         AC  HIT PTS
+;;;     4  20  20   not    4  20  20
+;;;    10   7 112         10  7   112
+;;;
+;;; Three cells hold every value the engine produces — hit and spell
+;;; points reach the hundreds, armor class the tens (with a sign when
+;;; a spell shield drives it below zero) — and the profiles leave at
+;;; least four cells between numeric columns, so the field never
+;;; touches its neighbour.
+(defconstant +roster-num-cells+ 3
+  "Width, in character cells, of a right-aligned roster number column.")
+
+(defun roster-cell (cell text &optional (width +roster-num-cells+))
+  "The character cell TEXT starts at when right-aligned in the
+WIDTH-cell field that begins at CELL.  Text too wide for the field
+starts at CELL itself, so an outsized value runs into the gap after
+its column rather than backing up into the column before it."
+  (+ cell (max 0 (- width (length text)))))
+
 ;;; The classic 640x256 PAL hires presentation: 16 colors, the 240x130
 ;;; viewport the original M3 wall packs were drawn for.
 (defparameter *hires-profile*
