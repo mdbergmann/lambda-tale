@@ -9,7 +9,7 @@
 ;;; A GAME built on the engine carries its OWN version, independent of
 ;;; this one: the engine only declares the slots (*GAME-NAME* and
 ;;; friends, all NIL here) and each game's own version.lisp fills them
-;;; in — see ../../closure/src/version.lisp for the worked example.
+;;; in — see ../../closure-tale/src/version.lisp for the worked example.
 ;;;
 ;;; Loaded first after the package, so every later file may refer to it.
 

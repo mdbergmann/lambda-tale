@@ -1,6 +1,6 @@
 ;;; Lambda's Tale engine — loader.  Self-locating: a game loads this
 ;;; file from wherever the engine lives — e.g. from a sibling game
-;;; directory (load "../lambda-tale-engine/src/load.lisp") — and the
+;;; directory (load "../lambda-tale/src/load.lisp") — and the
 ;;; engine finds its own sources and default tile packs through
 ;;; *LOAD-TRUENAME*, never through the working directory.  The working
 ;;; directory belongs to the GAME: maps, campaigns, zone packs and

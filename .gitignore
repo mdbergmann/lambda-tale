@@ -3,3 +3,4 @@ saves/
 tests/tmp-saves/
 tests/tmp-*.map
 *.mapc
+*.uaem

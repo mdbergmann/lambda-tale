@@ -3,7 +3,7 @@
 ;;; games (M2).  Story content lives in games (e.g. the Closure game
 ;;; next door, which has its own suite); the world these tests play is
 ;;; the minimal fixture under tests/world/.
-;;; Run from the engine root (examples/games/lambda-tale-engine):  make test
+;;; Run from the engine root:  make test
 
 (load "src/load.lisp")
 

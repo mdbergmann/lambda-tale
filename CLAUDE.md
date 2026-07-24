@@ -1,24 +1,25 @@
 # Lambda's Tale (engine)
 
 A Bard's Tale-style dungeon-crawler **engine** in pure Common Lisp,
-running on the clamiga built in the parent repo.  This is a **separate
-subproject**: the instructions here override the repo-root `CLAUDE.md`
-for anything under `examples/games/lambda-tale-engine/`.
+running on clamiga from the [cl-amiga
+repo](../amigasources/cl-amiga) — this repo holds no C and builds no
+binary.  Games live in sibling repos (e.g. `../closure-tale`) and load
+the engine via `src/load.lisp`.
 
-## The repo-root gates do NOT apply here
+## The cl-amiga gates do NOT apply here
 
-This subproject contains no C.  For a change confined to this
-directory, do **not** run — and do not treat as a gate:
+This repo contains no C.  For a change confined to this repo, do
+**not** run — and do not treat as a gate — anything from cl-amiga:
 
-- `make test` / `make test-plus` / `make test-extra` in the repo root
+- `make test` / `make test-plus` / `make test-extra` over there
   (C unit tests, shell tests, trunk integration scripts)
 - `make test-gc-stress`
-- `make -f Makefile.cross test-amiga` (the parent repo's Amiga suite —
-  it does not run this subproject's tests)
+- `make -f Makefile.cross test-amiga` (cl-amiga's Amiga suite —
+  it does not run this repo's tests)
 - the FASL versioning rule (`CL_FASL_VERSION` in `src/core/fasl.h`) and
   the GC-safety / C-coding rules — all of them are about runtime C code
 
-The gate for a change here is this subproject's own suite:
+The gate for a change here is this repo's own suite:
 
 ```
 make test     # engine suite, plays the tests/world/ fixture
@@ -26,23 +27,36 @@ make assets   # regenerate the default tile packs (data/gfx*)
 ```
 
 Run the sibling game's suite too when a change could reach it:
-`cd ../closure && make test`.
+`cd ../closure-tale && make test`.
 
 **The exception**: if the work leads you into the clamiga runtime
-(`src/` in the repo root — a compiler bug, a missing CL function, an
-FFI gap), that part is a repo-root change and the root `CLAUDE.md`
-applies to it in full, gates included.  The engine is a good clamiga
-stress test, and finding runtime bugs through it is expected; just
-keep the two changes — and their gates — apart.
+(`../amigasources/cl-amiga` — a compiler bug, a missing CL function,
+an FFI gap), that part is a cl-amiga change and that repo's
+`CLAUDE.md` applies to it in full, gates included.  The engine is a
+good clamiga stress test, and finding runtime bugs through it is
+expected; just keep the two changes — and their gates — apart.
 
 ## Amiga testing
 
-Not covered by the parent's `test-amiga`.  Boot FS-UAE and run the
-suite by hand (it adds GUI smoke tests for both display profiles and
-unattended autoplay sessions):
+Not covered by cl-amiga's `test-amiga`.  The FS-UAE setup lives in
+cl-amiga (`verify/realamiga/`); this repo is not inside the mounted
+`CLAmiga:` volume, so mount it as its own volume on the command line
+and run the suite by hand (it adds GUI smoke tests for both display
+profiles and unattended autoplay sessions):
 
 ```
-cd CLAmiga:examples/games/lambda-tale-engine
+cd ../amigasources/cl-amiga
+verify/realamiga/FS-UAE.app/Contents/MacOS/fs-uae verify/realamiga/verify.fs-uae \
+  --hard_drive_2="$HOME/Development/MySources/lambda-tale" \
+  --hard_drive_2_label=LambdaTale
+```
+
+(Without a `build/amiga/boot-override` file the boot runs cl-amiga's
+own suite first — see `verify/realamiga/call-on-ustartup`; drop an
+override or wait for it, then in the Amiga shell:)
+
+```
+cd LambdaTale:
 stack 128000
 CLAmiga:build/amiga/clamiga --heap 8M --non-interactive --load tests/run-tests.lisp
 ```
@@ -51,10 +65,10 @@ CLAmiga:build/amiga/clamiga --heap 8M --non-interactive --load tests/run-tests.l
 
 ## The engine ships no story
 
-The hard boundary of this subproject: the engine holds **mechanics**,
+The hard boundary of this repo: the engine holds **mechanics**,
 a game holds **content**.  Never put story, campaign data, item or
 spell tables, map content or anything Closure-specific in here — those
-belong to a game directory (`../closure`).  When a game needs
+belong to a game repo (`../closure-tale`).  When a game needs
 something the engine cannot express, add the *mechanism* here (a new
 `define-*` form, a cell-special op, an effect key) and let the game
 supply the data.
@@ -75,7 +89,7 @@ only when the save-file format actually changes.
 
 ## Tests and docs
 
-- **Tests are the specification** — the same rule as the parent repo.
+- **Tests are the specification** — the same rule as cl-amiga.
   Every feature and every bug fix gets a check in `tests/run-tests.lisp`,
   using the file's own tiny harness (`check`, `check-true`,
   `check-error`, `with-rng`, `watch-messages`).
@@ -84,48 +98,23 @@ only when the save-file format actually changes.
 - All Lisp must conform to the **HyperSpec** — this code is also a
   conformance probe for clamiga itself.
 - Keep `README.md` current with the code, user-facing and high-level;
-  no changelog notes or internal detail (parent rule, unchanged).
+  no changelog notes or internal detail (cl-amiga's rule, unchanged).
 - Test artifacts belong under `tests/` and in `.gitignore` — the suite
   must leave a clean `git status`.
 
-## Branch
+## Repos, not branches
 
-The engine lives on **master**.  The Closure game does not — it is
-local-only on `closure-tale`.  When one piece of work touches both,
-the engine part is a master commit and the game part a `closure-tale`
-commit; do not carry engine changes on the game branch.
+The engine is **its own repo** since 2026-07-24; before that it lived
+in cl-amiga under `examples/games/lambda-tale-engine/`, carried on the
+local `closure-tale` branch with an `Engine: ` commit-subject prefix
+for cherry-picking to master.  That scheme is over: engine commits
+land here, game commits land in `../closure-tale`, clamiga commits
+land in `../amigasources/cl-amiga` — one repo per commit, no prefixes,
+no cherry-picking.  When one piece of work touches more than one of
+the three, split it by repo; each part rides with its own tests (and
+here, its `src/version.lisp` bump) so it is green on its own.
 
-Playing the game is how engine gaps get found, so engine work often
-starts with `closure-tale` checked out.  That is fine — commit it
-there rather than switching branches mid-task — but the commit must be
-**separate and marked**, so it cherry-picks to master later without
-dragging game content behind it:
-
-- **Engine paths only.** Nothing under `examples/games/closure/` in
-  the same commit, and nothing from the repo root either.  A mixed
-  commit cannot be cherry-picked; it has to be re-done by hand.
-- **Prefix the subject `Engine: `.** That is what makes the commits to
-  replay findable months later:
-  `git log --oneline --grep="^Engine: " closure-tale` is the list of
-  what master is still missing.
-- **Self-contained.** Its own tests, README update and
-  `src/version.lisp` bump ride along in the same commit, green on
-  their own — the cherry-pick should need no follow-up.
-
-Work on this branch also reaches the **repo root** now and then — a
-clamiga runtime fix found by playing, a root `CLAUDE.md` correction.
-That is master-bound too, and it cannot wear the `Engine: ` prefix
-(engine paths only, above), so it gets its own: **`Master: `**, under
-the same one-destination-per-commit rule.  Three prefixes, three
-destinations:
-
-| Prefix | Paths | Destination |
-|---|---|---|
-| `Engine: ` | `examples/games/lambda-tale-engine/` | cherry-pick to master |
-| `Master: ` | repo root (`src/`, `tests/`, root `CLAUDE.md`, …) | cherry-pick to master |
-| `Closure: ` (or none) | `examples/games/closure/` | stays on `closure-tale` |
-
-So the replay list is
-`git log --oneline --grep="^Engine: " --grep="^Master: " closure-tale`.
-If the game needs a matching change, that is a further commit with
-neither prefix.
+A game repo pulls its dependencies in as **submodules**: Closure
+vendors this engine at `lambda-tale/` and the runtime at `cl-amiga/`
+inside its own tree.  After an engine change lands here, the game
+advances its submodule pin in a game commit.

@@ -1,7 +1,7 @@
 # Lambda's Tale — a Bard's Tale-like dungeon-crawler ENGINE for cl-amiga.
-# Self-contained subproject: uses the clamiga binary built in the parent
-# repo.  Games live in sibling directories (e.g. ../closure) and load
-# the engine via src/load.lisp.
+# Self-contained repo: uses the clamiga binary built in the cl-amiga
+# repo (../amigasources/cl-amiga).  Games live in sibling repos
+# (e.g. ../closure-tale) and load the engine via src/load.lisp.
 #
 #   make test    Run the engine's Lisp test suite (host clamiga)
 #   make assets  Regenerate the data/gfx wall-piece ILBMs (tools/gen-walls.lisp)
@@ -12,7 +12,10 @@
 #
 # Override the interpreter with CLAMIGA=/path/to/clamiga.
 
-CLAMIGA ?= ../../../build/host/clamiga
+# When this engine is checked out as a submodule of a game repo, the
+# cl-amiga submodule sits beside it (../cl-amiga); in a standalone
+# checkout the development clone is the fallback.
+CLAMIGA ?= $(firstword $(wildcard ../cl-amiga/build/host/clamiga ../amigasources/cl-amiga/build/host/clamiga) ../amigasources/cl-amiga/build/host/clamiga)
 HEAP    ?= 16M
 OUT     ?=
 
@@ -27,7 +30,7 @@ assets: clamiga-check
 # ART is the flat, front-on wall picture (any size, any depth); OUT the
 # pack directory, defaulting to the active profile's own.  A world with
 # more to say than one image writes its own script instead — see
-# ../closure/worlds/closure/gfx/make-pack.lisp.
+# ../closure-tale/worlds/closure/gfx/make-pack.lisp.
 pack: clamiga-check
 	@test -n "$(ART)" || { \
 	  echo "usage: make pack ART=<facade.iff> [OUT=<dir/>]"; exit 1; }
@@ -49,5 +52,5 @@ preview: clamiga-check
 clamiga-check:
 	@test -x $(CLAMIGA) || { \
 	  echo "clamiga not found at $(CLAMIGA)."; \
-	  echo "Build it first: make host in the repo root (or set CLAMIGA=/path/to/clamiga)"; \
+	  echo "Build it first: make host in the cl-amiga checkout (or set CLAMIGA=/path/to/clamiga)"; \
 	  exit 1; }
