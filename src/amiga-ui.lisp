@@ -1830,6 +1830,7 @@ map/help/sheet pages close on a click outside a target — see
          (full nil)         ; omniscient map (debug), map mode only
          (sheet-hero 0)     ; party index shown in :sheet mode
          (sheet-top 0)      ; sheet scroll offset (u/d)
+         (ordering nil)     ; sheet: picking the hero's new slot (o)
          (equipv nil)       ; EQUIP-VIEW while the pack page is open
          (help-prior-mode :play) ; mode to return to when help closes
          (shopv nil)        ; SHOP-VIEW while inside a location
@@ -2002,12 +2003,14 @@ map/help/sheet pages close on a click outside a target — see
                             (setf sheet-hero i
                                   sheet-top 0
                                   equipv nil
+                                  ordering nil
                                   mode :sheet)
                             (redraw)))
                         (leave-sheet ()
                           ;; the sheet lives in the panes (takeover +
                           ;; portrait) — no chrome to repair
                           (setf equipv nil)
+                          (setf ordering nil)
                           (setf mode :play)
                           (redraw))
                         (open-help ()
@@ -2165,7 +2168,8 @@ map/help/sheet pages close on a click outside a target — see
                                             (equip-lines game equipv)
                                             (hero-sheet-lines game
                                                               sheet-hero
-                                                              sheet-top))
+                                                              sheet-top
+                                                              ordering))
                                      log l log-lines))
                                    (ordersv
                                     ;; combat: the round orders, with
@@ -2356,6 +2360,32 @@ map/help/sheet pages close on a click outside a target — see
                                                  (setf equipv nil))))
                                             (redraw))
                                           nil)
+                                         (ordering
+                                          ;; the marching-order pick: a
+                                          ;; digit (key or roster click)
+                                          ;; is the hero's new slot and
+                                          ;; the sheet follows them
+                                          ;; there; Esc cancels
+                                          (cond ((eql c :esc)
+                                                 (setf ordering nil)
+                                                 (redraw))
+                                                ((and (characterp c)
+                                                      (digit-char-p c)
+                                                      (<= 1
+                                                          (digit-char-p c)
+                                                          (length
+                                                           (game-party
+                                                            game))))
+                                                 (when (move-hero
+                                                        game sheet-hero
+                                                        (1- (digit-char-p
+                                                             c)))
+                                                   (setf sheet-hero
+                                                         (1- (digit-char-p
+                                                              c))))
+                                                 (setf ordering nil)
+                                                 (redraw)))
+                                          nil)
                                          ((eql c :esc) (leave-sheet) nil)
                                          ((and (characterp c)
                                                (digit-char-p c)
@@ -2382,6 +2412,13 @@ map/help/sheet pages close on a click outside a target — see
                                             (when hero
                                               (pool-gold game hero)
                                               (redraw)))
+                                          nil)
+                                         ((eql lc #\o)
+                                          ;; change the marching order
+                                          ;; (pointless with one member)
+                                          (when (rest (game-party game))
+                                            (setf ordering t)
+                                            (redraw))
                                           nil)
                                          ((characterp c)
                                           ;; u/d scroll a long stat block

@@ -247,12 +247,14 @@ overflowing the page."
                        items))
          (list "Pack: nothing")))))
 
-(defun hero-sheet-lines (game index &optional (top 0))
+(defun hero-sheet-lines (game index &optional (top 0) ordering)
   "The character-sheet page for roster slot INDEX as text lines: a
 header, the hero's stat block (windowed at scroll offset TOP when it
 overflows +SHEET-PAGE-SIZE+ rows, with clickable more-markers) and the
 key hints — the front-ends draw these verbatim (the SHOP-LINES
-pattern) and feed u/d through HERO-SHEET-SCROLL."
+pattern) and feed u/d through HERO-SHEET-SCROLL.  ORDERING true is the
+marching-order pick ('o'): the hints give way to the where-to prompt,
+a digit there moves the hero (MOVE-HERO) and Esc cancels."
   (let* ((hero (nth index (game-party game)))
          (body (when hero (%hero-sheet-body hero))))
     (append
@@ -265,13 +267,20 @@ pattern) and feed u/d through HERO-SHEET-SCROLL."
                               (declare (ignore i))
                               line)
                             +sheet-page-size+))
-     (list* ""
-            "[1-7] view another"
-            "[E]quip pack"
-            "[G]old pool"
-            (if (> (length body) +sheet-page-size+)
-                (list "[u/d] scroll" "[Esc] back")
-                (list "[Esc] back"))))))
+     (if (and hero ordering)
+         (list ""
+               (format nil "Move ~A where?" (hero-name hero))
+               (format nil "[1-~D] the new slot"
+                       (length (game-party game)))
+               "[Esc] cancel")
+         (list* ""
+                "[1-7] view another"
+                "[E]quip pack"
+                "[G]old pool"
+                "[O]rder party"
+                (if (> (length body) +sheet-page-size+)
+                    (list "[u/d] scroll" "[Esc] back")
+                    (list "[Esc] back")))))))
 
 (defun hero-sheet-scroll (game index top char)
   "The sheet page's scroll offset after key CHAR (u/d — see
@@ -299,6 +308,26 @@ game situation, not a bug)."
         (say game "~A joins the party!" (hero-name hero))
         (emit game :party-joined hero)
         t)))
+
+(defun move-hero (game from to)
+  "Move the hero in roster slot FROM to slot TO (both 0-based), the
+others closing ranks — the Bard's Tale marching-order change.  Order
+matters: the first three living members are the ones monsters can
+reach (see FRONT-RANKS).  Says the move and returns T; an empty or
+out-of-range slot, or a move to the hero's own place, quietly returns
+NIL.  The character sheet offers it on 'o'."
+  (let* ((party (game-party game))
+         (n (length party)))
+    (when (and (< -1 from n) (< -1 to n) (/= from to))
+      (let* ((hero (nth from party))
+             (others (remove hero party :count 1)))
+        (setf (game-party game)
+              (append (subseq others 0 to)
+                      (list hero)
+                      (subseq others to)))
+        (say game "~A now marches in position ~D."
+             (hero-name hero) (1+ to))
+        t))))
 
 (defun pool-gold (game hero)
   "Pool the party's gold onto HERO, Bard's Tale style: every other

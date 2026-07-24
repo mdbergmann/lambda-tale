@@ -628,7 +628,11 @@ to 8 items and equip one item of each equipment kind — every worn
 piece's AC counts — combat uses the equipped gear, and shops sell
 their `:stock` and buy anything back at half price; `g` **pools the
 party's gold** onto the shopper, Bard's Tale style (the character
-sheet offers the same key, pooling onto the viewed hero).  A weapon
+sheet offers the same key, pooling onto the viewed hero).  `o` on the
+sheet changes the **marching order** (`move-hero`): a digit names the
+viewed hero's new slot and the others close ranks — order matters,
+because the first three living members are the front ranks monsters
+can reach.  A weapon
 defined `:two-handed` fills both hands, D&D-style: it will not go on
 beside a shield, nor a shield beside it, and the pack and shop pages
 mark it `(2H)`.  Equipment is managed

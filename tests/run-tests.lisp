@@ -2054,8 +2054,14 @@ height" d)
   (check "sheet page embeds the summary block" "B the Tester"
          (third lines))
   (check "sheet page ends with the key hints, one option per row"
-         '("[1-7] view another" "[E]quip pack" "[G]old pool" "[Esc] back")
-         (last lines 4)))
+         '("[1-7] view another" "[E]quip pack" "[G]old pool"
+           "[O]rder party" "[Esc] back")
+         (last lines 5))
+  ;; ORDERING true is the marching-order pick: the hints give way to
+  ;; the where-to prompt, sized to the roster
+  (check "ordering sheet asks where to move the hero"
+         '("Move B where?" "[1-2] the new slot" "[Esc] cancel")
+         (last (hero-sheet-lines g 1 0 t) 3)))
 
 ;; Class portraits: DEFINE-HERO-CLASS :IMAGE resolves map-relative
 ;; (the effect-icon rule); a class without one has no portrait.
@@ -2202,6 +2208,34 @@ height" d)
                        (funcall msgs)))
   ;; combat still works with a full roster: front ranks stay three
   (check "front ranks with a full party" 3 (length (front-ranks g))))
+
+;; Marching order: MOVE-HERO moves a roster slot to a new place, the
+;; others closing ranks — who stands in the front ranks is the point
+;; (the character sheet offers it on 'o').
+(let* ((m (parse-map *art* :name "test"))
+       (heroes (with-rng () (list (make-hero "A" :tester)
+                                  (make-hero "B" :tester)
+                                  (make-hero "C" :tester)
+                                  (make-hero "D" :tester))))
+       (g (new-game m :party heroes))
+       (msgs (watch-messages g)))
+  (check-true "move-hero sends a hero back" (move-hero g 0 2))
+  (check "the others close ranks" '("B" "C" "A" "D")
+         (mapcar #'hero-name (game-party g)))
+  (check-true "the move is announced"
+              (find-if (lambda (s)
+                         (search "A now marches in position 3" s))
+                       (funcall msgs)))
+  (check-true "move-hero brings a hero forward" (move-hero g 3 0))
+  (check "the whole order shifts" '("D" "B" "C" "A")
+         (mapcar #'hero-name (game-party g)))
+  (check "the front ranks follow the new order" '("D" "B" "C")
+         (mapcar #'hero-name (front-ranks g)))
+  (check "a move to the hero's own slot is no move" nil (move-hero g 1 1))
+  (check "an out-of-range target slot is refused" nil (move-hero g 0 4))
+  (check "an out-of-range source slot is refused" nil (move-hero g -1 0))
+  (check "refusals leave the order alone" '("D" "B" "C" "A")
+         (mapcar #'hero-name (game-party g))))
 
 (let* ((m (parse-map *art* :name "test"))
        (h (with-rng () (make-hero "A" :tester)))  ; 3 max hp
@@ -5075,8 +5109,9 @@ height" d)
               (member "Pack: nothing" (menu-texts (hero-sheet-lines g 0))
                       :test #'equal))
   (check "a short sheet keeps the plain hints"
-         '("[1-7] view another" "[E]quip pack" "[G]old pool" "[Esc] back")
-         (last (hero-sheet-lines g 0) 4))
+         '("[1-7] view another" "[E]quip pack" "[G]old pool"
+           "[O]rder party" "[Esc] back")
+         (last (hero-sheet-lines g 0) 5))
   (check "a short sheet does not scroll" nil
          (hero-sheet-scroll g 0 0 #\d))
   (give-item g h 't-sword)
@@ -6622,7 +6657,9 @@ never its own"
   (check-true "help mentions pooling gold"
               (find-if (lambda (s) (search "pool gold" s)) lines))
   (check-true "help mentions the gear page"
-              (find-if (lambda (s) (search "equip" s)) lines)))
+              (find-if (lambda (s) (search "equip" s)) lines))
+  (check-true "help mentions the marching order"
+              (find-if (lambda (s) (search "marching order" s)) lines)))
 
 ;;; ---------------------------------------------------------------------
 ;;; The roster's class codes and column plists.

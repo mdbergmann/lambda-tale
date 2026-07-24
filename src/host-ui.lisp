@@ -15,7 +15,8 @@
 ;;; On the character sheet: e=the pack page (1-9 toggle an item
 ;;;   on/off, class-unfit items are marked; p=hand an item to another
 ;;;   party member — 1-9 the item, then 1-7 who receives it)
-;;;   g=pool the party's gold onto the hero  Esc=back
+;;;   g=pool the party's gold onto the hero
+;;;   o=marching order (a digit moves the hero to that slot)  Esc=back
 ;;; In a location (shop): 1-9=choose  s/b=sell/buy page  g=pool gold
 ;;;   onto the shopper  Esc=back/leave
 ;;; In the cast menu: 1-9=choose caster/spell/target  Esc=back/cancel
@@ -96,6 +97,7 @@ engine has no default world; the game names its starting map."
          (full nil)          ; omniscient automap (debug), map mode only
          (sheet-hero 0)      ; party index shown in :sheet mode
          (sheet-top 0)       ; sheet scroll offset (u/d)
+         (ordering nil)      ; sheet: picking the hero's new slot (o)
          (equip nil)         ; EQUIP-VIEW while the pack page is open
          (shop nil)          ; SHOP-VIEW while inside a location
          (cast nil)          ; CAST-VIEW while the cast menu is open
@@ -232,7 +234,7 @@ engine has no default world; the game names its starting map."
                (dolist (line (if equip
                                  (equip-lines game equip)
                                  (hero-sheet-lines game sheet-hero
-                                                   sheet-top)))
+                                                   sheet-top ordering)))
                  (format t "~A~%" (menu-line-text line))))
              (draw ()
                (%clear-screen)
@@ -331,41 +333,61 @@ engine has no default world; the game names its starting map."
                  (setf sheet-hero i
                        sheet-top 0
                        equip nil
+                       ordering nil
                        mode :sheet))
                nil)
              (sheet-act (c)
-               (if equip
-                   ;; the pack page: the shared model eats the keys
-                   ;; (digits toggle or pick, p opens the give flow,
-                   ;; u/d scroll, Esc backs out a page at a time and
-                   ;; finally to the sheet) — Q still quits
-                   (if (member c '(#\q #\Q))
-                       :quit
-                       (progn
-                         (case (equip-act game equip c)
-                           (:cancelled (setf equip nil)))
-                         nil))
-                   (let ((digit (digit-char-p c))
-                         (top (hero-sheet-scroll game sheet-hero
-                                                 sheet-top c)))
-                     (cond ((and digit (<= 1 digit +party-limit+))
-                            (open-sheet (1- digit)))
-                           (top (setf sheet-top top) nil)
-                           ((member c '(#\e #\E))
-                            (let ((hero (nth sheet-hero
-                                             (game-party game))))
-                              (when hero
-                                (setf equip (make-equip-view hero))))
-                            nil)
-                           ((member c '(#\g #\G))
-                            (let ((hero (nth sheet-hero
-                                             (game-party game))))
-                              (when hero
-                                (pool-gold game hero)))
-                            nil)
-                           ((eql c #\Escape) (setf mode :play) nil)
-                           ((member c '(#\q #\Q)) :quit)
-                           (t nil)))))
+               (cond
+                 (equip
+                  ;; the pack page: the shared model eats the keys
+                  ;; (digits toggle or pick, p opens the give flow,
+                  ;; u/d scroll, Esc backs out a page at a time and
+                  ;; finally to the sheet) — Q still quits
+                  (if (member c '(#\q #\Q))
+                      :quit
+                      (progn
+                        (case (equip-act game equip c)
+                          (:cancelled (setf equip nil)))
+                        nil)))
+                 (ordering
+                  ;; the marching-order pick: a digit is the hero's new
+                  ;; slot, the sheet follows them there; Esc cancels
+                  (let ((digit (digit-char-p c)))
+                    (cond ((and digit
+                                (<= 1 digit (length (game-party game))))
+                           (when (move-hero game sheet-hero (1- digit))
+                             (setf sheet-hero (1- digit)))
+                           (setf ordering nil)
+                           nil)
+                          ((eql c #\Escape) (setf ordering nil) nil)
+                          ((member c '(#\q #\Q)) :quit)
+                          (t nil))))
+                 (t
+                  (let ((digit (digit-char-p c))
+                        (top (hero-sheet-scroll game sheet-hero
+                                                sheet-top c)))
+                    (cond ((and digit (<= 1 digit +party-limit+))
+                           (open-sheet (1- digit)))
+                          (top (setf sheet-top top) nil)
+                          ((member c '(#\e #\E))
+                           (let ((hero (nth sheet-hero
+                                            (game-party game))))
+                             (when hero
+                               (setf equip (make-equip-view hero))))
+                           nil)
+                          ((member c '(#\g #\G))
+                           (let ((hero (nth sheet-hero
+                                            (game-party game))))
+                             (when hero
+                               (pool-gold game hero)))
+                           nil)
+                          ((member c '(#\o #\O))
+                           (when (rest (game-party game))
+                             (setf ordering t))
+                           nil)
+                          ((eql c #\Escape) (setf mode :play) nil)
+                          ((member c '(#\q #\Q)) :quit)
+                          (t nil))))))
              (explore-act (c)
                (case c
                  (#\S (setf menu (make-save-menu :save))

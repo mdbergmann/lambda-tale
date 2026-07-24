@@ -87,7 +87,7 @@
    #:hero-extra-attacks
    #:hero-class-title #:hero-class-abbrev #:hero-summary-lines
    #:hero-image #:hero-image-path #:hero-sheet-lines #:hero-sheet-scroll
-   #:+party-limit+ #:party-full-p #:join-party
+   #:+party-limit+ #:party-full-p #:join-party #:move-hero
    #:damage-hero #:heal-hero #:stat-bonus #:award-xp #:xp-for-level
    #:pool-gold
    ;; items, inventory and equipment

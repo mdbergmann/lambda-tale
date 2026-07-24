@@ -20,6 +20,7 @@
         "1-7 character sheet"
         "    E there: pack (equip/pass)"
         "    G there: pool gold on hero"
+        "    O there: marching order"
         "Shift-S save  Shift-L load"
         "Q or Esc quit"
         ""
