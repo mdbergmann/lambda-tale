@@ -2230,9 +2230,9 @@ height" d)
 
 (check-error "unknown monster type" (find-monster-type "grue"))
 
-(defun %combat-hero ()
+(defun %combat-hero (&optional (name "Alva"))
   "A deterministic level-1 :tester hero: 8 hp, str 10 (no bonus)."
-  (let ((h (with-rng (5) (make-hero "Alva" :tester))))
+  (let ((h (with-rng (5) (make-hero name :tester))))
     (setf (hero-str h) 10)
     h))
 
@@ -3262,6 +3262,30 @@ height" d)
          (combat-orders-act g view #\d))
   (check "no round ran while picking" 0
          (combat-round-no (game-combat g))))
+
+;; The orders page draws in the MESSAGE column on the Amiga (the
+;; takeover, like a shop menu), not on the roomier view column it used
+;; to overlay: at the lores profile that column holds 27 characters
+;; across and 12 microfont rows.  Every row of the page must fit that
+;; width whole — a wrapped row costs a line the page cannot spare — and
+;; a regular six-strong party fighting two groups must fit the height.
+;; (A seventh member, the guest slot, pushes the speed row off at
+;; lores; the roomier hires column takes it.)
+(let ((cols 27)
+      (rows 12))
+  (let* ((m (parse-map *art* :name "test"))
+         (party (loop for i from 1 to 6
+                      collect (%combat-hero (format nil "Hero~D" i))))
+         (g (new-game m :party party))
+         (view (make-combat-orders)))
+    (start-combat g '(("test rat" 2) ("test ogre" 1)))
+    (let ((lines (menu-texts (combat-orders-lines g view))))
+      ;; the page's own rows — a picked action's label carries campaign
+      ;; text (a long spell title) and may still wrap
+      (check "no orders row overruns the lores message column" nil
+             (remove-if (lambda (s) (<= (length s) cols)) lines))
+      (check-true "a six-strong party's orders fit the lores page height"
+                  (<= (length (remove "" lines :test #'equal)) rows)))))
 
 ;; C during orders opens the spell pick for the hero at hand; the pick
 ;; lands as that hero's round action instead of fighting a round.
@@ -5682,6 +5706,25 @@ brick grid" d side)
 (let ((img (draw-monster-portrait :beast 96 72)))
   (check "a monster portrait takes the size it is given" '(96 72)
          (list (image-width img) (image-height img))))
+;; The eyes go on after the headgear, so no style buries them: the
+;; brigand's hood shadow used to be painted over them and left a blank
+;; face.  Amber (pen 3) burns in every hide, black (pen 0) in the
+;; skull's bone.  Coordinates as DRAW-MONSTER-PORTRAIT computes them.
+(let* ((w *portrait-size*)
+       (h *portrait-size*)
+       (cx (floor w 2))
+       (cy (floor (* 2 h) 5))
+       (rx (floor w 6))
+       (ry (floor h 5))
+       (ex (floor rx 2))
+       (ey (floor ry 4)))
+  (dolist (style '(:beast :goblin :undead :brigand :plain))
+    (let ((img (draw-monster-portrait style))
+          (pen (if (eq style :undead) 0 3)))
+      (check (format nil "the ~A's left eye shows" style) pen
+             (pixel-ref img (- cx ex) (- cy ey)))
+      (check (format nil "the ~A's right eye shows" style) pen
+             (pixel-ref img (+ cx ex) (- cy ey))))))
 
 ;; Transparency contract: receding side pieces keep pen-0 corners so the
 ;; backdrop shows through the cookie-cut blit; front/flank pieces fill

@@ -365,9 +365,15 @@ While a cast/sing pick is open, its page shows instead."
                                     ((eq h current) "?")
                                     (t "")))))
                   (alive-heroes game))
+          ;; The footer is three short rows on purpose: the page draws
+          ;; in the message column (the Amiga takeover), 27 characters
+          ;; wide at lores, and a row that has to wrap costs a line the
+          ;; page does not have when a full party fights.  Every row
+          ;; here fits that column whole.
           (list ""
-                "[a]ttack [d]efend [c]ast [p]lay [u]se"
-                (format nil "[f]lee  [Esc] undo  +/- speed ~D"
+                "[a]ttack [d]efend [c]ast"
+                "[p]lay [u]se [f]lee"
+                (format nil "[Esc] undo  +/- speed ~D"
                         *combat-speed*))))))))
 
 (defun %orders-record (game view action)
