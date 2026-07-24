@@ -3698,6 +3698,14 @@ height" d)
 (check "no :notes reads NIL" nil (item-type-notes (find-item-type 't-sword)))
 (check-error "define-item rejects non-string :notes"
   (define-item 't-scribble :price 1 :notes '(:very :magic)))
+(check ":description rides along as data" "A plain blade, honest work."
+       (item-type-description
+        (find-item-type (define-item 't-plain-blade :price 3
+                          :description "A plain blade, honest work."))))
+(check "no :description reads NIL" nil
+       (item-type-description (find-item-type 't-sword)))
+(check-error "define-item rejects non-string :description"
+  (define-item 't-mumble :price 1 :description '(:very :plain)))
 
 (check "inventory limit is eight" 8 +inventory-limit+)
 
@@ -3913,8 +3921,9 @@ height" d)
               (find-if (lambda (s) (search "2) T Mail (unfit)" s))
                        (menu-texts (equip-lines g view))))
   (check "pack page ends with the key hints, one option per row"
-         '("[1-9] equip/remove" "[P]ass an item" "[Esc] back")
-         (last (equip-lines g view) 3))
+         '("[1-9] equip/remove" "[P]ass an item" "[I]nspect an item"
+           "[Esc] back")
+         (last (equip-lines g view) 4))
   (check "a digit equips the item" nil (equip-act g view #\1))
   (check "equipped through the page" 't-sword (equipped-of-kind h :weapon))
   (check-true "the worn item is starred"
@@ -3931,6 +3940,67 @@ height" d)
   (check "a digit past the pack does nothing" nil (equip-act g view #\9))
   (check "escape closes the pack page" :cancelled
          (equip-act g view #\Escape)))
+
+;; The inspect flow ('i' on the pack page): pick an item, read its
+;; card — the registered facts plus the campaign's player-facing
+;; :description — Esc back one page at a time.
+(define-item 't-heirloom :kind :armor :price 20 :ac 4 :classes '(:tester)
+  :description "Mail of the old kings; it hums in the dark.")
+(let* ((m (parse-map *art* :name "test"))
+       (h (with-rng () (make-hero "Wiz" :t-wizard)))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g))
+       (view (make-equip-view h)))
+  (check "i with an empty pack stays on the pack" nil
+         (equip-act g view #\i))
+  (check "the view stays on the pack" :pack (equip-view-mode view))
+  (check-true "and says why"
+              (find-if (lambda (s) (search "nothing to inspect" s))
+                       (funcall msgs)))
+  (give-item g h 't-sword)
+  (give-item g h 't-heirloom)
+  (check "i opens the inspect page" nil (equip-act g view #\i))
+  (check "the view is on the inspect page" :inspect (equip-view-mode view))
+  (check-true "the inspect page keeps the pack header"
+              (search "*** Wiz's Pack ***" (first (equip-lines g view))))
+  (check-true "the inspect page hints its pick"
+              (member "[1-9] inspect" (menu-texts (equip-lines g view))
+                      :test #'equal))
+  (check "a digit shows the item's card" nil (equip-act g view #\1))
+  (check "the card item is remembered" 't-sword (equip-view-pending view))
+  (check-true "the card is titled with the item"
+              (search "*** T Sword ***" (first (equip-lines g view))))
+  (check-true "the card names the kind"
+              (member "Kind: Weapon" (menu-texts (equip-lines g view))
+                      :test #'equal))
+  (check-true "the card shows the damage"
+              (member "Damage: 1d6+2" (menu-texts (equip-lines g view))
+                      :test #'equal))
+  (check-true "the card shows the price"
+              (member "Price: 10 gold" (menu-texts (equip-lines g view))
+                      :test #'equal))
+  (check "a plain item's card shows no description"
+         nil (find-if (lambda (s) (search "hums in the dark" s))
+                      (menu-texts (equip-lines g view))))
+  (check "esc leaves the card" nil (equip-act g view #\Escape))
+  (check "back on the inspect page" :inspect (equip-view-mode view))
+  (check "the card item is forgotten" nil (equip-view-pending view))
+  (check "the next digit shows the next card" nil (equip-act g view #\2))
+  (check-true "the described item's card carries the description"
+              (member "Mail of the old kings; it hums in the dark."
+                      (menu-texts (equip-lines g view)) :test #'equal))
+  (check-true "the card shows the AC bonus"
+              (member "AC bonus: 4" (menu-texts (equip-lines g view))
+                      :test #'equal))
+  (check-true "the class restriction carries the unfit marker"
+              (member "Classes: Tester (unfit)"
+                      (menu-texts (equip-lines g view)) :test #'equal))
+  (check "the card ends with esc back"
+         '("" "[Esc] back") (last (equip-lines g view) 2))
+  (equip-act g view #\Escape)
+  (check "esc then leaves the inspect page" nil (equip-act g view #\Escape))
+  (check "back on the pack page" :pack (equip-view-mode view))
+  (check "esc then closes the page" :cancelled (equip-act g view #\Escape)))
 
 ;; A deep pack scrolls on the pack page (the shop-stock pattern).
 (dolist (name '(teq-1 teq-2 teq-3 teq-4 teq-5 teq-6 teq-7 teq-8))

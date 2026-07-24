@@ -620,8 +620,9 @@ whole session; save games carry the whole world.
 A **location** — a shop, or any enterable building — is the
 `(location TITLE KIND ARG...)` special op on a cell.  The engine ships
 shop mechanics: items are campaign data (`define-item` — with prices,
-damage dice, AC bonuses, class restrictions and designer `:notes`
-carried as data for generated catalogues, in the Bard's Tale
+damage dice, AC bonuses, class restrictions, a player-facing
+`:description` and designer `:notes` carried as data for generated
+catalogues, in the Bard's Tale
 equipment kinds: weapon, armor, shield, helmet, gloves, bow, arrow,
 instrument, ring, wand, figurine, plus plain `:misc`), heroes carry up
 to 8 items and equip one item of each equipment kind — every worn
@@ -646,7 +647,10 @@ picks who receives it (each row showing the room left in their pack).
 Carrying is not using — an unfit item passes freely, so one hero can
 haul another's gear — and the fallen both give and receive, as with
 pooled gold; a full receiving pack refuses the item and leaves it
-whole with the giver.  An item can also be
+whole with the giver.  `i` on the pack page **inspects an item**: a
+digit opens its card — kind, damage, AC bonus, price, class
+restriction, and the campaign's `:description` text when the item
+carries one.  An item can also be
 **usable** (`:use` — a torch, a potion, a wand): using it (`u`, the
 use menu, in the open or as a combat-round order) heals a chosen hero,
 fires another non-battle instant (a figurine's `:summon`), installs a

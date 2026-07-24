@@ -25,8 +25,9 @@
 ;;; USE-ACT, the SHOP-VIEW pattern) lives here too, driven by both
 ;;; front-ends, and so does the pack page (EQUIP-VIEW — 'e' on the
 ;;; character sheet): a digit toggles a pack item on/off, class-unfit
-;;; items are marked, and 'p' hands an item to another party member
-;;; (PASS-ITEM).
+;;; items are marked, 'p' hands an item to another party member
+;;; (PASS-ITEM), and 'i' inspects one — the item card, the item's
+;;; registered facts plus its player-facing :DESCRIPTION.
 
 (in-package :tale)
 
@@ -54,6 +55,8 @@ and every equipped item's :AC bonus counts.")
                       ; MIN), or (:cast SPELL); NIL = not usable
   consumed            ; T: one use, the item leaves the pack
   image               ; effects-band icon for the timed :use, or NIL
+  description         ; player-facing text — the pack page's item card
+                      ; shows it; NIL = the card shows the facts alone
   notes)              ; designer notes (canon powers awaiting their
                       ; subsystem, story roles) — carried as data so
                       ; generated catalogues show them; no mechanics
@@ -61,11 +64,14 @@ and every equipped item's :AC bonus counts.")
 (defvar *item-types* (make-hash-table :test 'eq))
 
 (defun define-item (name &key title (kind :misc) (price 0) damage (ac 0)
-                              classes two-handed use consumed image notes)
+                              classes two-handed use consumed image
+                              description notes)
   "Register item type NAME (a symbol).  Campaign data calls this.
 TITLE defaults to the capitalized name (SHORT-SWORD -> \"Short Sword\").
 :TWO-HANDED (weapons only) makes the weapon fill both hands: it will
 not go on beside a shield, nor a shield beside it.
+:DESCRIPTION is a player-facing string — the pack page's item card
+\('i') shows it under the item's facts.
 :NOTES is a designer-facing string (canon powers awaiting their
 subsystem, story roles) — data, not mechanics, so generated
 catalogues can surface it.
@@ -83,6 +89,9 @@ effect's band icon."
   (when (and two-handed (not (eq kind :weapon)))
     (error "define-item ~S: :two-handed is a weapon trait (kind is ~S)"
            name kind))
+  (when (and description (not (stringp description)))
+    (error "define-item ~S: :description must be a string (got ~S)"
+           name description))
   (when (and notes (not (stringp notes)))
     (error "define-item ~S: :notes must be a string (got ~S)" name notes))
   (when use
@@ -120,7 +129,7 @@ effect's band icon."
                     (string-capitalize (substitute #\Space #\- (string name))))
          :kind kind :price price :damage damage :ac ac :classes classes
          :two-handed two-handed :use use :consumed consumed :image image
-         :notes notes))
+         :description description :notes notes))
   name)
 
 (defun find-item-type (name)
@@ -294,75 +303,116 @@ of every equipped item — and, when GAME is given, minus the party-wide
 ;;; The pack page (opened from the character sheet with 'e' — the
 ;;; SHOP-VIEW pattern): the hero's pack as a numbered list, a digit
 ;;; toggles that item on/off, unfit items carry the (unfit) marker.
-;;; 'p' hands an item to another party member, and like SHOP-VIEW's
-;;; :BUY/:SELL the transfer is a mode of the same view rather than a
-;;; page of its own — the front-ends already feed every key here, so
-;;; the whole flow costs them nothing.
+;;; 'p' hands an item to another party member and 'i' inspects one
+;;; (the item card), and like SHOP-VIEW's :BUY/:SELL both flows are
+;;; modes of the same view rather than pages of their own — the
+;;; front-ends already feed every key here, so the whole flow costs
+;;; them nothing.
 
 (defstruct (equip-view (:constructor %make-equip-view))
   hero                ; the hero whose pack page this is
   (mode :pack)        ; :pack — equip/remove; :give — pick the item to
-                      ; hand over; :to — pick who receives PENDING
-  pending             ; the item chosen on the :GIVE page, else NIL
+                      ; hand over; :to — pick who receives PENDING;
+                      ; :inspect — pick the item whose card to show
+  pending             ; the item chosen on the :GIVE or :INSPECT page,
+                      ; else NIL
   (top 0))            ; scroll offset into the pack list
 
 (defun make-equip-view (hero)
   (%make-equip-view :hero hero))
 
+(defun item-card-lines (hero name)
+  "The item card for item NAME — its registered facts one per row (the
+kind with the (2H) marker, damage dice, a non-zero AC bonus, the
+price, a class restriction with HERO's (unfit) marker when it bites,
+a :USE flagged Usable) and the campaign's player-facing :DESCRIPTION
+beneath, when it carries one."
+  (let ((type (find-item-type name)))
+    (append
+     (list (format nil "*** ~A ***" (item-type-title type)) "")
+     (list (format nil "Kind: ~A~A"
+                   (string-capitalize (string (item-type-kind type)))
+                   (item-hand-marker name)))
+     (when (item-type-damage type)
+       (list (format nil "Damage: ~A" (item-type-damage type))))
+     (unless (zerop (item-type-ac type))
+       (list (format nil "AC bonus: ~D" (item-type-ac type))))
+     (list (format nil "Price: ~D gold" (item-type-price type)))
+     (when (item-type-classes type)
+       (list (format nil "Classes: ~{~A~^, ~}~A"
+                     (mapcar (lambda (c)
+                               (string-capitalize
+                                (substitute #\Space #\- (string c))))
+                             (item-type-classes type))
+                     (item-fit-marker hero name))))
+     (when (item-type-use type)
+       (list (if (item-type-consumed type)
+                 "Usable, consumed on use"
+                 "Usable")))
+     (when (item-type-description type)
+       (list "" (item-type-description type)))
+     (list "" "[Esc] back"))))
+
 (defun equip-lines (game view)
   "The pack page as a list of menu lines — the front-ends draw these
-verbatim (the SHOP-LINES pattern).  Three pages share the model, as in
+verbatim (the SHOP-LINES pattern).  Four pages share the model, as in
 SHOP-LINES: the pack itself (equipped items starred, items the hero's
 class cannot use marked (unfit), the AC/attack header showing the
 effect of every toggle), the give page (the same list, a digit
-choosing what to hand over) and the recipient page (the party, each
-with the room left in their pack)."
+choosing what to hand over), the recipient page (the party, each
+with the room left in their pack) and the item card (ITEM-CARD-LINES
+for the item picked on the inspect page)."
   (let ((hero (equip-view-hero view)))
-    (append
-     (list (format nil "*** ~A's Pack ***" (hero-name hero)) "")
-     (if (eq (equip-view-mode view) :to)
-         (append
-          (list (format nil "Give ~A to whom?"
-                        (item-title (equip-view-pending view)))
-                "")
-          (let ((i 0))
-            (mapcar (lambda (h)
-                      (incf i)
-                      (menu-numbered
-                       i (format nil "~D) ~A  (pack ~D/~D)~A" i (hero-name h)
-                                 (length (hero-items h)) +inventory-limit+
-                                 (if (eq h hero) " (giver)" ""))))
-                    (game-party game)))
-          (list "" "[1-7] choose" "[Esc] back"))
-         (append
-          (list (format nil "AC ~D   Attack ~A"
-                        (hero-effective-ac hero game) (hero-attack-dice hero))
-                "")
-          (if (hero-items hero)
-              (menu-scrolled-lines
-               (hero-items hero) (equip-view-top view)
-               (lambda (i name)
-                 (menu-numbered
-                  i (format nil "~D) ~A~:[~;*~]~A~A" i (item-title name)
-                            (member name (hero-equipped hero))
-                            (item-hand-marker name)
-                            (item-fit-marker hero name)))))
-              (list "The pack is empty."))
-          (if (eq (equip-view-mode view) :give)
-              (list "" "[1-9] give" "[Esc] back")
-              (list "" "[1-9] equip/remove" "[P]ass an item"
-                    "[Esc] back")))))))
+    (if (and (eq (equip-view-mode view) :inspect)
+             (equip-view-pending view))
+        (item-card-lines hero (equip-view-pending view))
+        (append
+         (list (format nil "*** ~A's Pack ***" (hero-name hero)) "")
+         (if (eq (equip-view-mode view) :to)
+             (append
+              (list (format nil "Give ~A to whom?"
+                            (item-title (equip-view-pending view)))
+                    "")
+              (let ((i 0))
+                (mapcar (lambda (h)
+                          (incf i)
+                          (menu-numbered
+                           i (format nil "~D) ~A  (pack ~D/~D)~A" i (hero-name h)
+                                     (length (hero-items h)) +inventory-limit+
+                                     (if (eq h hero) " (giver)" ""))))
+                        (game-party game)))
+              (list "" "[1-7] choose" "[Esc] back"))
+             (append
+              (list (format nil "AC ~D   Attack ~A"
+                            (hero-effective-ac hero game) (hero-attack-dice hero))
+                    "")
+              (if (hero-items hero)
+                  (menu-scrolled-lines
+                   (hero-items hero) (equip-view-top view)
+                   (lambda (i name)
+                     (menu-numbered
+                      i (format nil "~D) ~A~:[~;*~]~A~A" i (item-title name)
+                                (member name (hero-equipped hero))
+                                (item-hand-marker name)
+                                (item-fit-marker hero name)))))
+                  (list "The pack is empty."))
+              (case (equip-view-mode view)
+                (:give (list "" "[1-9] give" "[Esc] back"))
+                (:inspect (list "" "[1-9] inspect" "[Esc] back"))
+                (t (list "" "[1-9] equip/remove" "[P]ass an item"
+                         "[I]nspect an item" "[Esc] back")))))))))
 
 (defun equip-act (game view char)
   "Apply key CHAR to the pack page.  On the pack itself a digit toggles
 that item — worn comes off, equipment goes on (TOGGLE-EQUIP says why
-when it cannot) — p opens the give page, u/d scroll a long pack and Esc
-closes the page.  On the give page a digit chooses the item to hand
-over, and the recipient page then chooses who receives it (PASS-ITEM
-says why when it cannot); the page stays open for the next item, the
-way the shop's sell page keeps selling.  Esc steps back one page at a
-time (SHOP-ACT's pattern).  Returns :CANCELLED on Esc at the pack page,
-else NIL."
+when it cannot) — p opens the give page, i the inspect page, u/d
+scroll a long pack and Esc closes the page.  On the give page a digit
+chooses the item to hand over, and the recipient page then chooses who
+receives it (PASS-ITEM says why when it cannot); the page stays open
+for the next item, the way the shop's sell page keeps selling.  On the
+inspect page a digit shows that item's card, and the page stays open
+for the next card.  Esc steps back one page at a time (SHOP-ACT's
+pattern).  Returns :CANCELLED on Esc at the pack page, else NIL."
   (let ((hero (equip-view-hero view))
         (mode (equip-view-mode view))
         (digit (digit-char-p char)))
@@ -400,6 +450,26 @@ else NIL."
                                       (length (hero-items hero)))))
                 (when top (setf (equip-view-top view) top)))
               nil)))
+      ;; the item card, else picking the item whose card to show
+      ((eq mode :inspect)
+       (cond ((equip-view-pending view)
+              (when (eql char #\Escape)
+                (setf (equip-view-pending view) nil))
+              nil)
+             (digit
+              (let ((name (menu-window-pick (hero-items hero)
+                                            (equip-view-top view) digit)))
+                (when name
+                  (setf (equip-view-pending view) name)))
+              nil)
+             ((eql char #\Escape)
+              (setf (equip-view-mode view) :pack)
+              nil)
+             (t
+              (let ((top (menu-scroll (equip-view-top view) char
+                                      (length (hero-items hero)))))
+                (when top (setf (equip-view-top view) top)))
+              nil)))
       ;; the pack itself
       (digit
        (let ((name (menu-window-pick (hero-items hero)
@@ -411,6 +481,11 @@ else NIL."
        (if (hero-items hero)
            (setf (equip-view-mode view) :give)
            (say game "~A has nothing to give." (hero-name hero)))
+       nil)
+      ((member char '(#\i #\I))
+       (if (hero-items hero)
+           (setf (equip-view-mode view) :inspect)
+           (say game "~A has nothing to inspect." (hero-name hero)))
        nil)
       ((eql char #\Escape) :cancelled)
       (t

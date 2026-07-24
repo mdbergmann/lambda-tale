@@ -56,7 +56,9 @@ campaign data, never as code that knows about "the" town.
   script other kinds via events.
 - **Items are campaign data** (`define-item`): kind (`:weapon` /
   `:armor` / `:shield` / `:misc`), price, damage dice, AC bonus
-  (descending AC — the bonus subtracts), optional class restrictions.
+  (descending AC — the bonus subtracts), optional class restrictions,
+  optional player-facing `:description` — the pack page's `i` opens
+  the **item card** (facts plus that text; `item-card-lines`).
 - Heroes carry up to **8 items** (`+inventory-limit+`) and equip **one
   weapon, one armor, one shield**; combat uses the equipped weapon's
   dice and the equipment-adjusted AC (`hero-attack-dice`,

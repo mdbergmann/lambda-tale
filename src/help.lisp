@@ -18,7 +18,7 @@
         "U use item"
         "P play a song"
         "1-7 character sheet"
-        "    E there: pack (equip/pass)"
+        "    E there: pack (equip/pass/inspect)"
         "    G there: pool gold on hero"
         "    O there: marching order"
         "Shift-S save  Shift-L load"
