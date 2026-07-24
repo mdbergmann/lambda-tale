@@ -33,10 +33,14 @@
 ;;; at the top of the log page, the trailing log lines keep scrolling
 ;;; below a rule, and the view column shows the location's :image /
 ;;; the sheet hero's class portrait when the campaign provides one
-;;; (%AMIGA-DRAW-PICTURE; the live first-person view otherwise).  The
-;;; cast/use/sing menus and the save picker keep their overlay page
-;;; over the view column (%AMIGA-DRAW-PAGE) — the log stays readable
-;;; beside them, which matters in combat.  On the street, facing a
+;;; (%AMIGA-DRAW-PICTURE; the live first-person view otherwise).  A
+;;; fight reads the same way: the round-orders page takes over the
+;;; message area and the view column carries the enemy's portrait
+;;; (DEFINE-MONSTER :IMAGE, COMBAT-IMAGE-PATH) — the party sees what it
+;;; is fighting while it picks the round.  The cast/use/sing menus and
+;;; the save picker keep their overlay page over the view column
+;;; (%AMIGA-DRAW-PAGE) — the log stays readable beside them.  On the
+;;; street, facing a
 ;;; location's door shows its facade in the view column
 ;;; (FACING-LOCATION-IMAGE-PATH) — houses have faces before the party
 ;;; ever steps in.
@@ -1801,10 +1805,10 @@ every living hero picks an action in turn on the round-orders page —
 A attack, D defend, C cast, P play, Esc undo — F flees (party-level)
 and +/- set the transcript speed, each round message lingering
 COMBAT-MESSAGE-DELAY seconds; in a location (shop) 1-9 choose,
-S/B switch sell/buy, Esc back/leave — the location menu and the
-character sheet take over the message area, with the location's
-:image / the hero's portrait in the view column when the campaign
-ships one.  A menu list longer than a page (a deep shop stock, a full
+S/B switch sell/buy, Esc back/leave — the location menu, the
+character sheet and the round orders take over the message area, with
+the location's :image / the hero's portrait / the enemy's portrait in
+the view column when the campaign ships one.  A menu list longer than a page (a deep shop stock, a full
 pack on the sheet) scrolls: U/D move the window, digits pick within
 it, and the '^ more'/'v more' marker rows click as the scroll keys.  Shift-S / Shift-L (and the
 menu strip's Save/Load, right mouse button) open the save-slot
@@ -2095,9 +2099,10 @@ map/help/sheet pages close on a click outside a target — see
                              ;; The view column: an overlay menu page
                              ;; (save picker, cast/use/sing), else the
                              ;; takeover's picture (the location's
-                             ;; :image, the sheet hero's portrait) with
-                             ;; the live first-person view as the
-                             ;; fallback when there is no picture.
+                             ;; :image, the sheet hero's portrait, the
+                             ;; enemy's portrait in combat) with the
+                             ;; live first-person view as the fallback
+                             ;; when there is no picture.
                              (cond (savem
                                     (%amiga-draw-page
                                      rp (save-menu-lines game savem) l
@@ -2114,11 +2119,6 @@ map/help/sheet pages close on a click outside a target — see
                                     (%amiga-draw-page
                                      rp (sing-lines game singv) l
                                      log-lines))
-                                   (ordersv
-                                    ;; combat: the round-orders page
-                                    (%amiga-draw-page
-                                     rp (combat-orders-lines game ordersv)
-                                     l log-lines))
                                    (t
                                     (let ((picture
                                             (cond ((eq mode :sheet)
@@ -2131,10 +2131,16 @@ map/help/sheet pages close on a click outside a target — see
                                                   ((game-location game)
                                                    (location-image-path
                                                     game))
+                                                  ;; in a fight: the
+                                                  ;; enemy the party
+                                                  ;; faces
+                                                  ((game-combat game)
+                                                   (combat-image-path
+                                                    game))
                                                   ;; facing a house door
                                                   ;; on the street: its
                                                   ;; facade
-                                                  ((not (game-combat game))
+                                                  (t
                                                    (facing-location-image-path
                                                     game)))))
                                       (unless (%amiga-draw-picture
@@ -2154,8 +2160,9 @@ map/help/sheet pages close on a click outside a target — see
                                         (not over))
                                (%register-move-zones l))
                              ;; The message area: taken over by the
-                             ;; character sheet or the location's menu
-                             ;; (log tail below the rule), else the log.
+                             ;; character sheet, the round-orders page
+                             ;; or the location's menu (log tail below
+                             ;; the rule), else the log.
                              (cond ((eq mode :sheet)
                                     (%amiga-draw-takeover
                                      rp (if equipv
@@ -2163,6 +2170,13 @@ map/help/sheet pages close on a click outside a target — see
                                             (hero-sheet-lines game
                                                               sheet-hero
                                                               sheet-top))
+                                     log l log-lines))
+                                   (ordersv
+                                    ;; combat: the round orders, with
+                                    ;; the transcript running on under
+                                    ;; them
+                                    (%amiga-draw-takeover
+                                     rp (combat-orders-lines game ordersv)
                                      log l log-lines))
                                    ((game-location game)
                                     (%amiga-draw-takeover
@@ -2206,9 +2220,9 @@ map/help/sheet pages close on a click outside a target — see
                               (progn
                                 (setf ordersv (make-combat-orders))
                                 (redraw))
-                              ;; combat over: sweep the orders page
-                              ;; (its shadow overhangs the view) with
-                              ;; the chrome repaint
+                              ;; combat over: the enemy portrait gives
+                              ;; the view column back to the walls, so
+                              ;; repaint the chrome under it too
                               (fresh-play)))
                         (open-cast (in-combat)
                           (if (some #'hero-caster-p (alive-heroes game))

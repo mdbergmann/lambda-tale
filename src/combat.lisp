@@ -18,16 +18,21 @@
   (ac 10)
   (damage "1d4")
   (xp 10)
-  (gold-dice 0))
+  (gold-dice 0)
+  image)              ; portrait file name, map-relative, or NIL
 
 (defvar *monster-types* (make-hash-table :test 'equalp))
 
 (defun define-monster (name &key (level 1) (hp-dice "1d8") (ac 10)
-                                 (damage "1d4") (xp 10) (gold 0))
-  "Register monster type NAME (a string).  Campaign data calls this."
+                                 (damage "1d4") (xp 10) (gold 0) image)
+  "Register monster type NAME (a string).  Campaign data calls this.
+:IMAGE names the type's portrait file, resolved beside the map like a
+location picture (COMBAT-IMAGE-PATH) — the Amiga front-end shows it in
+the view column for as long as the fight lasts."
   (setf (gethash name *monster-types*)
         (%make-monster-type :name name :level level :hp-dice hp-dice
-                            :ac ac :damage damage :xp xp :gold-dice gold))
+                            :ac ac :damage damage :xp xp :gold-dice gold
+                            :image image))
   name)
 
 (defun find-monster-type (name)
@@ -58,6 +63,28 @@ in encounter order."
         (if entry
             (incf (cdr entry))
             (push (cons (monster-kind m) 1) groups))))))
+
+(defun combat-enemy-image (combat)
+  "The picture file name of the enemy the party faces: the :IMAGE of
+the first living monster type that names one, in encounter order — the
+leading group's portrait, and the next group's once it falls — or NIL
+when no monster in the fight has a picture."
+  (dolist (m (alive-monsters combat))
+    (let ((image (monster-type-image (monster-kind m))))
+      (when image
+        (return image)))))
+
+(defun combat-image-path (game)
+  "The current fight's enemy portrait resolved like an effect icon —
+relative to the current map file's directory, so a self-contained
+world directory carries its own art — or NIL: no combat, or no
+monster in it names an :IMAGE.  The Amiga front-end shows it in the
+view column while the round-orders page takes over the message area."
+  (let ((combat (game-combat game)))
+    (when combat
+      (let ((image (combat-enemy-image combat)))
+        (when image
+          (%resolve-map-path (dungeon-map-name (game-map game)) image))))))
 
 (defun combat-banner (combat)
   (with-output-to-string (s)

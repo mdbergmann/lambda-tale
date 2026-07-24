@@ -127,9 +127,11 @@
    ;; combat
    #:define-monster #:find-monster-type #:monster-type-name
    #:monster-type-level #:monster-type-ac #:monster-type-xp
+   #:monster-type-image
    #:monster-kind #:monster-hp #:monster-alive-p
    #:start-combat #:combat-round #:attempt-flee
    #:combat-monsters #:alive-monsters #:combat-groups #:combat-banner
+   #:combat-enemy-image #:combat-image-path
    #:combat-round-no
    ;; combat round orders (every hero picks, then the round runs)
    #:make-combat-orders #:combat-orders-hero #:combat-orders-chosen

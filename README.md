@@ -135,8 +135,13 @@ city's houses have faces (the Bard's Tale building-front look).  An
 optional `:facade FILE` names that street face; without one the
 `:image` picture shows from the street too — so a location can pair
 an exterior with a distinct interior, or ship one picture for both.
+A fight reads the same way: the **round-orders page** takes over the
+message area and the view column carries the enemy's portrait
+(`define-monster ... :image FILE`), so the party sees what it is
+fighting while it picks the round; the picture belongs to the leading
+group and passes to the next one as groups fall.
 The cast/use/sing menus and the save picker draw as an overlay page
-over the view column instead, keeping the log readable during combat.
+over the view column instead, keeping the log readable beside them.
 The key reference lives on the help page under `h`/`?`.  The full
 automap lives under `m` — black ink on the grey page, doors and the
 party amber, with a legend beside the map listing the special places
@@ -648,11 +653,14 @@ plus an optional street-facing **facade** — `:facade
 faces the location's door from outside (see the "Facades from the
 street" test section); and a hero class a **portrait** —
 `(define-hero-class ... :image "gfx/hero-warrior.iff")` — shown
-beside the character sheet.  All of them resolve relative to the map
+beside the character sheet, and a monster type one too —
+`(define-monster ... :image "gfx/mon-rat.iff")` — shown for as long as
+the fight lasts.  All of them resolve relative to the map
 file, like effect icons and zone tile packs, so a world directory
 carries its own art.
 `tools/gen-walls.lisp` draws placeholder scenes and portraits
-(`draw-location-scene`, `draw-portrait`); Closure's
+(`draw-location-scene`, `draw-portrait`, `draw-monster-portrait`);
+Closure's
 `worlds/closure/gfx/make-pack.lisp` shows how a world generates and
 ships them.
 
@@ -833,7 +841,8 @@ for a summoned monster or story NPC.  Combat is
 round-based, Bard's Tale style: every living hero picks an action in
 turn on the **round-orders page** (attack, defend, cast a spell, play
 a song, use an item; `Esc` undoes the previous pick, `f` flees
-party-level), then
+party-level) — on the Amiga that page takes over the message area,
+with the enemy's portrait in the view column — then
 the round runs — heroes strike first, then every surviving monster
 swings at a random front-rank hero.  Each round opens with a
 `-- Round N --` line and its transcript plays out one message at a

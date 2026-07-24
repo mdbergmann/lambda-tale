@@ -2253,6 +2253,38 @@ height" d)
   (check-error "no moving during combat" (move-party g :forward))
   (check-error "no nested combat" (start-combat g '(("test rat" 1)))))
 
+;; Monster portraits: DEFINE-MONSTER :IMAGE is type data, and the
+;; fight's picture resolves map-relative (the effect-icon rule) — the
+;; Amiga front-end shows it in the view column while the round-orders
+;; page takes over the message area.
+(define-monster "test ogre" :hp-dice 3 :damage "1d2"
+                            :image "gfx/mon-ogre.iff")
+(check "the portrait file is monster data" "gfx/mon-ogre.iff"
+       (monster-type-image (find-monster-type "test ogre")))
+(check "a monster without :image has no portrait" nil
+       (monster-type-image (find-monster-type "test rat")))
+
+(let* ((m (parse-map *art* :name "world/deep/test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (check "no combat, no enemy portrait" nil (combat-image-path g))
+  (start-combat g '(("test ogre" 1)))
+  (check "the enemy portrait is the fight's picture" "gfx/mon-ogre.iff"
+         (combat-enemy-image (game-combat g)))
+  (check "the enemy portrait resolves beside the map"
+         "world/deep/gfx/mon-ogre.iff" (combat-image-path g)))
+
+;; Encounter order picks the portrait, and the fallen give it up: a
+;; leading group with no picture never hides the one behind it.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (start-combat g '(("test rat" 1) ("test ogre" 1)))
+  (check "a picture-less leading group falls through" "gfx/mon-ogre.iff"
+         (combat-enemy-image (game-combat g)))
+  (setf (monster-hp (second (combat-monsters (game-combat g)))) 0)
+  (check "a fallen monster gives its portrait up" nil
+         (combat-enemy-image (game-combat g)))
+  (check "and the fight then has no picture" nil (combat-image-path g)))
+
 ;; A clean kill: hero hits, monster dies, rewards are handed out.
 (let* ((m (parse-map *art* :name "test"))
        (h (%combat-hero))
@@ -5631,6 +5663,25 @@ brick grid" d side)
     (check (format nil "the ~A portrait is the standard size" style)
            (list *portrait-size* *portrait-size*)
            (list (image-width img) (image-height img)))))
+
+;; Monster portraits (DEFINE-MONSTER :IMAGE): the same bust size and
+;; the same four UI pens, at any size the caller asks for — a game
+;; draws them at its viewport size so the enemy fills the view column.
+(dolist (style '(:beast :goblin :undead :brigand :plain))
+  (let ((img (draw-monster-portrait style)))
+    (check (format nil "the ~A monster portrait is the standard size" style)
+           (list *portrait-size* *portrait-size*)
+           (list (image-width img) (image-height img)))
+    (let ((maxpen 0))
+      (dotimes (y (image-height img))
+        (dotimes (x (image-width img))
+          (setf maxpen (max maxpen (pixel-ref img x y)))))
+      (check-true (format nil "the ~A monster portrait keeps to the UI pens"
+                          style)
+                  (<= maxpen 3)))))
+(let ((img (draw-monster-portrait :beast 96 72)))
+  (check "a monster portrait takes the size it is given" '(96 72)
+         (list (image-width img) (image-height img))))
 
 ;; Transparency contract: receding side pieces keep pen-0 corners so the
 ;; backdrop shows through the cookie-cut blit; front/flank pieces fill

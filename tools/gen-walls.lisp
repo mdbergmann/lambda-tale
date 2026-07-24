@@ -767,6 +767,85 @@ or :PLAIN (a bare head)."
                   (- cy (floor (* 2 ry) 3)) 2)))
     img))
 
+(defun draw-monster-portrait (style &optional (w *portrait-size*)
+                                              (h *portrait-size*))
+  "A W x H bust portrait placeholder for a monster type
+\(DEFINE-MONSTER :IMAGE) — the Amiga front-end shows it in the view
+column for as long as the fight lasts.  Same bust framing as
+DRAW-PORTRAIT, but the eyes burn amber and STYLE picks the head:
+:BEAST (a snouted animal head with upright ears), :GOBLIN (a squat
+head with long pointed ears and a fang), :UNDEAD (a bare skull with
+black sockets and a tooth row), :BRIGAND (a hooded head with the
+face in shadow) or :PLAIN (a bare head).  Placeholder art: a game
+with real monster pictures ships those instead."
+  (let* ((img (make-image w h 2 :palette *picture-palette*))
+         (cx (floor w 2))
+         (cy (floor (* 2 h) 5))
+         (rx (floor w 6))
+         (ry (floor h 5))
+         (skull (eq style :undead)))
+    ;; shoulders and neck, as the hero bust — hunched a little wider
+    (loop for y from (floor (* 7 h) 10) below h
+          do (let ((hw (min (floor (* 9 w) 20)
+                            (+ (floor w 5)
+                               (floor (* (- y (floor (* 7 h) 10)) w)
+                                      h)))))
+               (%img-fill img (- cx hw) y (+ cx hw) y 2)))
+    (%img-fill img (- cx (floor rx 2)) (+ cy ry)
+               (+ cx (floor rx 2)) (floor (* 7 h) 10) 2)
+    ;; the head: white bone for the skull, grey hide otherwise
+    (%img-ellipse img cx cy rx ry (if skull 1 2) (if skull 2 1))
+    (ecase style
+      (:beast
+       ;; the snout juts forward under the eyes, ears stand up
+       (%img-ellipse img cx (+ cy (floor ry 2)) (floor rx 2)
+                     (floor ry 3) 2 1)
+       (%img-fill img (- cx 1) (+ cy (floor (* 2 ry) 3)) (1+ cx)
+                  (+ cy (floor (* 5 ry) 6)) 0)   ; the nose
+       (dolist (side (list -1 1))
+         (let ((ax (+ cx (* side (floor (* 2 rx) 3)))))
+           (%img-ellipse img ax (- cy ry) (max 2 (floor rx 3))
+                         (floor ry 2) 2 1))))
+      (:goblin
+       ;; long ears sweeping out from the temples, a fang under the jaw
+       (dolist (side (list -1 1))
+         (loop for k from 0 to rx
+               do (let ((y (- cy (floor (* k ry) (max 1 rx)))))
+                    (%img-fill img (+ cx (* side (+ rx k)))
+                               (- y (max 1 (floor h 32)))
+                               (+ cx (* side (+ rx k)))
+                               (+ y (max 1 (floor h 32))) 2))))
+       (let ((fw (max 1 (floor w 24)))
+             (fy (+ cy (floor (* 2 ry) 3))))
+         (loop for k from 0 to (floor ry 2)
+               do (let ((hw (max 0 (- fw (floor (* k fw 2) (max 1 ry))))))
+                    (%img-fill img (- cx hw) (+ fy k) (+ cx hw) (+ fy k)
+                               1)))))
+      (:undead
+       ;; the jaw: a black mouth band with white teeth standing in it
+       (let ((mx (floor rx 2))
+             (my (+ cy (floor (* 2 ry) 3))))
+         (%img-fill img (- cx mx) my (+ cx mx) (+ my (max 2 (floor h 24))) 0)
+         (loop for x from (- cx mx) to (+ cx mx) by (max 2 (floor w 24))
+               do (%img-fill img x my x (+ my (max 2 (floor h 24))) 1))))
+      (:brigand
+       ;; a hood over the brow, the face in shadow beneath it — only
+       ;; the eyes burn through (they are drawn over the shadow below)
+       (%img-ellipse img cx (- cy (floor ry 2)) (+ rx 3)
+                     (+ (floor ry 2) 3) 2 1)
+       (%img-fill img (- cx rx -2) (- cy (floor ry 2))
+                  (+ cx rx -2) (+ cy (floor ry 8)) 0))
+      (:plain))
+    ;; the eyes go on last, so no headgear buries them: amber slits,
+    ;; black sockets in the skull's bone
+    (let ((ex (floor rx 2))
+          (ey (floor ry 4))
+          (ew (max 1 (floor w 32)))
+          (pen (if skull 0 3)))
+      (%img-fill img (- cx ex ew) (- cy ey) (- cx ex -1) (+ (- cy ey) ew) pen)
+      (%img-fill img (+ cx ex -1) (- cy ey) (+ cx ex ew) (+ (- cy ey) ew) pen))
+    img))
+
 (defun generate-wall-assets (&key (profile *display-profile*) dir)
   "Draw all wall pieces plus the demo ceiling/floor backdrops for
 PROFILE's viewport and write them as ILBM files into DIR (default: the
