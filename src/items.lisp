@@ -23,9 +23,10 @@
 ;;; leaves the pack on use, and :IMAGE names the effects-band icon of
 ;;; the installed effect.  The use interaction (USE-VIEW / USE-LINES /
 ;;; USE-ACT, the SHOP-VIEW pattern) lives here too, driven by both
-;;; front-ends, and so does the gear page (EQUIP-VIEW — 'e' on the
+;;; front-ends, and so does the pack page (EQUIP-VIEW — 'e' on the
 ;;; character sheet): a digit toggles a pack item on/off, class-unfit
-;;; items are marked.
+;;; items are marked, and 'p' hands an item to another party member
+;;; (PASS-ITEM).
 
 (in-package :tale)
 
@@ -137,12 +138,12 @@ effect's band icon."
 
 (defun item-fit-marker (hero name)
   "\" (unfit)\" when HERO's class cannot use item NAME, else \"\" —
-the sheet, gear and shop pages append it to the item's row so a
+the sheet, pack and shop pages append it to the item's row so a
 class mismatch shows before the player tries (or buys)."
   (if (item-usable-p hero name) "" " (unfit)"))
 
 (defun item-hand-marker (name)
-  "\" (2H)\" when item NAME fills both hands, else \"\" — the gear and
+  "\" (2H)\" when item NAME fills both hands, else \"\" — the pack and
 shop pages append it so the shield trade-off shows before the player
 equips (or buys)."
   (if (item-type-two-handed (find-item-type name)) " (2H)" ""))
@@ -174,6 +175,35 @@ Returns T, or NIL when the hero does not carry it."
     (setf (hero-equipped hero) (remove name (hero-equipped hero) :count 1))
     (setf (hero-items hero) (remove name (hero-items hero) :count 1))
     t))
+
+(defun pass-item (game from to name)
+  "Hand one item NAME from FROM's pack to TO's — the pack page's 'p'.
+The item is unequipped on the way (it leaves FROM's hands with FROM's
+pack) and lands at the end of TO's.  Returns T and emits :ITEM-PASSED;
+says why and returns NIL when FROM does not carry it, TO is FROM, or
+TO's pack is full — the item stays whole with FROM then, never
+destroyed.  Class fit is deliberately no barrier: anyone may CARRY
+anything (EQUIP-ITEM is where the fit is checked, so a mule can haul
+the mage's armor), and a fallen hero both gives and receives, as with
+POOL-GOLD."
+  (find-item-type name)                 ; an unknown item is a bug, not a refusal
+  (cond
+    ((not (hero-carrying-p from name))
+     (say game "~A does not carry ~A." (hero-name from) (item-title name))
+     nil)
+    ((eq from to)
+     (say game "~A already carries ~A." (hero-name from) (item-title name))
+     nil)
+    ;; The hand-over comes first and the item leaves FROM only once it
+    ;; has landed: GIVE-ITEM says "pack is full" itself, and dropping
+    ;; first would destroy the item when the receiving pack is full.
+    ((not (give-item game to name)) nil)
+    (t
+     (drop-item game from name)
+     (say game "~A hands ~A to ~A." (hero-name from) (item-title name)
+          (hero-name to))
+     (emit game :item-passed from to name)
+     t)))
 
 ;;; ---------------------------------------------------------------------
 ;;; Equipment
@@ -231,7 +261,7 @@ was not equipped."
     t))
 
 (defun toggle-equip (game hero name)
-  "Equip pack item NAME, or take it off when it is worn — the gear
+  "Equip pack item NAME, or take it off when it is worn — the pack
 page's one-key toggle.  Returns T on a change; says why and returns
 NIL when the item cannot go on (see EQUIP-ITEM)."
   (if (member name (hero-equipped hero))
@@ -261,60 +291,133 @@ of every equipped item — and, when GAME is given, minus the party-wide
     ac))
 
 ;;; ---------------------------------------------------------------------
-;;; The gear page (opened from the character sheet with 'e' — the
+;;; The pack page (opened from the character sheet with 'e' — the
 ;;; SHOP-VIEW pattern): the hero's pack as a numbered list, a digit
 ;;; toggles that item on/off, unfit items carry the (unfit) marker.
+;;; 'p' hands an item to another party member, and like SHOP-VIEW's
+;;; :BUY/:SELL the transfer is a mode of the same view rather than a
+;;; page of its own — the front-ends already feed every key here, so
+;;; the whole flow costs them nothing.
 
 (defstruct (equip-view (:constructor %make-equip-view))
-  hero                ; the hero whose gear page this is
+  hero                ; the hero whose pack page this is
+  (mode :pack)        ; :pack — equip/remove; :give — pick the item to
+                      ; hand over; :to — pick who receives PENDING
+  pending             ; the item chosen on the :GIVE page, else NIL
   (top 0))            ; scroll offset into the pack list
 
 (defun make-equip-view (hero)
   (%make-equip-view :hero hero))
 
 (defun equip-lines (game view)
-  "The gear page as a list of menu lines — the front-ends draw these
-verbatim (the SHOP-LINES pattern).  Equipped items are starred, items
-the hero's class cannot use are marked (unfit); the AC/attack header
-shows the effect of every toggle."
+  "The pack page as a list of menu lines — the front-ends draw these
+verbatim (the SHOP-LINES pattern).  Three pages share the model, as in
+SHOP-LINES: the pack itself (equipped items starred, items the hero's
+class cannot use marked (unfit), the AC/attack header showing the
+effect of every toggle), the give page (the same list, a digit
+choosing what to hand over) and the recipient page (the party, each
+with the room left in their pack)."
   (let ((hero (equip-view-hero view)))
     (append
-     (list (format nil "*** ~A's Gear ***" (hero-name hero))
-           ""
-           (format nil "AC ~D   Attack ~A"
-                   (hero-effective-ac hero game) (hero-attack-dice hero))
-           "")
-     (if (hero-items hero)
-         (menu-scrolled-lines
-          (hero-items hero) (equip-view-top view)
-          (lambda (i name)
-            (menu-numbered
-             i (format nil "~D) ~A~:[~;*~]~A~A" i (item-title name)
-                       (member name (hero-equipped hero))
-                       (item-hand-marker name)
-                       (item-fit-marker hero name)))))
-         (list "The pack is empty."))
-     (list "" "[1-9] equip/remove  [Esc] back"))))
+     (list (format nil "*** ~A's Pack ***" (hero-name hero)) "")
+     (if (eq (equip-view-mode view) :to)
+         (append
+          (list (format nil "Give ~A to whom?"
+                        (item-title (equip-view-pending view)))
+                "")
+          (let ((i 0))
+            (mapcar (lambda (h)
+                      (incf i)
+                      (menu-numbered
+                       i (format nil "~D) ~A  (pack ~D/~D)~A" i (hero-name h)
+                                 (length (hero-items h)) +inventory-limit+
+                                 (if (eq h hero) " (giver)" ""))))
+                    (game-party game)))
+          (list "" "[1-7] choose  [Esc] back"))
+         (append
+          (list (format nil "AC ~D   Attack ~A"
+                        (hero-effective-ac hero game) (hero-attack-dice hero))
+                "")
+          (if (hero-items hero)
+              (menu-scrolled-lines
+               (hero-items hero) (equip-view-top view)
+               (lambda (i name)
+                 (menu-numbered
+                  i (format nil "~D) ~A~:[~;*~]~A~A" i (item-title name)
+                            (member name (hero-equipped hero))
+                            (item-hand-marker name)
+                            (item-fit-marker hero name)))))
+              (list "The pack is empty."))
+          (list ""
+                (if (eq (equip-view-mode view) :give)
+                    "[1-9] give  [Esc] back"
+                    "[1-9] equip/remove  [p] pass  [Esc] back")))))))
 
 (defun equip-act (game view char)
-  "Apply key CHAR to the gear page: a digit toggles that pack item —
-worn comes off, equipment goes on (TOGGLE-EQUIP says why when it
-cannot) — u/d scroll a long pack, Esc closes the page.  Returns
-:CANCELLED on Esc, else NIL."
+  "Apply key CHAR to the pack page.  On the pack itself a digit toggles
+that item — worn comes off, equipment goes on (TOGGLE-EQUIP says why
+when it cannot) — p opens the give page, u/d scroll a long pack and Esc
+closes the page.  On the give page a digit chooses the item to hand
+over, and the recipient page then chooses who receives it (PASS-ITEM
+says why when it cannot); the page stays open for the next item, the
+way the shop's sell page keeps selling.  Esc steps back one page at a
+time (SHOP-ACT's pattern).  Returns :CANCELLED on Esc at the pack page,
+else NIL."
   (let ((hero (equip-view-hero view))
+        (mode (equip-view-mode view))
         (digit (digit-char-p char)))
-    (cond (digit
-           (let ((name (menu-window-pick (hero-items hero)
-                                         (equip-view-top view) digit)))
-             (when name
-               (toggle-equip game hero name)))
-           nil)
-          ((eql char #\Escape) :cancelled)
-          (t
-           (let ((top (menu-scroll (equip-view-top view) char
-                                   (length (hero-items hero)))))
-             (when top (setf (equip-view-top view) top)))
-           nil))))
+    (cond
+      ;; picking who receives the chosen item
+      ((eq mode :to)
+       (cond ((and digit (<= 1 digit (length (game-party game))))
+              (pass-item game hero (nth (1- digit) (game-party game))
+                         (equip-view-pending view))
+              ;; back to the give page for the next item — the pack
+              ;; just shrank, so the window starts over
+              (setf (equip-view-mode view) :give
+                    (equip-view-pending view) nil
+                    (equip-view-top view) 0)
+              nil)
+             ((eql char #\Escape)
+              (setf (equip-view-mode view) :give
+                    (equip-view-pending view) nil)
+              nil)
+             (t nil)))
+      ;; picking the item to hand over
+      ((eq mode :give)
+       (cond (digit
+              (let ((name (menu-window-pick (hero-items hero)
+                                            (equip-view-top view) digit)))
+                (when name
+                  (setf (equip-view-pending view) name
+                        (equip-view-mode view) :to)))
+              nil)
+             ((eql char #\Escape)
+              (setf (equip-view-mode view) :pack)
+              nil)
+             (t
+              (let ((top (menu-scroll (equip-view-top view) char
+                                      (length (hero-items hero)))))
+                (when top (setf (equip-view-top view) top)))
+              nil)))
+      ;; the pack itself
+      (digit
+       (let ((name (menu-window-pick (hero-items hero)
+                                     (equip-view-top view) digit)))
+         (when name
+           (toggle-equip game hero name)))
+       nil)
+      ((member char '(#\p #\P))
+       (if (hero-items hero)
+           (setf (equip-view-mode view) :give)
+           (say game "~A has nothing to give." (hero-name hero)))
+       nil)
+      ((eql char #\Escape) :cancelled)
+      (t
+       (let ((top (menu-scroll (equip-view-top view) char
+                               (length (hero-items hero)))))
+         (when top (setf (equip-view-top view) top)))
+       nil))))
 
 ;;; ---------------------------------------------------------------------
 ;;; Using items

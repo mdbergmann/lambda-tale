@@ -93,10 +93,13 @@
    #:define-item #:find-item-type #:item-title #:item-usable-p
    #:item-fit-marker #:item-target-kind #:*item-kinds*
    #:+inventory-limit+ #:hero-items #:hero-equipped #:hero-carrying-p
-   #:give-item #:drop-item #:equip-item #:unequip-item #:equipped-of-kind
+   #:give-item #:drop-item #:pass-item
+   #:equip-item #:unequip-item #:equipped-of-kind
    #:toggle-equip #:hero-attack-dice #:hero-effective-ac
-   ;; the gear page ('e' on the character sheet)
+   ;; the pack page ('e' on the character sheet — equip, and 'p' to
+   ;; hand an item to another party member)
    #:make-equip-view #:equip-view-hero #:equip-view-top
+   #:equip-view-mode #:equip-view-pending
    #:equip-lines #:equip-act
    ;; using items (torch, potion — the use menu)
    #:usable-items #:use-item

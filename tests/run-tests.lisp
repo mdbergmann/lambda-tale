@@ -2010,7 +2010,7 @@ height" d)
   (check "sheet page embeds the summary block" "B the Tester"
          (third lines))
   (check "sheet page ends with the key hints"
-         "[1-7] view another  [e] equip  [g] pool gold  [Esc] back"
+         "[1-7] view another  [e] pack  [g] pool gold  [Esc] back"
          (first (last lines))))
 
 ;; Class portraits: DEFINE-HERO-CLASS :IMAGE resolves map-relative
@@ -3788,7 +3788,7 @@ height" d)
          (sort (copy-list classes) #'string< :key #'symbol-name)
          classes))
 
-;; TOGGLE-EQUIP: the gear page's one-key toggle — on, off, and the
+;; TOGGLE-EQUIP: the pack page's one-key toggle — on, off, and the
 ;; engine's refusals pass through.
 (let* ((m (parse-map *art* :name "test"))
        (h (%combat-hero))
@@ -3805,24 +3805,25 @@ height" d)
                        (funcall msgs)))
   (check "toggle refuses misc items" nil (toggle-equip g h 't-torch)))
 
-;; The gear page model (EQUIP-VIEW): both front-ends feed keys into
+;; The pack page model (EQUIP-VIEW): both front-ends feed keys into
 ;; EQUIP-ACT and draw EQUIP-LINES — 'e' on the character sheet.
 (let* ((m (parse-map *art* :name "test"))
        (h (with-rng () (make-hero "Wiz" :t-wizard)))
        (g (new-game m :party (list h)))
        (view (make-equip-view h)))
+  (check "a fresh view opens on the pack" :pack (equip-view-mode view))
   (check-true "empty pack says so"
               (find-if (lambda (s) (search "The pack is empty" s))
                        (menu-texts (equip-lines g view))))
   (give-item g h 't-sword)
   (give-item g h 't-mail)                ; :classes (:tester) — unfit
-  (check-true "gear page names the hero"
-              (search "*** Wiz's Gear ***"
+  (check-true "pack page names the hero"
+              (search "*** Wiz's Pack ***"
                       (first (equip-lines g view))))
-  (check-true "gear page shows ac and attack"
+  (check-true "pack page shows ac and attack"
               (find-if (lambda (s) (search "AC 10   Attack 1d3" s))
                        (menu-texts (equip-lines g view))))
-  (check-true "gear page lists the pack numbered"
+  (check-true "pack page lists the pack numbered"
               (find-if (lambda (s) (search "1) T Sword" s))
                        (menu-texts (equip-lines g view))))
   (check "the item row carries its pick key" #\1
@@ -3830,12 +3831,14 @@ height" d)
           (find-if (lambda (line)
                      (search "T Sword" (menu-line-text line)))
                    (equip-lines g view))))
-  (check-true "gear page marks the unfit item"
+  (check-true "pack page marks the unfit item"
               (find-if (lambda (s) (search "2) T Mail (unfit)" s))
                        (menu-texts (equip-lines g view))))
-  (check-true "gear page ends with the key hints"
+  (check-true "pack page ends with the key hints"
               (search "[1-9] equip/remove"
                       (first (last (equip-lines g view)))))
+  (check-true "the key hints offer the pass key"
+              (search "[p] pass" (first (last (equip-lines g view)))))
   (check "a digit equips the item" nil (equip-act g view #\1))
   (check "equipped through the page" 't-sword (equipped-of-kind h :weapon))
   (check-true "the worn item is starred"
@@ -3850,10 +3853,10 @@ height" d)
          (progn (equip-act g view #\2)
                 (equipped-of-kind h :armor)))
   (check "a digit past the pack does nothing" nil (equip-act g view #\9))
-  (check "escape closes the gear page" :cancelled
+  (check "escape closes the pack page" :cancelled
          (equip-act g view #\Escape)))
 
-;; A deep pack scrolls on the gear page (the shop-stock pattern).
+;; A deep pack scrolls on the pack page (the shop-stock pattern).
 (dolist (name '(teq-1 teq-2 teq-3 teq-4 teq-5 teq-6 teq-7 teq-8))
   (define-item name :price 1))
 (let* ((h (%combat-hero))
@@ -3869,6 +3872,134 @@ height" d)
   (check-true "scrolled pack: row 1 is the fourth item"
               (find-if (lambda (s) (search "1) Teq 4" s))
                        (menu-texts (equip-lines g view)))))
+
+;; PASS-ITEM: handing an item to another party member.  The item is
+;; unequipped on the way and is never destroyed — a full receiving pack
+;; leaves it whole with the giver.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ava"))
+       (b (%combat-hero "Bo"))
+       (g (new-game m :party (list a b)))
+       (msgs (watch-messages g))
+       (passed '()))
+  (on-event g :item-passed
+            (lambda (game from to name) (declare (ignore game))
+              (push (list (hero-name from) (hero-name to) name) passed)))
+  (check "pass-item needs the item in the giver's pack" nil
+         (pass-item g a b 't-sword))
+  (check-true "the refusal says who does not carry it"
+              (find-if (lambda (s) (search "Ava does not carry T Sword" s))
+                       (funcall msgs)))
+  (give-item g a 't-sword)
+  (check "a self-pass is refused" nil (pass-item g a a 't-sword))
+  (check "a self-pass does not duplicate the item" 1 (length (hero-items a)))
+  (check-true "the self-pass says so"
+              (find-if (lambda (s) (search "Ava already carries T Sword" s))
+                       (funcall msgs)))
+  (check-error "pass-item checks the item exists" (pass-item g a b 't-nada))
+  ;; the ordinary hand-over: out of one pack, into the other's end
+  (equip-item g a 't-sword)
+  (give-item g a 't-torch)
+  (check-true "pass-item hands the item over" (pass-item g a b 't-sword))
+  (check "the giver lost it" '(t-torch) (hero-items a))
+  (check "the receiver gained it" '(t-sword) (hero-items b))
+  (check "the item came off the giver's hands" nil (hero-equipped a))
+  (check "and arrives unequipped" nil (hero-equipped b))
+  (check-true "the hand-over is announced"
+              (find-if (lambda (s) (search "Ava hands T Sword to Bo" s))
+                       (funcall msgs)))
+  (check ":item-passed carries giver, receiver and item"
+         '(("Ava" "Bo" t-sword)) passed)
+  ;; a full receiving pack refuses, and the item stays whole with the giver
+  (dotimes (i 7) (give-item g b 't-torch))
+  (check "the receiving pack is full" 8 (length (hero-items b)))
+  (check "pass-item refuses a full pack" nil (pass-item g a b 't-torch))
+  (check "the refused item stays with the giver" '(t-torch) (hero-items a))
+  (check "and is not duplicated into the full pack" 8 (length (hero-items b)))
+  (check-true "the full-pack refusal says so"
+              (find-if (lambda (s) (search "Bo's pack is full" s))
+                       (funcall msgs)))
+  (check "the refusal emits nothing" 1 (length passed)))
+
+;; Passing crosses the barriers CARRYING does not care about: a class
+;; that cannot USE an item may still haul it, and the fallen both give
+;; and receive (POOL-GOLD's rule).
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ava"))
+       (b (with-rng () (make-hero "Wiz" :t-wizard)))
+       (g (new-game m :party (list a b))))
+  (give-item g a 't-mail)                ; :classes (:tester) — unfit for Wiz
+  (check "an unfit item passes anyway" t (pass-item g a b 't-mail))
+  (check "the wizard hauls it" '(t-mail) (hero-items b))
+  (check "but still cannot wear it" nil (equip-item g b 't-mail))
+  (setf (hero-hp b) 0)
+  (check "a fallen hero still gives" t (pass-item g b a 't-mail))
+  (check "and still receives" t (pass-item g a b 't-mail)))
+
+;; The give flow through the view: [p] opens it, a digit picks the item,
+;; the party page picks who receives it, and Esc steps back one page at
+;; a time (SHOP-ACT's pattern).
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ava"))
+       (b (%combat-hero "Bo"))
+       (g (new-game m :party (list a b)))
+       (view (make-equip-view a)))
+  (give-item g a 't-sword)
+  (give-item g a 't-torch)
+  (check "p opens the give page" nil (equip-act g view #\p))
+  (check "the view is on the give page" :give (equip-view-mode view))
+  (check-true "the give page keeps the pack header"
+              (search "*** Ava's Pack ***" (first (equip-lines g view))))
+  (check-true "the give page hints at giving"
+              (search "[1-9] give" (first (last (equip-lines g view)))))
+  (check "a digit picks the item to hand over" nil (equip-act g view #\1))
+  (check "the view moves to the recipient page" :to (equip-view-mode view))
+  (check "the pending item is remembered" 't-sword (equip-view-pending view))
+  (check-true "the recipient page asks whom"
+              (find-if (lambda (s) (search "Give T Sword to whom?" s))
+                       (menu-texts (equip-lines g view))))
+  (check-true "the recipient rows show the room in each pack"
+              (find-if (lambda (s) (search "2) Bo  (pack 0/8)" s))
+                       (menu-texts (equip-lines g view))))
+  (check-true "the giver's own row is marked"
+              (find-if (lambda (s) (search "1) Ava  (pack 2/8) (giver)" s))
+                       (menu-texts (equip-lines g view))))
+  (check "the recipient row carries its pick key" #\2
+         (menu-line-key
+          (find-if (lambda (line) (search "Bo" (menu-line-text line)))
+                   (equip-lines g view))))
+  (check "a digit hands the item over" nil (equip-act g view #\2))
+  (check "the item moved" '(t-sword) (hero-items b))
+  (check "the page returns to giving for the next item" :give
+         (equip-view-mode view))
+  (check "the pending item is cleared" nil (equip-view-pending view))
+  (check "the window starts over on the shrunken pack" 0
+         (equip-view-top view))
+  ;; Esc walks back out one page at a time, never straight to the sheet
+  (check "esc leaves the give page for the pack" nil
+         (equip-act g view #\Escape))
+  (check "back on the pack page" :pack (equip-view-mode view))
+  (check "esc then closes the page" :cancelled (equip-act g view #\Escape))
+  ;; and from the recipient page Esc returns to the item list
+  (equip-act g view #\p)
+  (equip-act g view #\1)
+  (check "esc leaves the recipient page" nil (equip-act g view #\Escape))
+  (check "back on the give page" :give (equip-view-mode view))
+  (check "the pending item is forgotten" nil (equip-view-pending view)))
+
+;; [p] on an empty pack says so instead of opening a give page with
+;; nothing on it.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g))
+       (view (make-equip-view h)))
+  (check "p on an empty pack does not open the give page" nil
+         (equip-act g view #\p))
+  (check "the view stays on the pack" :pack (equip-view-mode view))
+  (check-true "and says why"
+              (find-if (lambda (s) (search "Alva has nothing to give" s))
+                       (funcall msgs))))
 
 ;; Usable items: DEFINE-ITEM :use validation.
 (define-item 't-potion   :price 10 :use '(:heal "1d4+1") :consumed t)
@@ -4900,7 +5031,7 @@ height" d)
   (check "an empty pack still says so" "Pack: nothing"
          (first (last (butlast (butlast (hero-sheet-lines g 0))))))
   (check "a short sheet keeps the plain hints"
-         "[1-7] view another  [e] equip  [g] pool gold  [Esc] back"
+         "[1-7] view another  [e] pack  [g] pool gold  [Esc] back"
          (first (last (hero-sheet-lines g 0))))
   (check "a short sheet does not scroll" nil
          (hero-sheet-scroll g 0 0 #\d))
@@ -4912,7 +5043,7 @@ height" d)
                 (member "v more below [d]" texts :test #'equal))
     (check-true "the sheet hints say so"
                 (member
-                 "[1-7] view another  [e] equip  [g] pool gold  [u/d] scroll  [Esc] back"
+                 "[1-7] view another  [e] pack  [g] pool gold  [u/d] scroll  [Esc] back"
                  texts :test #'equal)))
   (let ((top (hero-sheet-scroll g 0 0 #\d)))
     (check "the sheet scrolls by its window" 6 top)

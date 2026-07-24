@@ -12,9 +12,10 @@
 ;;; OK?" — y fights the round, n throws them away and asks again from
 ;;; the first hero.  Each message of the round lingers
 ;;; COMBAT-MESSAGE-DELAY seconds.
-;;; On the character sheet: e=the gear page (1-9 toggle an item
-;;;   on/off, class-unfit items are marked)  g=pool the party's gold
-;;;   onto the hero  Esc=back
+;;; On the character sheet: e=the pack page (1-9 toggle an item
+;;;   on/off, class-unfit items are marked; p=hand an item to another
+;;;   party member — 1-9 the item, then 1-7 who receives it)
+;;;   g=pool the party's gold onto the hero  Esc=back
 ;;; In a location (shop): 1-9=choose  s/b=sell/buy page  g=pool gold
 ;;;   onto the shopper  Esc=back/leave
 ;;; In the cast menu: 1-9=choose caster/spell/target  Esc=back/cancel
@@ -95,7 +96,7 @@ engine has no default world; the game names its starting map."
          (full nil)          ; omniscient automap (debug), map mode only
          (sheet-hero 0)      ; party index shown in :sheet mode
          (sheet-top 0)       ; sheet scroll offset (u/d)
-         (equip nil)         ; EQUIP-VIEW while the gear page is open
+         (equip nil)         ; EQUIP-VIEW while the pack page is open
          (shop nil)          ; SHOP-VIEW while inside a location
          (cast nil)          ; CAST-VIEW while the cast menu is open
          (use nil)           ; USE-VIEW while the use menu is open
@@ -334,9 +335,10 @@ engine has no default world; the game names its starting map."
                nil)
              (sheet-act (c)
                (if equip
-                   ;; the gear page: the shared model eats the keys
-                   ;; (digits toggle, u/d scroll, Esc backs out to the
-                   ;; sheet) — Q still quits
+                   ;; the pack page: the shared model eats the keys
+                   ;; (digits toggle or pick, p opens the give flow,
+                   ;; u/d scroll, Esc backs out a page at a time and
+                   ;; finally to the sheet) — Q still quits
                    (if (member c '(#\q #\Q))
                        :quit
                        (progn

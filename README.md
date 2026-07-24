@@ -629,13 +629,19 @@ their `:stock` and buy anything back at half price; `g` **pools the
 party's gold** onto the shopper, Bard's Tale style (the character
 sheet offers the same key, pooling onto the viewed hero).  A weapon
 defined `:two-handed` fills both hands, D&D-style: it will not go on
-beside a shield, nor a shield beside it, and the gear and shop pages
-mark it `(2H)`.  Gear is managed
-from the character sheet: `e` opens the hero's **gear page**, where a
+beside a shield, nor a shield beside it, and the pack and shop pages
+mark it `(2H)`.  Equipment is managed
+from the character sheet: `e` opens the hero's **pack page**, where a
 digit puts a pack item on or takes it off again; items a hero's class
 cannot use are marked `(unfit)` there, on the sheet and in the shop —
 the shop still sells them (another hero may carry them), the marker
-just warns before the gold is gone.  An item can also be
+just warns before the gold is gone.  `p` on that page **hands an item
+to another party member**: a digit picks what to give, then a digit
+picks who receives it (each row showing the room left in their pack).
+Carrying is not using — an unfit item passes freely, so one hero can
+haul another's gear — and the fallen both give and receive, as with
+pooled gold; a full receiving pack refuses the item and leaves it
+whole with the giver.  An item can also be
 **usable** (`:use` — a torch, a potion, a wand): using it (`u`, the
 use menu, in the open or as a combat-round order) heals a chosen hero,
 fires another non-battle instant (a figurine's `:summon`), installs a
