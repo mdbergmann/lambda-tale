@@ -88,7 +88,9 @@ pick key (see MENU-NUMBERED)."
        (entry
         (list (format nil "New name: ~A_" entry)
               ""
-              "type a name  [Return] save  [Esc] cancel"))
+              "Type a name"
+              "[Return] save"
+              "[Esc] cancel"))
        (t
         (append
          (if slots
@@ -99,10 +101,10 @@ pick key (see MENU-NUMBERED)."
                  i (format nil "~D) ~A" i name))))
              (list (if (eq mode :save) "No saved games yet." "No saved games.")))
          (if err (list "" err) nil)
-         (list ""
+         (cons ""
                (if (eq mode :save)
-                   "[1-9] overwrite  [n] new name  [Esc] cancel"
-                   "[1-9] load  [Esc] cancel"))))))))
+                   (list "[1-9] overwrite" "[N]ew name" "[Esc] cancel")
+                   (list "[1-9] load" "[Esc] cancel")))))))))
 
 (defun save-menu-act (game view char)
   "Apply key CHAR to the save/load menu.  Returns NIL (stay open),

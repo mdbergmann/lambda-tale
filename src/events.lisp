@@ -116,8 +116,12 @@ consecutive messages read as distinct paragraphs in the log."
 ;;; pickable option carries the key that picks it as (TEXT . KEY), so a
 ;;; pointing front-end can turn a click on the line into that key press
 ;;; without parsing the text.  Plain informational lines stay strings.
-;;; Footer hints keep their bracket convention — "[s] sell  [Esc] back"
-;;; — and MENU-KEY-SPANS locates those tokens for per-segment hotspots.
+;;; Footer hints keep their bracket convention and, Bard's Tale style,
+;;; lead with the key where it starts the word — "[S]ell", "[G]old
+;;; pool" — one option per row, so a page with room lists the options
+;;; vertically.  MENU-KEY-SPANS locates the tokens for per-segment
+;;; hotspots, and FIT-MENU-LINES packs the rows back together when a
+;;; page runs out of rows.
 
 (defun menu-option (key text)
   "TEXT as a menu line that key KEY picks."
@@ -141,13 +145,106 @@ single-digit picks)."
   "LINES with each menu line reduced to its display text."
   (mapcar #'menu-line-text lines))
 
+(defun hint-line-p (line)
+  "True for a plain footer hint row — a string with a bracket hint in
+it (\"[S]ell\", \"[Esc] back\").  Option lines carrying a key are not
+hint rows even when their text brackets something."
+  (and (stringp line) (find #\[ line) t))
+
+(defun %hint-segments (text)
+  "TEXT split at its option gaps — runs of two or more spaces — into
+the whole hints: \"[1-9] buy  [S]ell\" gives (\"[1-9] buy\" \"[S]ell\")."
+  (let ((segments '())
+        (len (length text))
+        (start 0))
+    (loop while (< start len)
+          do (let ((gap (search "  " text :start2 start)))
+               (cond (gap
+                      (when (> gap start)
+                        (push (subseq text start gap) segments))
+                      (setf start (+ gap 2))
+                      (loop while (and (< start len)
+                                       (char= (char text start) #\Space))
+                            do (incf start)))
+                     (t
+                      (push (subseq text start) segments)
+                      (setf start len)))))
+    (nreverse segments)))
+
+(defun wrap-hint-line (text width)
+  "Wrap a footer hint line at its option boundaries — the two-space
+gaps — so a row always holds whole \"[S]ell\"-style options and an
+option is never split mid-hint the way plain WRAP-TEXT would split it.
+A single option wider than WIDTH falls back to WRAP-TEXT."
+  (let ((rows '())
+        (row nil))
+    (flet ((flush ()
+             (when row
+               (push row rows)
+               (setf row nil))))
+      (dolist (seg (%hint-segments text))
+        (cond ((> (length seg) width)
+               (flush)
+               (dolist (part (wrap-text seg width))
+                 (push part rows)))
+              ((null row)
+               (setf row seg))
+              ((<= (+ (length row) 2 (length seg)) width)
+               (setf row (concatenate 'string row "  " seg)))
+              (t
+               (flush)
+               (setf row seg))))
+      (flush))
+    (or (nreverse rows) (list ""))))
+
 (defun wrap-menu-line (line width)
   "Wrap a menu line like WRAP-TEXT, carrying its key (when it has one)
 onto every wrapped row — a click on any row of a wrapped option picks
-it."
+it.  A footer hint row (HINT-LINE-P) wraps at its option boundaries
+instead, so hints never break mid-option."
   (let ((key (menu-line-key line)))
-    (mapcar (lambda (row) (if key (menu-option key row) row))
-            (wrap-text (menu-line-text line) width))))
+    (if (and (null key) (hint-line-p line))
+        (wrap-hint-line line width)
+        (mapcar (lambda (row) (if key (menu-option key row) row))
+                (wrap-text (menu-line-text line) width)))))
+
+(defun %pack-hint-runs (lines width)
+  "LINES with each run of consecutive hint rows re-packed onto as few
+rows as WIDTH allows (whole options only) — the fallback for a page
+too short to list one option per row."
+  (let ((out '())
+        (run '()))
+    (flet ((flush ()
+             (when run
+               (let ((joined (format nil "~{~A~^  ~}" (nreverse run))))
+                 (dolist (row (wrap-hint-line joined width))
+                   (push row out)))
+               (setf run nil))))
+      (dolist (line lines)
+        (if (hint-line-p line)
+            (push line run)
+            (progn (flush) (push line out))))
+      (flush))
+    (nreverse out)))
+
+(defun fit-menu-lines (lines rows width)
+  "LINES wrapped for a ROWS x WIDTH page: each line through
+WRAP-MENU-LINE, then squeezed progressively while they overflow —
+first each run of consecutive footer hint rows packs onto shared rows
+(whole options only, see %PACK-HINT-RUNS), then the blank spacer rows
+go.  The generators emit one option per hint row (the Bard's Tale
+look), so a roomy page lists the options vertically and a tight page
+— the lores shop — packs them.  A page that still overflows is the
+caller's to truncate."
+  (let ((all (mapcan (lambda (line) (wrap-menu-line line width))
+                     lines)))
+    (when (> (length all) rows)
+      (setf all (%pack-hint-runs all width)))
+    (when (> (length all) rows)
+      (setf all (delete-if (lambda (line)
+                             (equal (menu-line-text line) ""))
+                           all)))
+    all))
 
 ;;; Menu scrolling: a list longer than a page shows a window of it,
 ;;; bracketed by "more" marker rows that carry the scroll keys (u up,
@@ -227,7 +324,7 @@ and anything else give NIL — the numbered option lines carry those."
 
 (defun menu-key-spans (text)
   "The clickable key hints in a footer line, by the generators' bracket
-convention (\"[1-9] buy  [s] sell  [Esc] back\"): a list of
+convention (\"[1-9] buy  [S]ell  [Esc] back\"): a list of
 (START END KEY), END exclusive, each span running from its '[' over the
 following words up to the next hint (two spaces or the next '[') so the
 hint's label is part of its click target.  Range tokens and unmatched

@@ -73,8 +73,13 @@ campaign data, never as code that knows about "the" town.
 - Menu lines are **structured** (2026-07-19): a pickable option row is
   `(TEXT . KEY)` (`menu-option`/`menu-numbered`, accessors
   `menu-line-text`/`menu-line-key` in events.lisp), plain lines stay
-  strings, and footer hints keep the bracket convention (`[s] sell
-  [Esc] back`) located by `menu-key-spans`.  A pointing front-end maps
+  strings, and footer hints keep the bracket convention, Bard's Tale
+  style — the key leads the word where it can (`[S]ell`, `[G]old
+  pool`, `[Esc] back`), **one option per row** so a page with room
+  lists them vertically; `fit-menu-lines` packs the rows back
+  together (whole options only, never mid-hint) when a page runs out
+  of rows, and `menu-key-spans` locates the tokens.  A pointing
+  front-end maps
   clicks on either straight to the model's keys — the Amiga UI's
   hotspot list (`*hotspots*` in amiga-ui.lisp) is rebuilt on every
   redraw from exactly what was drawn, so the whole game plays by

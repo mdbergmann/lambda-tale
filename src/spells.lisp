@@ -344,7 +344,7 @@ key (see MENU-NUMBERED)."
                                         i (hero-name h)
                                         (hero-sp h) (hero-max-sp h))))))
                    (game-party game)))
-         (list "" "[1-7] choose  [Esc] cancel")))
+         (list "" "[1-7] choose" "[Esc] cancel")))
        ((null spell)
         (append
          (list (format nil "~A casts.  SP ~D/~D"
@@ -360,7 +360,7 @@ key (see MENU-NUMBERED)."
                        (>= (hero-sp hero)
                            (spell-type-cost
                             (find-spell-type name)))))))
-         (list "" "[1-9] cast  [Esc] back")))
+         (list "" "[1-9] cast" "[Esc] back")))
        (t                              ; a healing spell picks its target
         (append
          (list (format nil "~A on whom?" (spell-title spell)) "")
@@ -372,7 +372,7 @@ key (see MENU-NUMBERED)."
                                 i (hero-name h)
                                 (hero-hp h) (hero-max-hp h))))
                    (game-party game)))
-         (list "" "[1-7] choose  [Esc] back")))))))
+         (list "" "[1-7] choose" "[Esc] back")))))))
 
 (defun cast-act (game view char)
   "Apply key CHAR to the cast menu.  Returns :DONE when a cast

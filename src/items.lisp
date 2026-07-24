@@ -333,7 +333,7 @@ with the room left in their pack)."
                                  (length (hero-items h)) +inventory-limit+
                                  (if (eq h hero) " (giver)" ""))))
                     (game-party game)))
-          (list "" "[1-7] choose  [Esc] back"))
+          (list "" "[1-7] choose" "[Esc] back"))
          (append
           (list (format nil "AC ~D   Attack ~A"
                         (hero-effective-ac hero game) (hero-attack-dice hero))
@@ -348,10 +348,10 @@ with the room left in their pack)."
                             (item-hand-marker name)
                             (item-fit-marker hero name)))))
               (list "The pack is empty."))
-          (list ""
-                (if (eq (equip-view-mode view) :give)
-                    "[1-9] give  [Esc] back"
-                    "[1-9] equip/remove  [p] pass  [Esc] back")))))))
+          (if (eq (equip-view-mode view) :give)
+              (list "" "[1-9] give" "[Esc] back")
+              (list "" "[1-9] equip/remove" "[P]ass an item"
+                    "[Esc] back")))))))
 
 (defun equip-act (game view char)
   "Apply key CHAR to the pack page.  On the pack itself a digit toggles
@@ -554,7 +554,7 @@ key (see MENU-NUMBERED)."
                                 i (hero-name h)
                                 (length (usable-items h)))))
                    (game-party game)))
-         (list "" "[1-7] choose  [Esc] cancel")))
+         (list "" "[1-7] choose" "[Esc] cancel")))
        ((null item)
         (append
          (list (format nil "~A uses." (hero-name hero)) "")
@@ -563,7 +563,7 @@ key (see MENU-NUMBERED)."
           (lambda (i name)
             (menu-numbered
              i (format nil "~D) ~A" i (item-title name)))))
-         (list "" "[1-9] use  [Esc] back")))
+         (list "" "[1-9] use" "[Esc] back")))
        (t                              ; a mending item picks its target
         (append
          (list (format nil "~A on whom?" (item-title item)) "")
@@ -575,7 +575,7 @@ key (see MENU-NUMBERED)."
                                 i (hero-name h)
                                 (hero-hp h) (hero-max-hp h))))
                    (game-party game)))
-         (list "" "[1-7] choose  [Esc] back")))))))
+         (list "" "[1-7] choose" "[Esc] back")))))))
 
 (defun use-act (game view char)
   "Apply key CHAR to the use menu.  Returns :DONE when a use resolved

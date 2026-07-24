@@ -1207,6 +1207,50 @@ height" d)
        (menu-key-spans "an [unclosed token"))
 (check "spans: [n] new name parses" '((17 29 #\n))
        (menu-key-spans "[1-9] overwrite  [n] new name"))
+(check "spans: BT-style [S]ell hints parse, span over the word"
+       '((0 6 #\S) (8 19 #\G))
+       (menu-key-spans "[S]ell  [G]old pool"))
+
+;; Footer hint wrapping: a hint row breaks only BETWEEN options (at
+;; the two-space gaps), never inside one — no more "[G]old" on one row
+;; and "pool" on the next.
+(check "hint-line-p spots a bracket hint row" t
+       (hint-line-p "[G]old pool"))
+(check "hint-line-p leaves plain prose alone" nil
+       (hint-line-p "Who is shopping?"))
+(check "hint-line-p leaves option lines alone" nil
+       (hint-line-p (menu-option #\u "^ more above [u]")))
+(check "hint wrap keeps whole options per row"
+       '("[1-9] buy  [S]ell" "[G]old pool  [Esc] back")
+       (wrap-hint-line "[1-9] buy  [S]ell  [G]old pool  [Esc] back" 27))
+(check "hint wrap passes a fitting line through"
+       '("[1-9] buy  [S]ell")
+       (wrap-hint-line "[1-9] buy  [S]ell" 27))
+(check "hint wrap goes one per row when each gap overflows"
+       '("[G]old pool" "[Esc] back")
+       (wrap-hint-line "[G]old pool  [Esc] back" 14))
+(check "wrap-menu-line routes hint rows through the hint wrap"
+       '("[G]old pool" "[Esc] back")
+       (wrap-menu-line "[G]old pool  [Esc] back" 14))
+
+;; FIT-MENU-LINES: the takeover page's fitting policy, pure so the
+;; host suite can pin it.  One option per row while the page has the
+;; rows; under pressure the hint rows pack (whole options only), then
+;; the blank spacers go.
+(let ((lines '("*** Shop ***" "" "1) Sword" ""
+               "[1-9] buy" "[S]ell" "[Esc] back")))
+  (check "a roomy page keeps the vertical options"
+         '("*** Shop ***" "" "1) Sword" ""
+           "[1-9] buy" "[S]ell" "[Esc] back")
+         (menu-texts (fit-menu-lines lines 12 27)))
+  (check "a tight page packs the hint rows first"
+         '("*** Shop ***" "" "1) Sword" ""
+           "[1-9] buy  [S]ell" "[Esc] back")
+         (menu-texts (fit-menu-lines lines 6 27)))
+  (check "a tighter page then drops the spacers"
+         '("*** Shop ***" "1) Sword"
+           "[1-9] buy  [S]ell" "[Esc] back")
+         (menu-texts (fit-menu-lines lines 4 27))))
 
 ;; Menu scrolling: a list longer than +MENU-PAGE-SIZE+ (7) windows to
 ;; 5 rows plus the more-above/more-below markers; the same MENU-WINDOW
@@ -2009,9 +2053,9 @@ height" d)
          (first lines))
   (check "sheet page embeds the summary block" "B the Tester"
          (third lines))
-  (check "sheet page ends with the key hints"
-         "[1-7] view another  [e] pack  [g] pool gold  [Esc] back"
-         (first (last lines))))
+  (check "sheet page ends with the key hints, one option per row"
+         '("[1-7] view another" "[E]quip pack" "[G]old pool" "[Esc] back")
+         (last lines 4)))
 
 ;; Class portraits: DEFINE-HERO-CLASS :IMAGE resolves map-relative
 ;; (the effect-icon rule); a class without one has no portrait.
@@ -2726,7 +2770,7 @@ height" d)
   (check "a drink is three gold by default" 3
          (tavern-price (game-location g)))
   (check-true "the trapdoor is offered"
-              (find-if (lambda (s) (search "down the trapdoor" s))
+              (find-if (lambda (s) (search "[D]own the trapdoor" s))
                        (menu-texts (tavern-lines g))))
   (check "the trapdoor drops through" :left (tavern-act g #\d))
   (check "the trapdoor landed below" "the snug" (map-title (game-map g)))
@@ -3834,11 +3878,9 @@ height" d)
   (check-true "pack page marks the unfit item"
               (find-if (lambda (s) (search "2) T Mail (unfit)" s))
                        (menu-texts (equip-lines g view))))
-  (check-true "pack page ends with the key hints"
-              (search "[1-9] equip/remove"
-                      (first (last (equip-lines g view)))))
-  (check-true "the key hints offer the pass key"
-              (search "[p] pass" (first (last (equip-lines g view)))))
+  (check "pack page ends with the key hints, one option per row"
+         '("[1-9] equip/remove" "[P]ass an item" "[Esc] back")
+         (last (equip-lines g view) 3))
   (check "a digit equips the item" nil (equip-act g view #\1))
   (check "equipped through the page" 't-sword (equipped-of-kind h :weapon))
   (check-true "the worn item is starred"
@@ -3951,7 +3993,8 @@ height" d)
   (check-true "the give page keeps the pack header"
               (search "*** Ava's Pack ***" (first (equip-lines g view))))
   (check-true "the give page hints at giving"
-              (search "[1-9] give" (first (last (equip-lines g view)))))
+              (member "[1-9] give" (menu-texts (equip-lines g view))
+                      :test #'equal))
   (check "a digit picks the item to hand over" nil (equip-act g view #\1))
   (check "the view moves to the recipient page" :to (equip-view-mode view))
   (check "the pending item is remembered" 't-sword (equip-view-pending view))
@@ -4873,14 +4916,14 @@ height" d)
   (enter-location g '("The Vault" :shop :stock (t-sword)))
   (shop-act g view #\1)                 ; A shops
   (check-true "the buy footer offers pooling"
-              (find-if (lambda (s) (search "[g] pool gold" s))
+              (find-if (lambda (s) (search "[G]old pool" s))
                        (menu-texts (shop-lines g view))))
   (check "g pools onto the shopper" nil (shop-act g view #\g))
   (check "the shopper holds the party's gold" 45 (hero-gold a))
   (check "the partner's purse is empty" 0 (hero-gold b))
   (shop-act g view #\s)
   (check-true "the sell footer offers pooling too"
-              (find-if (lambda (s) (search "[g] pool gold" s))
+              (find-if (lambda (s) (search "[G]old pool" s))
                        (menu-texts (shop-lines g view))))
   (setf (hero-gold b) 7)
   (check "G pools from the sell page too" nil (shop-act g view #\G))
@@ -5028,11 +5071,12 @@ height" d)
 (let* ((m (parse-map *art* :name "test"))
        (h (%combat-hero))
        (g (new-game m :party (list h))))
-  (check "an empty pack still says so" "Pack: nothing"
-         (first (last (butlast (butlast (hero-sheet-lines g 0))))))
+  (check-true "an empty pack still says so"
+              (member "Pack: nothing" (menu-texts (hero-sheet-lines g 0))
+                      :test #'equal))
   (check "a short sheet keeps the plain hints"
-         "[1-7] view another  [e] pack  [g] pool gold  [Esc] back"
-         (first (last (hero-sheet-lines g 0))))
+         '("[1-7] view another" "[E]quip pack" "[G]old pool" "[Esc] back")
+         (last (hero-sheet-lines g 0) 4))
   (check "a short sheet does not scroll" nil
          (hero-sheet-scroll g 0 0 #\d))
   (give-item g h 't-sword)
@@ -5042,9 +5086,7 @@ height" d)
     (check-true "a full pack scrolls the sheet"
                 (member "v more below [d]" texts :test #'equal))
     (check-true "the sheet hints say so"
-                (member
-                 "[1-7] view another  [e] pack  [g] pool gold  [u/d] scroll  [Esc] back"
-                 texts :test #'equal)))
+                (member "[u/d] scroll" texts :test #'equal)))
   (let ((top (hero-sheet-scroll g 0 0 #\d)))
     (check "the sheet scrolls by its window" 6 top)
     (let ((texts (menu-texts (hero-sheet-lines g 0 top))))

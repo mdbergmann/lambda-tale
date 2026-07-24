@@ -265,10 +265,13 @@ pattern) and feed u/d through HERO-SHEET-SCROLL."
                               (declare (ignore i))
                               line)
                             +sheet-page-size+))
-     (list ""
-           (if (> (length body) +sheet-page-size+)
-               "[1-7] view another  [e] pack  [g] pool gold  [u/d] scroll  [Esc] back"
-               "[1-7] view another  [e] pack  [g] pool gold  [Esc] back")))))
+     (list* ""
+            "[1-7] view another"
+            "[E]quip pack"
+            "[G]old pool"
+            (if (> (length body) +sheet-page-size+)
+                (list "[u/d] scroll" "[Esc] back")
+                (list "[Esc] back"))))))
 
 (defun hero-sheet-scroll (game index top char)
   "The sheet page's scroll offset after key CHAR (u/d — see

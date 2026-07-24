@@ -65,6 +65,7 @@
    ;; structured menu lines (option rows carry their pick key)
    #:menu-option #:menu-numbered #:menu-line-text #:menu-line-key
    #:menu-texts #:wrap-menu-line #:menu-key-spans
+   #:hint-line-p #:wrap-hint-line #:fit-menu-lines
    ;; menu scrolling (long lists window with u/d + marker rows)
    #:+menu-page-size+ #:menu-window #:menu-window-pick
    #:menu-scroll #:menu-scrolled-lines

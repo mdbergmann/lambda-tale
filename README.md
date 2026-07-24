@@ -220,7 +220,7 @@ also a window view on the Workbench screen (no custom palette):
 The whole game also **plays by mouse**: clicking the first-person view
 walks (left/right quarters turn, the middle steps forward, its bottom
 band steps back), clicking a roster row opens that character sheet,
-clicking a menu's numbered rows or its `[s] sell`-style footer hints
+clicking a menu's numbered rows or its `[S]ell`-style footer hints
 acts as those keys, and the map/help/sheet pages close on a click
 elsewhere.  Menu option rows carry their pick key (`menu-option` /
 `menu-numbered` in `src/events.lisp`), so front-ends map clicks to

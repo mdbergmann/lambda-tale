@@ -129,7 +129,7 @@ Most recently registered target first."
 (defun %register-line-hotspots (line x y advance line-h row-x0 row-x1)
   "Click targets for one drawn menu line: an option line (a key from
 MENU-LINE-KEY) gets the whole row ROW-X0..ROW-X1, and a plain line's
-bracket hints ([s] sell, [Esc] back — see MENU-KEY-SPANS) each get
+bracket hints ([S]ell, [Esc] back — see MENU-KEY-SPANS) each get
 their own span.  (X,Y) is the drawn text's top-left, ADVANCE the fixed
 character cell width, LINE-H the row height."
   (let ((key (menu-line-key line))
@@ -1273,17 +1273,11 @@ switching pages never leaves stale text.  LINES-CACHE as in
          (lh +microfont-line-height+)
          (rows (max 1 (floor (- h 2) lh)))
          (max-chars (max 4 (floor (- w 4) +microfont-advance+)))
-         (menu (let ((all (mapcan (lambda (line)
-                                    (wrap-menu-line line max-chars))
-                                  lines)))
-                 ;; a page that overflows gives up its blank spacer
-                 ;; lines before it truncates content (the lores shop
-                 ;; page is the tight case)
-                 (if (> (length all) rows)
-                     (delete-if (lambda (line)
-                                  (equal (menu-line-text line) ""))
-                                all)
-                     all)))
+         ;; a page that overflows packs its one-option-per-row footer
+         ;; hints onto shared rows, then gives up its blank spacer
+         ;; lines, before it truncates content (the lores shop page is
+         ;; the tight case) — see FIT-MENU-LINES
+         (menu (fit-menu-lines lines rows max-chars))
          (n-menu (min (length menu) rows))
          ;; the rule and the log tail live in whatever rows the menu
          ;; leaves free (none is fine — the menu keeps the page)
@@ -1501,8 +1495,7 @@ message-area takeover instead (%AMIGA-DRAW-TAKEOVER)."
          (ph (- (ui-layout-hdr-y l) 4 py))
          (max-lines (floor (- ph 8) lh))
          (max-chars (floor (- pw 16) cw))
-         (lines (mapcan (lambda (line) (wrap-menu-line line max-chars))
-                        menu-lines)))
+         (lines (fit-menu-lines menu-lines max-lines max-chars)))
     ;; page shadow, sheet, outline — same look as the character sheet
     (amiga.gfx:set-a-pen rp 0)
     (amiga.gfx:rect-fill rp (+ px 2) (+ py 2) (+ px pw 2) (+ py ph 2))
@@ -1820,7 +1813,7 @@ cancels; Quit sits in the menu strip too.
 Everything key-driven clicks too: the view walks (left/right quarters
 turn, the middle steps forward, its bottom band back), a roster row
 opens that character sheet, a menu's numbered rows pick and its
-bracket hints ([s] sell, [Esc] back) act as their keys, and the
+bracket hints ([S]ell, [Esc] back) act as their keys, and the
 map/help/sheet pages close on a click outside a target — see
 *HOTSPOTS*."
   (load-campaign map-file)

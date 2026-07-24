@@ -185,7 +185,7 @@ key (see MENU-NUMBERED)."
                                          (hero-tunes h)
                                          (hero-max-tunes h))))))
                     (game-party game)))
-          (list "" "[1-7] choose  [Esc] cancel"))
+          (list "" "[1-7] choose" "[Esc] cancel"))
          (append
           (list (format nil "~A plays.  Tunes ~D/~D"
                         (hero-name hero) (hero-tunes hero)
@@ -196,7 +196,7 @@ key (see MENU-NUMBERED)."
            (lambda (i name)
              (menu-numbered
               i (format nil "~D) ~A" i (song-title name)))))
-          (list "" "[1-9] play  [Esc] back"))))))
+          (list "" "[1-9] play" "[Esc] back"))))))
 
 (defun sing-act (game view char)
   "Apply key CHAR to the sing menu.  Returns :DONE when a song

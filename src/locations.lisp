@@ -216,7 +216,7 @@ carry their pick key (see MENU-NUMBERED)."
                                               i (hero-name h)
                                               (hero-gold h))))
                    (game-party game)))
-         (list "" "[1-7] choose  [Esc] leave")))
+         (list "" "[1-7] choose" "[Esc] leave")))
        ((eq (shop-view-mode view) :buy)
         (append
          (list (format nil "~A buys.  Gold: ~D gp"
@@ -230,7 +230,7 @@ carry their pick key (see MENU-NUMBERED)."
                                      (item-hand-marker name)
                                      (item-fit-marker hero name)
                                      (item-price name)))))
-         (list "" "[1-9] buy  [s] sell  [g] pool gold  [Esc] back")))
+         (list "" "[1-9] buy" "[S]ell" "[G]old pool" "[Esc] back")))
        (t
         (append
          (list (format nil "~A sells.  Gold: ~D gp"
@@ -245,7 +245,7 @@ carry their pick key (see MENU-NUMBERED)."
                                      (item-hand-marker name)
                                      (item-fit-marker hero name)
                                      (item-sell-price name)))))
-         (list "" "[1-9] sell  [b] buy  [g] pool gold  [Esc] back")))))))
+         (list "" "[1-9] sell" "[B]uy" "[G]old pool" "[Esc] back")))))))
 
 (defun shop-act (game view char)
   "Apply key CHAR to the shop interaction.  Digits pick within the
@@ -357,10 +357,12 @@ the drink price, and the trapdoor when the tavern has one."
                               (format nil "~D/~D" (hero-tunes h)
                                       (hero-max-tunes h))))))
                (game-party game)))
-     (list ""
-           (format nil "[1-7] drink~@[  [d] down the trapdoor~]  ~
-                        [Esc] leave"
-                   (location-arg loc :down))))))
+     (list* ""
+            "[1-7] drink"
+            (append
+             (when (location-arg loc :down)
+               (list "[D]own the trapdoor"))
+             (list "[Esc] leave"))))))
 
 (defun tavern-act (game char)
   "Apply key CHAR to the tavern menu: a digit buys that hero a drink,
