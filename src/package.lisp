@@ -135,7 +135,7 @@
    #:combat-round-no
    ;; combat round orders (every hero picks, then the round runs)
    #:make-combat-orders #:combat-orders-hero #:combat-orders-chosen
-   #:combat-orders-lines #:combat-orders-act
+   #:combat-orders-review #:combat-orders-lines #:combat-orders-act
    ;; combat transcript speed (the +/- keys)
    #:*combat-speed* #:+combat-speed-max+
    #:combat-message-delay #:adjust-combat-speed

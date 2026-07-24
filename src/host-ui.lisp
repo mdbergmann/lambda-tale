@@ -5,10 +5,12 @@
 ;;;       1-7=character sheet  S=save  L=load  q=quit
 ;;; In the map view: m/Esc=back  f=toggle omniscient (debug)  q=quit
 ;;; In the help page: h/Esc=back  q=quit
-;;; In combat every living hero picks an action in turn (the round
-;;; orders page): a=attack  d=defend  c=cast  p=play  Esc=undo the
-;;; previous pick; f=flee (party-level), +/-=transcript speed.  The
-;;; round runs once the last hero picked, each message lingering
+;;; In combat the round-orders page asks one hero at a time:
+;;; a=attack  d=defend  c=cast  p=play  u=use  Esc=undo the previous
+;;; pick; f=flee (party-level), +/-=transcript speed.  When the last
+;;; hero has picked, the page reviews the orders and asks "Is this
+;;; OK?" — y fights the round, n throws them away and asks again from
+;;; the first hero.  Each message of the round lingers
 ;;; COMBAT-MESSAGE-DELAY seconds.
 ;;; On the character sheet: e=the gear page (1-9 toggle an item
 ;;;   on/off, class-unfit items are marked)  g=pool the party's gold

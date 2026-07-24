@@ -294,19 +294,33 @@ one clock tick.  Returns :victory, :defeat or :ongoing."
 ;;;
 ;;; Bard's Tale style: every living hero picks an action for the round
 ;;; — attack, defend, cast, play, use — and only then does the round
-;;; run.  The model collects (HERO . ACTION) pairs in party order; C,
+;;; run.  The page asks ONE hero at a time, as the original does: the
+;;; hero at hand has the page to itself, and when the last of them has
+;;; picked, the page turns into the review — every hero with the order
+;;; it gave — and asks whether that is what the party wants.  Y fights
+;;; the round, N throws the orders away and starts asking again from
+;;; the first hero.
+;;;
+;;; The model collects (HERO . ACTION) pairs in party order; C,
 ;;; P and U open the cast/sing/use pickers for the hero at hand in
 ;;; their :ORDERS mode, which hands the pick back as a round action
 ;;; instead of fighting a round itself (see %CAST-COMMIT /
 ;;; %SING-COMMIT / %USE-COMMIT).  F is
-;;; party-level flight, Esc undoes the previous hero's pick, +/- set
-;;; the transcript speed.  When the last hero has picked,
-;;; COMBAT-ORDERS-ACT returns (:FIGHT ACTIONS) and the front-end
-;;; fights the round with them.
+;;; party-level flight (from either page), Esc undoes the previous
+;;; hero's pick — and on the review page it is N — and +/- set the
+;;; transcript speed.  COMBAT-ORDERS-ACT returns (:FIGHT ACTIONS) only
+;;; when the review is accepted; the front-end fights the round then.
+;;;
+;;; One hero per page is also what keeps the page inside the narrow
+;;; message column: it costs a handful of rows whatever the party's
+;;; size, where a page carrying every hero at once grew with the
+;;; roster and lost its footer at the bottom of a lores column.
 
 (defstruct (combat-orders (:constructor %make-combat-orders))
   chosen              ; (HERO . ACTION) pairs picked so far, party order
-  sub)                ; CAST-VIEW/SING-VIEW picking for the hero at hand
+  sub                 ; CAST-VIEW/SING-VIEW picking for the hero at hand
+  review)             ; T once every hero has picked: the review page,
+                      ; awaiting Y (fight) or N (start over)
 
 (defun make-combat-orders ()
   (%make-combat-orders))
@@ -334,57 +348,82 @@ hero has an action."
                    (and target (hero-name target)))))
         (t (string-downcase (princ-to-string action)))))
 
+(defun %orders-head-lines (game)
+  "The block both orders pages open with: the coming round and the
+enemy the party faces, one row per living group."
+  (let ((combat (game-combat game)))
+    (append
+     (list (format nil "*** Combat -- Round ~D ***"
+                   (1+ (combat-round-no combat)))
+           "")
+     (mapcar (lambda (group)
+               (format nil "  ~D ~A~A" (cdr group)
+                       (monster-type-name (car group))
+                       (if (> (cdr group) 1) "s" "")))
+             (combat-groups combat)))))
+
+(defun %orders-hero-lines (game view)
+  "The page that asks ONE hero for its order: the head block, the hero
+at hand, and the action keys."
+  (append
+   (%orders-head-lines game)
+   (list ""
+         (format nil "What will ~A do?"
+                 (hero-name (combat-orders-hero game view))))
+   ;; The footer is three short rows on purpose: the page draws in the
+   ;; message column (the Amiga takeover), 27 characters wide at
+   ;; lores, and a row that has to wrap costs a line.  Every row here
+   ;; fits that column whole.
+   (list ""
+         "[a]ttack [d]efend [c]ast"
+         "[p]lay [u]se [f]lee"
+         (format nil "[Esc] undo  +/- speed ~D" *combat-speed*))))
+
+(defun %orders-review-lines (game view)
+  "The review page: every hero with the order it gave, and the
+question the round waits on.  It does not repeat the enemy block —
+every hero's page just showed it, and the rows the list needs are the
+rows a full party's orders take.  F and +/- still answer here (see
+%ORDERS-REVIEW-ACT); the page names the two keys the question is
+about."
+  (append
+   (list (format nil "*** Round ~D orders ***"
+                 (1+ (combat-round-no (game-combat game))))
+         "")
+   (mapcar (lambda (pair)
+             (format nil "  ~12A ~A" (hero-name (car pair))
+                     (%orders-action-label (cdr pair))))
+           (combat-orders-chosen view))
+   (list ""
+         "Is this OK?"
+         "[y]es fight  [n]o redo")))
+
 (defun combat-orders-lines (game view)
-  "The round-orders page as menu lines (the SHOP-LINES pattern) —
-the upcoming round, the enemy groups, one row per living hero with
-the picked action ('?' marks the hero at hand) and the key footer.
-While a cast/sing pick is open, its page shows instead."
+  "The round-orders page as menu lines (the SHOP-LINES pattern): the
+page asking the hero at hand for its order, or — once every hero has
+one — the review page listing them all under \"Is this OK?\".  While a
+cast/sing/use pick is open, its page shows instead."
   (let ((sub (combat-orders-sub view)))
     (cond
       ((cast-view-p sub) (cast-lines game sub))
       ((sing-view-p sub) (sing-lines game sub))
       ((use-view-p sub) (use-lines game sub))
-      (t
-       (let ((combat (game-combat game))
-             (current (combat-orders-hero game view)))
-         (append
-          (list (format nil "*** Combat -- Round ~D ***"
-                        (1+ (combat-round-no combat)))
-                "")
-          (mapcar (lambda (group)
-                    (format nil "  ~D ~A~A" (cdr group)
-                            (monster-type-name (car group))
-                            (if (> (cdr group) 1) "s" "")))
-                  (combat-groups combat))
-          (list "")
-          (mapcar (lambda (h)
-                    (let ((pair (assoc h (combat-orders-chosen view))))
-                      (format nil "~:[ ~;>~] ~12A ~A"
-                              (eq h current) (hero-name h)
-                              (cond (pair (%orders-action-label (cdr pair)))
-                                    ((eq h current) "?")
-                                    (t "")))))
-                  (alive-heroes game))
-          ;; The footer is three short rows on purpose: the page draws
-          ;; in the message column (the Amiga takeover), 27 characters
-          ;; wide at lores, and a row that has to wrap costs a line the
-          ;; page does not have when a full party fights.  Every row
-          ;; here fits that column whole.
-          (list ""
-                "[a]ttack [d]efend [c]ast"
-                "[p]lay [u]se [f]lee"
-                (format nil "[Esc] undo  +/- speed ~D"
-                        *combat-speed*))))))))
+      ((combat-orders-review view) (%orders-review-lines game view))
+      ((combat-orders-hero game view) (%orders-hero-lines game view))
+      ;; nobody left to ask and nothing to review (the party fell while
+      ;; the orders were open): the head block alone
+      (t (%orders-head-lines game)))))
 
 (defun %orders-record (game view action)
   "Record ACTION for the hero at hand.  When that completes the list,
-return (:FIGHT ACTIONS), the actions in party order; else NIL."
+raise the review page (the round waits for Y).  Always returns NIL —
+only the review hands the front-end its (:FIGHT ACTIONS)."
   (setf (combat-orders-chosen view)
         (append (combat-orders-chosen view)
                 (list (cons (combat-orders-hero game view) action))))
-  (if (combat-orders-hero game view)
-      nil
-      (list :fight (mapcar #'cdr (combat-orders-chosen view)))))
+  (unless (combat-orders-hero game view)
+    (setf (combat-orders-review view) t))
+  nil)
 
 (defun %orders-sub-act (game view sub char)
   "Forward CHAR to the open cast/sing/use picker.  A completed pick
@@ -405,16 +444,32 @@ lands as the hero-at-hand's action; Esc backs out to the action keys."
            nil)
           (t nil))))
 
+(defun %orders-review-act (game view char)
+  "Apply key CHAR to the review page: Y fights the round with the
+orders as they stand, N (or Esc) throws them away and asks the party
+again from the first hero, F still runs, +/- still set the pace."
+  (case (char-downcase char)
+    (#\y (list :fight (mapcar #'cdr (combat-orders-chosen view))))
+    ((#\n #\Escape)
+     (setf (combat-orders-chosen view) '()
+           (combat-orders-review view) nil)
+     nil)
+    (#\f :flee)
+    (#\+ (adjust-combat-speed game 1) nil)
+    (#\- (adjust-combat-speed game -1) nil)
+    (t nil)))
+
 (defun combat-orders-act (game view char)
   "Apply key CHAR to the round-orders page.  Returns (:FIGHT ACTIONS)
-when the last living hero picks — the front-end fights the round with
+when the review page is accepted — the front-end fights the round with
 them (COMBAT-ROUND) — :FLEE when the party runs (ATTEMPT-FLEE), else
 NIL."
   (let ((sub (combat-orders-sub view))
         (hero (combat-orders-hero game view)))
     (cond
       (sub (%orders-sub-act game view sub char))
-      ((null hero) nil)                 ; complete — awaiting the round
+      ((combat-orders-review view) (%orders-review-act game view char))
+      ((null hero) nil)                 ; nobody left to ask
       (t
        (case (char-downcase char)
          (#\a (%orders-record game view :attack))

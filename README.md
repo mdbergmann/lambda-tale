@@ -135,8 +135,9 @@ city's houses have faces (the Bard's Tale building-front look).  An
 optional `:facade FILE` names that street face; without one the
 `:image` picture shows from the street too — so a location can pair
 an exterior with a distinct interior, or ship one picture for both.
-A fight reads the same way: the **round-orders page** takes over the
-message area and the view column carries the enemy's portrait
+A fight reads the same way: the **round-orders page** — one hero at a
+time, then the review — takes over the message area and the view
+column carries the enemy's portrait
 (`define-monster ... :image FILE`), so the party sees what it is
 fighting while it picks the round; the picture belongs to the leading
 group and passes to the next one as groups fall.
@@ -838,11 +839,14 @@ a landed blow fells the foe outright (the hunter's), and
 `:description` a lore line for the campaign to show.  The roster holds
 up to 7 members (`join-party`): six regular heroes plus one guest slot
 for a summoned monster or story NPC.  Combat is
-round-based, Bard's Tale style: every living hero picks an action in
-turn on the **round-orders page** (attack, defend, cast a spell, play
-a song, use an item; `Esc` undoes the previous pick, `f` flees
-party-level) — on the Amiga that page takes over the message area,
-with the enemy's portrait in the view column — then
+round-based, Bard's Tale style: the **round-orders page** asks one
+hero at a time (attack, defend, cast a spell, play a song, use an
+item; `Esc` undoes the previous pick, `f` flees party-level), and when
+the last of them has picked it turns into the **review** — every hero
+with the order it gave, under *Is this OK?* — where `y` fights the
+round and `n` throws the orders away and asks again from the first
+hero.  On the Amiga both pages take over the message area,
+with the enemy's portrait in the view column.  Then
 the round runs — heroes strike first, then every surviving monster
 swings at a random front-rank hero.  Each round opens with a
 `-- Round N --` line and its transcript plays out one message at a

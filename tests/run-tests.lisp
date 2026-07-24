@@ -3228,8 +3228,8 @@ height" d)
   (check-true "round 2 header"
               (find "-- Round 2 --" (funcall msgs) :test #'equal)))
 
-;; The round-orders model: every living hero picks in turn, the last
-;; pick hands the front-end the round's actions in party order.
+;; The round-orders model: the page asks ONE hero at a time, and the
+;; last pick raises the review page — the round waits there for Y.
 (let* ((m (parse-map *art* :name "test"))
        (grunt (%combat-hero))
        (mage (%combat-mage))
@@ -3243,49 +3243,127 @@ height" d)
   (check-true "orders page lists the enemy group"
               (find-if (lambda (s) (search "2 test rats" s))
                        (menu-texts (combat-orders-lines g view))))
-  (check-true "orders page marks the hero at hand"
-              (find-if (lambda (s) (and (search "> Alva" s)
-                                        (search "?" s)))
-                       (menu-texts (combat-orders-lines g view))))
+  (check-true "orders page asks the hero at hand"
+              (find "What will Alva do?"
+                    (menu-texts (combat-orders-lines g view))
+                    :test #'equal))
+  (check "the page asks one hero, not the roster" nil
+         (find-if (lambda (s) (search "Zzgo" s))
+                  (menu-texts (combat-orders-lines g view))))
   (check "the first pick advances" nil (combat-orders-act g view #\a))
   (check "orders ask the second hero" mage (combat-orders-hero g view))
-  (check-true "a picked action shows on its row"
-              (find-if (lambda (s) (and (search "Alva" s)
-                                        (search "attack" s)))
-                       (menu-texts (combat-orders-lines g view))))
+  (check-true "the page moved on to that hero"
+              (find "What will Zzgo do?"
+                    (menu-texts (combat-orders-lines g view))
+                    :test #'equal))
   (check "esc undoes the previous pick" nil
          (combat-orders-act g view #\Escape))
   (check "back to the first hero" grunt (combat-orders-hero g view))
   (combat-orders-act g view #\a)
-  (check "the last pick returns the fight"
-         '(:fight (:attack :defend))
+  (check "the last pick opens the review, not the round" nil
          (combat-orders-act g view #\d))
+  (check-true "the orders are under review"
+              (combat-orders-review view))
+  (let ((lines (menu-texts (combat-orders-lines g view))))
+    (check-true "the review lists every hero's order"
+                (and (find-if (lambda (s) (and (search "Alva" s)
+                                               (search "attack" s)))
+                              lines)
+                     (find-if (lambda (s) (and (search "Zzgo" s)
+                                               (search "defend" s)))
+                              lines)))
+    (check-true "the review asks the question"
+                (find "Is this OK?" lines :test #'equal)))
   (check "no round ran while picking" 0
-         (combat-round-no (game-combat g))))
+         (combat-round-no (game-combat g)))
+  (check "y fights the reviewed round"
+         '(:fight (:attack :defend))
+         (combat-orders-act g view #\y)))
 
-;; The orders page draws in the MESSAGE column on the Amiga (the
-;; takeover, like a shop menu), not on the roomier view column it used
-;; to overlay: at the lores profile that column holds 27 characters
-;; across and 12 microfont rows.  Every row of the page must fit that
-;; width whole — a wrapped row costs a line the page cannot spare — and
-;; a regular six-strong party fighting two groups must fit the height.
-;; (A seventh member, the guest slot, pushes the speed row off at
-;; lores; the roomier hires column takes it.)
+;; N on the review throws the orders away and asks again from the
+;; first hero; Esc there says the same thing.
+(dolist (key (list #\n #\Escape))
+  (let* ((m (parse-map *art* :name "test"))
+         (grunt (%combat-hero))
+         (mage (%combat-mage))
+         (g (new-game m :party (list grunt mage)))
+         (view (make-combat-orders)))
+    (start-combat g '(("test rat" 1)))
+    (combat-orders-act g view #\a)
+    (combat-orders-act g view #\d)
+    (check-true "the review is up" (combat-orders-review view))
+    (check (format nil "~:[n~;esc~] on the review keeps the fight waiting"
+                   (eql key #\Escape))
+           nil (combat-orders-act g view key))
+    (check "the review is gone" nil (combat-orders-review view))
+    (check "the orders are thrown away" nil (combat-orders-chosen view))
+    (check "and the first hero is asked again" grunt
+           (combat-orders-hero g view))))
+
+;; The party can still run from the review, and still set the pace
+;; there — the page names the two keys the question is about, but the
+;; round-orders keys that are not about one hero keep answering.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero))))
+       (view (make-combat-orders))
+       (*combat-speed* 3))
+  (start-combat g '(("test rat" 1)))
+  (combat-orders-act g view #\a)
+  (check-true "the review is up" (combat-orders-review view))
+  (check "+ still sets the pace on the review" nil
+         (combat-orders-act g view #\+))
+  (check "and it took" 4 *combat-speed*)
+  (check "the review is still up" t (combat-orders-review view))
+  (check "f flees from the review" :flee (combat-orders-act g view #\f)))
+
+;; A hero's page costs a fixed handful of rows: a seven-strong party
+;; asks seven pages, none of them longer than a two-strong party's.
+(let* ((m (parse-map *art* :name "test"))
+       (two (new-game (parse-map *art* :name "test")
+                      :party (list (%combat-hero "A") (%combat-hero "B"))))
+       (seven (new-game m :party (loop for i from 1 to 7
+                                       collect (%combat-hero
+                                                (format nil "H~D" i)))))
+       (v2 (make-combat-orders))
+       (v7 (make-combat-orders)))
+  (start-combat two '(("test rat" 1)))
+  (start-combat seven '(("test rat" 1)))
+  (check "the hero page does not grow with the party"
+         (length (combat-orders-lines two v2))
+         (length (combat-orders-lines seven v7))))
+
+;; Both orders pages draw in the MESSAGE column on the Amiga (the
+;; takeover, like a shop menu), not on the roomier view column the
+;; page used to overlay: at the lores profile that column holds 27
+;; characters across and 12 microfont rows.  Every row must fit that
+;; width whole — a wrapped row costs a line — and a FULL party's
+;; pages, hero pages and review alike, must fit the height.
 (let ((cols 27)
       (rows 12))
   (let* ((m (parse-map *art* :name "test"))
-         (party (loop for i from 1 to 6
+         (party (loop for i from 1 to +party-limit+
                       collect (%combat-hero (format nil "Hero~D" i))))
          (g (new-game m :party party))
          (view (make-combat-orders)))
     (start-combat g '(("test rat" 2) ("test ogre" 1)))
-    (let ((lines (menu-texts (combat-orders-lines g view))))
-      ;; the page's own rows — a picked action's label carries campaign
-      ;; text (a long spell title) and may still wrap
-      (check "no orders row overruns the lores message column" nil
-             (remove-if (lambda (s) (<= (length s) cols)) lines))
-      (check-true "a six-strong party's orders fit the lores page height"
-                  (<= (length (remove "" lines :test #'equal)) rows)))))
+    (flet ((fits (label)
+             (let ((lines (menu-texts (combat-orders-lines g view))))
+               ;; the page's own rows — a picked action's label carries
+               ;; campaign text (a long spell title) and may still wrap
+               (check (format nil "no ~A row overruns the lores column"
+                              label)
+                      nil
+                      (remove-if (lambda (s) (<= (length s) cols)) lines))
+               (check-true (format nil "the ~A fits the lores page height"
+                                   label)
+                           (<= (length (remove "" lines :test #'equal))
+                               rows)))))
+      (fits "hero page")
+      (dotimes (i +party-limit+)
+        (combat-orders-act g view #\a))
+      (check-true "a full party's picks reach the review"
+                  (combat-orders-review view))
+      (fits "review page"))))
 
 ;; C during orders opens the spell pick for the hero at hand; the pick
 ;; lands as that hero's round action instead of fighting a round.
@@ -3305,8 +3383,10 @@ height" d)
          (combat-orders-act g view #\Escape))
   (check "still asking the mage" mage (combat-orders-hero g view))
   (combat-orders-act g view #\c)
-  (let ((r (combat-orders-act g view #\1)))     ; test-bolt, no target
-    (check "the spell pick completes the orders"
+  (check "the spell pick completes the orders" nil
+         (combat-orders-act g view #\1))        ; test-bolt, no target
+  (let ((r (combat-orders-act g view #\y)))     ; ... and the review says go
+    (check "the reviewed orders carry the cast"
            '(:fight (:attack (:cast test-bolt))) r)
     (check "picking paid no sp yet" 6 (hero-sp mage))
     (check "picking ran no round" 0 (combat-round-no (game-combat g)))
@@ -3325,9 +3405,16 @@ height" d)
   (combat-orders-act g view #\a)
   (combat-orders-act g view #\c)
   (combat-orders-act g view #\2)        ; test-mend: heal, pick a target
-  (check "the heal pick completes with its target"
+  (check "the heal pick completes the orders" nil
+         (combat-orders-act g view #\1))        ; on the grunt
+  (check-true "the review shows the heal with its target"
+              (find-if (lambda (s) (and (search "Zzgo" s)
+                                        (search "cast test mend" s)
+                                        (search "on Alva" s)))
+                       (menu-texts (combat-orders-lines g view))))
+  (check "the reviewed orders carry the target"
          (list :fight (list :attack (list :cast 'test-mend grunt)))
-         (combat-orders-act g view #\1)))       ; on the grunt
+         (combat-orders-act g view #\y)))
 
 ;; P during orders opens the song pick the same way.
 (let* ((m (parse-map *art* :name "test"))
@@ -3338,9 +3425,11 @@ height" d)
   (start-combat g '(("test rat" 1)))
   (combat-orders-act g view #\a)
   (check "p opens the bard's song pick" nil (combat-orders-act g view #\p))
-  (check "the song pick completes the orders"
-         '(:fight (:attack (:sing test-march)))
+  (check "the song pick completes the orders" nil
          (combat-orders-act g view #\1))
+  (check "the reviewed orders carry the song"
+         '(:fight (:attack (:sing test-march)))
+         (combat-orders-act g view #\y))
   (check "picking spent no tune" 1 (hero-tunes bard)))
 
 ;; U during orders opens the use pick: the Wizhelm's moment -- the
@@ -3355,8 +3444,10 @@ height" d)
   (check-true "the pick page lists the bomb"
               (find-if (lambda (s) (search "Test Bomb" s))
                        (menu-texts (combat-orders-lines g view))))
-  (let ((r (combat-orders-act g view #\1)))
-    (check "the use pick completes the orders"
+  (check "the use pick completes the orders" nil
+         (combat-orders-act g view #\1))
+  (let ((r (combat-orders-act g view #\y)))
+    (check "the reviewed orders carry the item"
            '(:fight ((:use test-bomb))) r)
     (check-true "picking spent nothing"
                 (hero-carrying-p grunt 'test-bomb))

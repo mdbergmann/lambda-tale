@@ -1801,8 +1801,10 @@ reference — H/Esc leaves), 1-7 open a party member's character sheet
 toggle an item on/off, class-unfit items are marked (unfit) — and
 Esc leaves), C cast a spell (pick
 caster/spell/target by number, Esc backs out), Q/Esc quit; in combat
-every living hero picks an action in turn on the round-orders page —
-A attack, D defend, C cast, P play, Esc undo — F flees (party-level)
+the round-orders page asks one hero at a time — A attack, D defend,
+C cast, P play, U use, Esc undo the previous pick — and then reviews
+the orders under \"Is this OK?\", where Y fights the round and N asks
+again from the first hero; F flees (party-level)
 and +/- set the transcript speed, each round message lingering
 COMBAT-MESSAGE-DELAY seconds; in a location (shop) 1-9 choose,
 S/B switch sell/buy, Esc back/leave — the location menu, the

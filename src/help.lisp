@@ -26,6 +26,7 @@
         "Combat: each hero picks in turn"
         "        A attack  D defend"
         "        C cast  P play  Esc undo"
+        "        then Y fight / N redo"
         "        F flee  +/- text speed"
         "Shop/menus: 1-9 pick  Esc back"
         "            U/D scroll long lists"
