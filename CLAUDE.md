@@ -112,5 +112,20 @@ dragging game content behind it:
   `src/version.lisp` bump ride along in the same commit, green on
   their own — the cherry-pick should need no follow-up.
 
-If the game needs a matching change, that is a second commit on
-`closure-tale` with no `Engine: ` prefix.
+Work on this branch also reaches the **repo root** now and then — a
+clamiga runtime fix found by playing, a root `CLAUDE.md` correction.
+That is master-bound too, and it cannot wear the `Engine: ` prefix
+(engine paths only, above), so it gets its own: **`Master: `**, under
+the same one-destination-per-commit rule.  Three prefixes, three
+destinations:
+
+| Prefix | Paths | Destination |
+|---|---|---|
+| `Engine: ` | `examples/games/lambda-tale-engine/` | cherry-pick to master |
+| `Master: ` | repo root (`src/`, `tests/`, root `CLAUDE.md`, …) | cherry-pick to master |
+| `Closure: ` (or none) | `examples/games/closure/` | stays on `closure-tale` |
+
+So the replay list is
+`git log --oneline --grep="^Engine: " --grep="^Master: " closure-tale`.
+If the game needs a matching change, that is a further commit with
+neither prefix.
