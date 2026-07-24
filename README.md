@@ -647,10 +647,10 @@ picks who receives it (each row showing the room left in their pack).
 Carrying is not using — an unfit item passes freely, so one hero can
 haul another's gear — and the fallen both give and receive, as with
 pooled gold; a full receiving pack refuses the item and leaves it
-whole with the giver.  `i` on the pack page **inspects an item**: a
-digit opens its card — kind, damage, AC bonus, price, class
-restriction, and the campaign's `:description` text when the item
-carries one.  An item can also be
+whole with the giver.  `i` on the pack page — and on the shop's buy
+page, before any gold changes hands — **inspects an item**: a digit
+opens its card — kind, damage, AC bonus, price, class restriction,
+and the campaign's `:description` text when the item carries one.  An item can also be
 **usable** (`:use` — a torch, a potion, a wand): using it (`u`, the
 use menu, in the open or as a combat-round order) heals a chosen hero,
 fires another non-battle instant (a figurine's `:summon`), installs a

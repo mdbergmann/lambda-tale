@@ -4976,6 +4976,36 @@ height" d)
                        (menu-texts (shop-lines g view))))
   (shop-act g view #\1)                 ; sell it again
   (check "shop-act sells" 25 (hero-gold h))
+  (check "b flips back to the buy page" nil (shop-act g view #\b))
+  ;; the inspect flow ('i' on the buy page): read the card, spend no gold
+  (check-true "the buy page hints inspect"
+              (member "[I]nspect" (menu-texts (shop-lines g view))
+                      :test #'equal))
+  (check "i opens the inspect page" nil (shop-act g view #\i))
+  (check "inspect mode" :inspect (shop-view-mode view))
+  (check-true "the inspect page browses"
+              (find-if (lambda (s) (search "browses.  Gold: 25 gp" s))
+                       (menu-texts (shop-lines g view))))
+  (check-true "the stock is still listed priced"
+              (find-if (lambda (s) (search "1) T Sword  10 gp" s))
+                       (menu-texts (shop-lines g view))))
+  (check-true "the inspect page hints its pick"
+              (member "[1-9] inspect" (menu-texts (shop-lines g view))
+                      :test #'equal))
+  (check "a digit shows the item's card" nil (shop-act g view #\1))
+  (check "the card item is remembered" 't-sword (shop-view-pending view))
+  (check-true "the card is titled with the item"
+              (search "*** T Sword ***" (first (shop-lines g view))))
+  (check-true "the card shows the damage"
+              (member "Damage: 1d6+2" (menu-texts (shop-lines g view))
+                      :test #'equal))
+  (check "inspecting spends no gold" 25 (hero-gold h))
+  (check "esc leaves the card" nil (shop-act g view #\Escape))
+  (check "back on the inspect page" :inspect (shop-view-mode view))
+  (check "the card item is forgotten" nil (shop-view-pending view))
+  (check "esc then returns to the buy page" nil (shop-act g view #\Escape))
+  (check "buy mode again" :buy (shop-view-mode view))
+  (check "the hero stays selected" h (shop-view-hero view))
   (check "escape backs out to the pick page" nil
          (shop-act g view #\Escape))
   (check "hero deselected" nil (shop-view-hero view))

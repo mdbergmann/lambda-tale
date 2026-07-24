@@ -71,7 +71,8 @@ campaign data, never as code that knows about "the" town.
   (`shop-view` / `shop-lines` / `shop-act`): both front-ends feed keys
   into the same model and draw the same text lines, so the whole flow
   is testable on the host.  Keys: `1`-`7` pick the shopping hero,
-  `1`-`9` buy/sell, `s`/`b` flip the page, `Esc` back/leave.
+  `1`-`9` buy/sell, `s`/`b` flip the page, `i` inspect stock (the
+  item card, before any gold is spent), `Esc` back/leave.
 - Menu lines are **structured** (2026-07-19): a pickable option row is
   `(TEXT . KEY)` (`menu-option`/`menu-numbered`, accessors
   `menu-line-text`/`menu-line-key` in events.lisp), plain lines stay

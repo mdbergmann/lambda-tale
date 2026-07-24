@@ -191,7 +191,9 @@ says why and returns NIL when the hero does not carry it."
 
 (defstruct (shop-view (:constructor %make-shop-view))
   hero                ; the shopping HERO, or NIL while picking one
-  (mode :buy)         ; :buy or :sell page
+  (mode :buy)         ; :buy or :sell page, or :inspect — pick the
+                      ; stock item whose card to show before buying
+  pending             ; the item chosen on the :INSPECT page, else NIL
   (top 0))            ; scroll offset into the stock/pack list
 
 (defun make-shop-view ()
@@ -200,59 +202,74 @@ says why and returns NIL when the hero does not carry it."
 (defun shop-lines (game view)
   "The current shop menu as a list of menu lines — the front-ends draw
 these verbatim (the same pattern as HERO-SUMMARY-LINES); option rows
-carry their pick key (see MENU-NUMBERED)."
+carry their pick key (see MENU-NUMBERED).  The buy page's 'i' opens
+the inspect page — the same stock, a digit showing that item's card
+(ITEM-CARD-LINES) before any gold is spent."
   (let* ((loc (game-location game))
          (hero (shop-view-hero view)))
-    (append
-     (list (format nil "*** ~A ***" (location-title loc)) "")
-     (cond
-       ((null hero)
+    (if (and (eq (shop-view-mode view) :inspect)
+             (shop-view-pending view))
+        (item-card-lines hero (shop-view-pending view))
         (append
-         (list "Who is shopping?" "")
-         (let ((i 0))
-           (mapcar (lambda (h)
-                     (incf i)
-                     (menu-numbered i (format nil "~D) ~A  (~D gp)"
-                                              i (hero-name h)
-                                              (hero-gold h))))
-                   (game-party game)))
-         (list "" "[1-7] choose" "[Esc] leave")))
-       ((eq (shop-view-mode view) :buy)
-        (append
-         (list (format nil "~A buys.  Gold: ~D gp"
-                       (hero-name hero) (hero-gold hero))
-               "")
-         (menu-scrolled-lines
-          (shop-stock loc) (shop-view-top view)
-          (lambda (i name)
-            (menu-numbered i (format nil "~D) ~A~A~A  ~D gp"
-                                     i (item-title name)
-                                     (item-hand-marker name)
-                                     (item-fit-marker hero name)
-                                     (item-price name)))))
-         (list "" "[1-9] buy" "[S]ell" "[G]old pool" "[Esc] back")))
-       (t
-        (append
-         (list (format nil "~A sells.  Gold: ~D gp"
-                       (hero-name hero) (hero-gold hero))
-               "")
-         (menu-scrolled-lines
-          (hero-items hero) (shop-view-top view)
-          (lambda (i name)
-            (menu-numbered i (format nil "~D) ~A~:[~;*~]~A~A  ~D gp"
-                                     i (item-title name)
-                                     (member name (hero-equipped hero))
-                                     (item-hand-marker name)
-                                     (item-fit-marker hero name)
-                                     (item-sell-price name)))))
-         (list "" "[1-9] sell" "[B]uy" "[G]old pool" "[Esc] back")))))))
+         (list (format nil "*** ~A ***" (location-title loc)) "")
+         (cond
+           ((null hero)
+            (append
+             (list "Who is shopping?" "")
+             (let ((i 0))
+               (mapcar (lambda (h)
+                         (incf i)
+                         (menu-numbered i (format nil "~D) ~A  (~D gp)"
+                                                  i (hero-name h)
+                                                  (hero-gold h))))
+                       (game-party game)))
+             (list "" "[1-7] choose" "[Esc] leave")))
+           ((member (shop-view-mode view) '(:buy :inspect))
+            (append
+             (list (format nil "~A ~A.  Gold: ~D gp"
+                           (hero-name hero)
+                           (if (eq (shop-view-mode view) :buy)
+                               "buys" "browses")
+                           (hero-gold hero))
+                   "")
+             (menu-scrolled-lines
+              (shop-stock loc) (shop-view-top view)
+              (lambda (i name)
+                (menu-numbered i (format nil "~D) ~A~A~A  ~D gp"
+                                         i (item-title name)
+                                         (item-hand-marker name)
+                                         (item-fit-marker hero name)
+                                         (item-price name)))))
+             (if (eq (shop-view-mode view) :buy)
+                 (list "" "[1-9] buy" "[S]ell" "[I]nspect" "[G]old pool"
+                       "[Esc] back")
+                 (list "" "[1-9] inspect" "[Esc] back"))))
+           (t
+            (append
+             (list (format nil "~A sells.  Gold: ~D gp"
+                           (hero-name hero) (hero-gold hero))
+                   "")
+             (menu-scrolled-lines
+              (hero-items hero) (shop-view-top view)
+              (lambda (i name)
+                (menu-numbered i (format nil "~D) ~A~:[~;*~]~A~A  ~D gp"
+                                         i (item-title name)
+                                         (member name (hero-equipped hero))
+                                         (item-hand-marker name)
+                                         (item-fit-marker hero name)
+                                         (item-sell-price name)))))
+             (list "" "[1-9] sell" "[B]uy" "[G]old pool"
+                   "[Esc] back"))))))))
 
 (defun shop-act (game view char)
   "Apply key CHAR to the shop interaction.  Digits pick within the
 visible stock/pack window, u/d scroll it (see MENU-WINDOW), g pools
-the party's gold onto the shopper (see POOL-GOLD).  Mutates VIEW and
-the game state; returns :LEFT when the party leaves the location (the
-front-end drops its view then), else NIL."
+the party's gold onto the shopper (see POOL-GOLD), i on the buy page
+opens the inspect page — a digit shows that item's card, and the page
+stays open for the next card; Esc steps back card, stock, buy page
+(the EQUIP-ACT pattern).  Mutates VIEW and the game state; returns
+:LEFT when the party leaves the location (the front-end drops its
+view then), else NIL."
   (let ((loc (game-location game))
         (hero (shop-view-hero view))
         (digit (digit-char-p char)))
@@ -266,6 +283,27 @@ front-end drops its view then), else NIL."
               (leave-location game)
               :left)
              (t nil)))
+      ;; the item card, else picking the stock item whose card to show
+      ;; — before the page-leaving Esc, so Esc steps back one page
+      ((eq (shop-view-mode view) :inspect)
+       (cond ((shop-view-pending view)
+              (when (eql char #\Escape)
+                (setf (shop-view-pending view) nil))
+              nil)
+             (digit
+              (let ((name (menu-window-pick (shop-stock loc)
+                                            (shop-view-top view) digit)))
+                (when name
+                  (setf (shop-view-pending view) name)))
+              nil)
+             ((eql char #\Escape)
+              (setf (shop-view-mode view) :buy)
+              nil)
+             (t
+              (let ((top (menu-scroll (shop-view-top view) char
+                                      (length (shop-stock loc)))))
+                (when top (setf (shop-view-top view) top)))
+              nil)))
       ((member char '(#\Escape))
        (setf (shop-view-hero view) nil
              (shop-view-mode view) :buy
@@ -281,6 +319,9 @@ front-end drops its view then), else NIL."
              ((member char '(#\s #\S))
               (setf (shop-view-mode view) :sell
                     (shop-view-top view) 0)
+              nil)
+             ((member char '(#\i #\I))
+              (setf (shop-view-mode view) :inspect)
               nil)
              ((member char '(#\g #\G))
               (pool-gold game hero)
