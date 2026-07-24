@@ -94,3 +94,23 @@ The engine lives on **master**.  The Closure game does not — it is
 local-only on `closure-tale`.  When one piece of work touches both,
 the engine part is a master commit and the game part a `closure-tale`
 commit; do not carry engine changes on the game branch.
+
+Playing the game is how engine gaps get found, so engine work often
+starts with `closure-tale` checked out.  That is fine — commit it
+there rather than switching branches mid-task — but the commit must be
+**separate and marked**, so it cherry-picks to master later without
+dragging game content behind it:
+
+- **Engine paths only.** Nothing under `examples/games/closure/` in
+  the same commit, and nothing from the repo root either.  A mixed
+  commit cannot be cherry-picked; it has to be re-done by hand.
+- **Prefix the subject `Engine: `.** That is what makes the commits to
+  replay findable months later:
+  `git log --oneline --grep="^Engine: " closure-tale` is the list of
+  what master is still missing.
+- **Self-contained.** Its own tests, README update and
+  `src/version.lisp` bump ride along in the same commit, green on
+  their own — the cherry-pick should need no follow-up.
+
+If the game needs a matching change, that is a second commit on
+`closure-tale` with no `Engine: ` prefix.
