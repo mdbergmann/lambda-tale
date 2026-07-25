@@ -12,6 +12,7 @@
    #:make-image #:read-ilbm #:write-ilbm #:pixel-ref
    #:image-width #:image-height #:image-depth #:image-palette #:image-pixels
    #:image-transparent-p #:mask-bytes
+   #:image-frame-file #:image-frame-files
    ;; map model
    #:parse-map #:load-map-file #:map-viewport
    #:dungeon-map-name #:dungeon-map-width #:dungeon-map-height

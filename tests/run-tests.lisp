@@ -5805,6 +5805,111 @@ height" d)
 (delete-file "tests/tmp-img.iff")
 
 ;;; ---------------------------------------------------------------------
+;;; Animation frames: an image may ship -f1/-f2/... files beside it —
+;;; the wall pieces' -vN convention applied to time.  The naming, the
+;;; probe (stops at the first gap) and PLANAR-DIFF-RECT, the dirty
+;;; rectangle the Amiga stepper re-blits per step.
+
+(check "frame file naming" "gfx/mon-kobold-f1.iff"
+       (image-frame-file "gfx/mon-kobold.iff" 1))
+(check "frame file naming counts past 9" "gfx/mon-kobold-f12.iff"
+       (image-frame-file "gfx/mon-kobold.iff" 12))
+(check "frame file naming keys on the LAST dot" "a.b/img-f1.iff"
+       (image-frame-file "a.b/img.iff" 1))
+(check "frame file naming without a suffix" "portrait-f1"
+       (image-frame-file "portrait" 1))
+
+;; the probe stops at the first missing frame: an orphaned -f3 with no
+;; -f2 before it is dead data, not frame 3
+(let ((img (make-image 16 8 2)))
+  (write-ilbm img "tests/tmp-anim.iff")
+  (check "a still image has no frames" '()
+         (image-frame-files "tests/tmp-anim.iff"))
+  (write-ilbm img "tests/tmp-anim-f1.iff")
+  (write-ilbm img "tests/tmp-anim-f3.iff")
+  (check "the probe stops at the gap" '("tests/tmp-anim-f1.iff")
+         (image-frame-files "tests/tmp-anim.iff"))
+  (write-ilbm img "tests/tmp-anim-f2.iff")
+  (check "the full frame set, in frame order"
+         '("tests/tmp-anim-f1.iff" "tests/tmp-anim-f2.iff"
+           "tests/tmp-anim-f3.iff")
+         (image-frame-files "tests/tmp-anim.iff"))
+  (delete-file "tests/tmp-anim.iff")
+  (delete-file "tests/tmp-anim-f1.iff")
+  (delete-file "tests/tmp-anim-f2.iff")
+  (delete-file "tests/tmp-anim-f3.iff"))
+
+;; PLANAR-DIFF-RECT bounds the differing pixels, byte-aligned in x (it
+;; compares the packed plane bytes) and clamped to the width.  Frames
+;; go through a WRITE-ILBM round trip like the real files.
+(flet ((planar (img)
+         (write-ilbm img "tests/tmp-anim.iff")
+         (prog1 (read-ilbm-planar "tests/tmp-anim.iff")
+           (delete-file "tests/tmp-anim.iff"))))
+  (let ((base (make-image 24 8 3)))
+    (setf (pixel-ref base 2 2) 5)       ; some base ink
+    (let ((a (planar base))
+          (same (planar base)))
+      (check "identical frames have no dirty rect" nil
+             (planar-diff-rect a same)))
+    ;; one pixel at (9,3), pen 6 — differs on planes 1 and 2, byte
+    ;; column 1, so the box is the second byte of row 3
+    (let ((b (make-image 24 8 3)))
+      (setf (pixel-ref b 2 2) 5
+            (pixel-ref b 9 3) 6)
+      (check "a single pixel: its byte column, its row" '(8 3 8 1)
+             (planar-diff-rect (planar base) (planar b))))
+    ;; opposite corners span the whole image
+    (let ((b (make-image 24 8 3)))
+      (setf (pixel-ref b 2 2) 5
+            (pixel-ref b 0 0) 1
+            (pixel-ref b 23 7) 1)
+      (check "corner-to-corner spans the image" '(0 0 24 8)
+             (planar-diff-rect (planar base) (planar b)))))
+  ;; x+w clamps to the width, not the padded row (20px pads to 32)
+  (let ((a (make-image 20 4 2))
+        (b (make-image 20 4 2)))
+    (setf (pixel-ref b 19 1) 3)
+    (check "the box clamps to the width, not the row padding"
+           '(16 1 4 1)
+           (planar-diff-rect (planar a) (planar b))))
+  ;; mismatched geometry is a broken pack, not frame data
+  (check-error "diff rejects mismatched geometry"
+    (planar-diff-rect (planar (make-image 16 8 2))
+                      (planar (make-image 16 4 2)))))
+
+;; %RECT-UNION grows the box over a whole frame set
+(check "rect union bounds both boxes" '(0 0 16 16)
+       (%rect-union '(0 0 4 4) '(8 8 8 8)))
+(check "rect union with nothing yet" '(3 4 5 6)
+       (%rect-union nil '(3 4 5 6)))
+(check "rect union of nothing" nil (%rect-union nil nil))
+
+;; The placeholder art tools draw the frames a pack generator writes
+;; under the -fN names: frame 1 must differ from frame 0 (or nothing
+;; animates) at unchanged geometry (or the loader rejects the file).
+(load "tools/gen-walls.lisp")
+(let ((f0 (draw-effect-icon :flame))
+      (f1 (draw-effect-icon :flame 1)))
+  (check "flame frames share geometry" (list (image-width f0)
+                                             (image-height f0)
+                                             (image-depth f0))
+         (list (image-width f1) (image-height f1) (image-depth f1)))
+  (check-true "flame frame 1 flickers"
+              (not (equalp (image-pixels f0) (image-pixels f1)))))
+(check "the compass icon holds still whatever the frame says" t
+       (equalp (image-pixels (draw-effect-icon :compass))
+               (image-pixels (draw-effect-icon :compass 1))))
+(dolist (style '(:beast :goblin :undead :brigand :plain))
+  (let ((f0 (draw-monster-portrait style 64 64))
+        (f1 (draw-monster-portrait style 64 64 1)))
+    (check (format nil "monster ~A frames share geometry" style)
+           (list (image-width f0) (image-height f0))
+           (list (image-width f1) (image-height f1)))
+    (check-true (format nil "monster ~A frame 1 pulses" style)
+                (not (equalp (image-pixels f0) (image-pixels f1))))))
+
+;;; ---------------------------------------------------------------------
 ;;; Pointer sprites: an image becomes hardware-sprite plane words, the
 ;;; hot spot is the topmost-leftmost inked pixel, and the built-in
 ;;; hand pointer honors both.  (The SetPointer glue is Amiga-only —

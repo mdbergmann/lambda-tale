@@ -536,6 +536,27 @@ and a green (cloth, blood, scales, slime), and a bone highlight.
 Every pack's `palette.gpl` marks each entry `[FIXED]` or as the pack's
 own, so this contract is visible in the file an artist opens.
 
+### Animated images
+
+Any image the view column or the effects band shows — a monster
+portrait, a location picture, an effect icon — may ship **animation
+frames** beside it: `mon-kobold.iff` is frame 0, `mon-kobold-f1.iff`,
+`mon-kobold-f2.iff`, … the frames after it, probed in order until one
+is missing (the wall pieces' `-v1`/`-v2` variant convention applied to
+time instead of style).  Frames must match the base image's size and
+follow the same pen contract; the placeholder generators
+(`draw-monster-portrait`, `draw-effect-icon :flame`) take a frame
+argument and draw a two-frame pulse.
+
+On the Amiga the frames cycle in place at ~3 steps a second on the
+window's INTUITICKS heartbeat — never through a full redraw.  At load
+time the frames are diffed against the base and only the rectangle
+where they actually differ is re-blitted per step, so a portrait that
+only moves its eyes costs an eyes-sized blit, not a viewport-sized
+one.  Identical frames are dropped at load; a mis-sized frame is a
+loud error like any mis-sized pack piece.  The host renderer ignores
+frames entirely.
+
 ### How a pack loads
 
 Pack art is plain IFF ILBM — planar, ByteRun1-compressed, exactly what

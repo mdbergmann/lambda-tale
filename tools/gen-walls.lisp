@@ -567,10 +567,14 @@ floor as one flat mid grey (no distance shading)."
     (0 0 0) (0 0 0) (0 0 0) (0 0 0))
   "CMAP for the icon files: the UI pens 0-3 plus opaque black at 4.")
 
-(defun draw-effect-icon (kind)
+(defun draw-effect-icon (kind &optional (frame 0))
   "A 16x16 effects-band icon image for KIND — :compass (the rose in
 miniature: black diamond, amber north needle), :flame (an amber
-teardrop) or :shield (a grey kite with an amber boss)."
+teardrop) or :shield (a grey kite with an amber boss).  FRAME 1 is the
+flame's flicker (the tongue leans, a white-hot core opens) — write it
+beside the base file under the -f1 name (IMAGE-FRAME-FILE) and the
+Amiga band animates the icon in place; the other kinds hold still
+whatever FRAME says."
   (let ((img (make-image *effect-icon-size* *effect-icon-size* 3
                          :palette *effect-icon-palette*)))
     (ecase kind
@@ -582,11 +586,21 @@ teardrop) or :shield (a grey kite with an amber boss)."
        (loop for y from 2 to 7
              do (setf (pixel-ref img 7 y) 3)))
       (:flame
-       (loop for y from 2 to 13
-             do (let ((hw (min 4 (floor (- y 1) 3))))
-                  (loop for x from (- 7 hw) to (+ 7 hw)
-                        do (setf (pixel-ref img x y)
-                                 (if (= (abs (- x 7)) hw) 4 3))))))
+       (let ((top (if (zerop frame) 2 3))
+             (lean (if (zerop frame) 0 1)))
+         (loop for y from top to 13
+               do (let ((hw (min 4 (floor (- y 1) 3)))
+                        ;; the tongue (the narrow rows) leans on frame 1
+                        (cx (if (< y 8) (+ 7 lean) 7)))
+                    (loop for x from (- cx hw) to (+ cx hw)
+                          do (setf (pixel-ref img x y)
+                                   (if (= (abs (- x cx)) hw) 4 3)))))
+         (unless (zerop frame)
+           ;; the white-hot core in the flame's body
+           (loop for y from 9 to 12
+                 do (let ((hw (- 2 (abs (- y 11)))))
+                      (loop for x from (- 7 hw) to (+ 7 hw)
+                            do (setf (pixel-ref img x y) 1)))))))
       (:shield
        (loop for y from 2 to 13
              do (let ((hw (if (<= y 8) 5 (- 13 y))))
@@ -768,7 +782,8 @@ or :PLAIN (a bare head)."
     img))
 
 (defun draw-monster-portrait (style &optional (w *portrait-size*)
-                                              (h *portrait-size*))
+                                              (h *portrait-size*)
+                                              (frame 0))
   "A W x H bust portrait placeholder for a monster type
 \(DEFINE-MONSTER :IMAGE) — the Amiga front-end shows it in the view
 column for as long as the fight lasts.  Same bust framing as
@@ -776,8 +791,12 @@ DRAW-PORTRAIT, but the eyes burn amber and STYLE picks the head:
 :BEAST (a snouted animal head with upright ears), :GOBLIN (a squat
 head with long pointed ears and a fang), :UNDEAD (a bare skull with
 black sockets and a tooth row), :BRIGAND (a hooded head with the
-face in shadow) or :PLAIN (a bare head).  Placeholder art: a game
-with real monster pictures ships those instead."
+face in shadow) or :PLAIN (a bare head).  FRAME 1 is the menace
+pulse — the eyes flash white, a skull's black sockets catch amber —
+written beside the base file under the -f1 name (IMAGE-FRAME-FILE);
+the Amiga view cycles the two in place, re-blitting only the eyes'
+rectangle.  Placeholder art: a game with real monster pictures ships
+those instead."
   (let* ((img (make-image w h 2 :palette *picture-palette*))
          (cx (floor w 2))
          (cy (floor (* 2 h) 5))
@@ -837,11 +856,14 @@ with real monster pictures ships those instead."
                   (+ cx rx -2) (+ cy (floor ry 8)) 0))
       (:plain))
     ;; the eyes go on last, so no headgear buries them: amber slits,
-    ;; black sockets in the skull's bone
+    ;; black sockets in the skull's bone — and on frame 1 the pulse:
+    ;; live eyes flash white, the skull's sockets catch amber
     (let ((ex (floor rx 2))
           (ey (floor ry 4))
           (ew (max 1 (floor w 32)))
-          (pen (if skull 0 3)))
+          (pen (cond ((plusp frame) (if skull 3 1))
+                     (skull 0)
+                     (t 3))))
       (%img-fill img (- cx ex ew) (- cy ey) (- cx ex -1) (+ (- cy ey) ew) pen)
       (%img-fill img (+ cx ex -1) (- cy ey) (+ cx ex ew) (+ (- cy ey) ew) pen))
     img))

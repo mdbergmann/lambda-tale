@@ -496,6 +496,92 @@ allowed in a FORM ILBM)" file))
       image)))
 
 ;;; ---------------------------------------------------------------------
+;;; Animation frames
+;;;
+;;; An image file may ship extra animation frames beside it — the wall
+;;; pieces' -vN style-variant convention applied to time instead of
+;;; style: "mon.iff" is frame 0, "mon-f1.iff", "mon-f2.iff", ... the
+;;; frames after it, probed in order until one is missing.  The Amiga
+;;; front end cycles a frame set in place on the INTUITICKS heartbeat
+;;; (see the anim stepper in amiga-ui.lisp), re-blitting only the
+;;; rectangle where the frames actually differ — PLANAR-DIFF-RECT
+;;; bounds it at load time, so a portrait that only moves its eyes
+;;; costs an eyes-sized blit per step, not a viewport-sized one.
+;;; Everything else (the host renderer, the tools) ignores frames.
+
+(defun image-frame-file (path n)
+  "File name of PATH's Nth animation frame, e.g. \"mon-kobold.iff\" ->
+\"mon-kobold-f1.iff\" — the optional in-place animation a pack may
+ship beside any image the view shows (portraits, effect icons,
+location pictures)."
+  (let ((dot (or (position #\. path :from-end t) (length path))))
+    (format nil "~A-f~D~A" (subseq path 0 dot) n (subseq path dot))))
+
+(defun image-frame-files (path)
+  "The animation frame files shipped beside PATH: -f1, -f2, ... probed
+in order until one is missing.  Returns the list of file names in
+frame order — NIL for a still image."
+  (loop for n from 1
+        for file = (image-frame-file path n)
+        while (probe-file file)
+        collect file))
+
+(defun planar-diff-rect (a b)
+  "The bounding rectangle of the pixels where PLANAR-IMAGEs A and B
+differ, as the list (X Y W H) — X and W byte-aligned (multiples of 8:
+the compare walks the packed plane bytes, which is what keeps it a
+handful of C-loop MISMATCH calls per row instead of a fold per pixel),
+X+W clamped to the width.  NIL when the images are identical.  A and B
+must share geometry and depth — frames of one animation — anything
+else signals."
+  (let ((w (planar-image-width a))
+        (h (planar-image-height a))
+        (depth (planar-image-depth a))
+        (row-bytes (planar-image-row-bytes a)))
+    (unless (and (= w (planar-image-width b))
+                 (= h (planar-image-height b))
+                 (= depth (planar-image-depth b)))
+      (error "PLANAR-DIFF-RECT: ~Dx~Dx~D vs ~Dx~Dx~D — animation ~
+frames must share the base image's geometry"
+             w h depth
+             (planar-image-width b) (planar-image-height b)
+             (planar-image-depth b)))
+    (let ((bx0 row-bytes) (bx1 -1) (y0 h) (y1 -1))
+      (dotimes (p depth)
+        (let ((pa (planar-image-plane a p))
+              (pb (planar-image-plane b p)))
+          (dotimes (y h)
+            (let* ((start (* y row-bytes))
+                   (end (+ start row-bytes))
+                   (lo (mismatch pa pb :start1 start :end1 end
+                                       :start2 start :end2 end)))
+              (when lo
+                ;; MISMATCH :FROM-END returns one PAST the rightmost
+                ;; differing position (CLHS 17.3.1.1)
+                (let ((hi (1- (mismatch pa pb :from-end t
+                                              :start1 start :end1 end
+                                              :start2 start :end2 end))))
+                  (setf bx0 (min bx0 (- lo start))
+                        bx1 (max bx1 (- hi start))
+                        y0 (min y0 y)
+                        y1 (max y1 y))))))))
+      (when (>= bx1 0)
+        (let ((x (ash bx0 3)))
+          (list x y0 (- (min w (ash (1+ bx1) 3)) x) (- y1 y0 -1)))))))
+
+(defun %rect-union (a b)
+  "The bounding box of rectangles A and B, each (X Y W H) or NIL."
+  (cond ((null a) b)
+        ((null b) a)
+        (t (destructuring-bind (ax ay aw ah) a
+             (destructuring-bind (bx by bw bh) b
+               (let ((x (min ax bx))
+                     (y (min ay by)))
+                 (list x y
+                       (- (max (+ ax aw) (+ bx bw)) x)
+                       (- (max (+ ay ah) (+ by bh)) y))))))))
+
+;;; ---------------------------------------------------------------------
 ;;; Writer
 
 (defun %chunky-row-to-planes (image y row-bytes)

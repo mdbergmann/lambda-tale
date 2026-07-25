@@ -927,23 +927,15 @@ FN directly under the already-shown pointer."
 ;;; image uses pen 0.  A file that will not load logs once and its
 ;;; user falls back (text label, first-person view).
 
-(defun %load-image (rp path)
-  "Load the ILBM at PATH into an offscreen bitmap; returns the cache
-entry (BITMAP WIDTH HEIGHT MASK), MASK NIL for an opaque image.  The
+(defun %upload-planar (img friend depth)
+  "PLANAR-IMAGE IMG as a fresh offscreen friend-format bitmap — the
 wall-piece planar recipe: the plane rows go into a scratch planar
 BitMap and the blitter moves them into the friend-format bitmap —
-no per-pixel chunky fold, no WriteChunkyPixels, and the mask goes to
-chip RAM in one POKE-BYTES instead of a poke per byte (a location
-picture cost ~30s on a 68020 through the chunky path)."
-  (let* ((img (read-ilbm-planar path))
-         (w (planar-image-width img))
+no per-pixel chunky fold, no WriteChunkyPixels (a location picture
+cost ~30s on a 68020 through the chunky path)."
+  (let* ((w (planar-image-width img))
          (h (planar-image-height img))
-         (friend (%window-bitmap rp))
-         (depth (max 2 (amiga.gfx:get-bitmap-attr friend
-                                                  amiga.gfx:+bma-depth+)
-                     (planar-image-depth img)))
          (bm (amiga.gfx:alloc-bitmap w h depth :friend friend))
-         (mask (%planar-piece-mask img))
          (scratch (amiga.gfx:alloc-bitmap w h depth)))
     (unwind-protect
          (progn
@@ -951,10 +943,69 @@ picture cost ~30s on a 68020 through the chunky path)."
            (amiga.gfx:with-bitmap-rastport (brp bm)
              (amiga.gfx:blt-bitmap-rastport scratch 0 0 brp 0 0 w h)))
       (amiga.gfx:free-bitmap scratch))
-    (list bm w h mask)))
+    bm))
+
+(defun %load-image (rp path)
+  "Load the ILBM at PATH into an offscreen bitmap; returns the cache
+entry (BITMAP WIDTH HEIGHT MASK FRAMES RECT), MASK NIL for an opaque
+image, and the mask goes to chip RAM in one POKE-BYTES instead of a
+poke per byte.  FRAMES/RECT carry the optional in-place animation
+shipped beside PATH (see IMAGE-FRAME-FILES): FRAMES a vector of
+(BITMAP . MASK) conses, element 0 the base image itself, and RECT the
+(X Y W H) box bounding every pixel any frame changes — the anim
+stepper re-blits only that box.  Both NIL for a still image (no frame
+files, or frames identical to the base).  A mis-sized frame signals,
+like a mis-sized pack piece: a broken pack should say so, not animate
+garbage."
+  (let* ((img (read-ilbm-planar path))
+         (w (planar-image-width img))
+         (h (planar-image-height img))
+         (friend (%window-bitmap rp))
+         (depth (max 2 (amiga.gfx:get-bitmap-attr friend
+                                                  amiga.gfx:+bma-depth+)
+                     (planar-image-depth img)))
+         (bm (%upload-planar img friend depth))
+         (mask (%planar-piece-mask img))
+         (frames '())
+         (rect nil)
+         (ok nil))
+    (unwind-protect
+         (progn
+           (dolist (file (image-frame-files path))
+             (let ((fimg (read-ilbm-planar file)))
+               (unless (and (= w (planar-image-width fimg))
+                            (= h (planar-image-height fimg)))
+                 (error "~A is ~Dx~D, its base frame ~A is ~Dx~D"
+                        file (planar-image-width fimg)
+                        (planar-image-height fimg) path w h))
+               (push (cons (%upload-planar fimg friend depth)
+                           (%planar-piece-mask fimg))
+                     frames)
+               (setf rect (%rect-union rect (planar-diff-rect img fimg)))))
+           (setf ok t))
+      ;; a bad frame file must not leak the bitmaps loaded before it
+      ;; (the caller logs the error and marks the path :missing)
+      (unless ok
+        (dolist (f frames)
+          (amiga.gfx:free-bitmap (car f))
+          (when (cdr f) (amiga:free-chip (cdr f))))
+        (amiga.gfx:free-bitmap bm)
+        (when mask (amiga:free-chip mask))))
+    ;; frames that never differ from the base animate nothing: drop
+    ;; them so the stepper has no record to chew on
+    (when (and frames (null rect))
+      (dolist (f frames)
+        (amiga.gfx:free-bitmap (car f))
+        (when (cdr f) (amiga:free-chip (cdr f))))
+      (setf frames '()))
+    (list bm w h mask
+          (when frames
+            (coerce (cons (cons bm mask) (nreverse frames)) 'vector))
+          rect)))
 
 (defun %cached-image (rp images path log)
-  "The cached entry (BITMAP WIDTH HEIGHT MASK) for the ILBM at PATH,
+  "The cached entry (BITMAP WIDTH HEIGHT MASK FRAMES RECT) for the
+ILBM at PATH,
 loading it on first sight, or NIL — PATH is NIL, or the file would
 not load (said once in the log).  A first-sight load reads an ILBM
 from disk — seconds at 14MHz (a location picture on entering a shop),
@@ -977,31 +1028,100 @@ so it runs under the busy pointer."
               (t (load-it)))))))
 
 (defun %effect-icon (rp images game effect log)
-  "EFFECT's cached icon entry (BITMAP WIDTH HEIGHT MASK), or NIL — no
-:image, or the file would not load (the band falls back to nothing)."
+  "EFFECT's cached icon entry (BITMAP WIDTH HEIGHT MASK FRAMES RECT),
+or NIL — no :image, or the file would not load (the band falls back to
+nothing)."
   (%cached-image rp images (effect-image-path game effect) log))
 
 (defun %free-images (images)
-  "Free the cached image bitmaps and masks; safe with NIL."
+  "Free the cached image bitmaps and masks — animation frames too
+(their element 0 is the entry's own bitmap/mask, freed once); safe
+with NIL."
   (when images
     (maphash (lambda (path entry)
                (declare (ignore path))
                (unless (eq entry :missing)
                  (amiga.gfx:free-bitmap (first entry))
                  (when (fourth entry)
-                   (amiga:free-chip (fourth entry)))))
+                   (amiga:free-chip (fourth entry)))
+                 (let ((frames (fifth entry)))
+                   (when frames
+                     (loop for i from 1 below (length frames)
+                           for f = (aref frames i)
+                           do (amiga.gfx:free-bitmap (car f))
+                              (when (cdr f)
+                                (amiga:free-chip (cdr f))))))))
              images))
   nil)
+
+;;; In-place animation: an image with -fN frame files beside it (see
+;;; IMAGE-FRAME-FILES and the FRAMES/RECT slots of the cache entry)
+;;; cycles on the INTUITICKS heartbeat.  The two picture renderers
+;;; register a blit record for every animated image they draw; the
+;;; INTUITICKS handler advances the frame counter every few ticks and
+;;; re-blits each record's changed rectangle IN PLACE — never through
+;;; REDRAW, whose monolithic repaint (picture + band + log + roster)
+;;; is exactly what a 14MHz 68020 cannot afford ten times a second.
+;;; REDRAW clears the records before it paints, so a page that draws
+;;; no picture or band (the map, help, an overlay menu) leaves the
+;;; stepper with nothing to blit and the animation stops by itself.
+
+(defvar *anim-blits* '()
+  "Blit records for the animated images on screen, rebuilt by every
+REDRAW.  (:PICTURE FRAMES SX SY DX DY W H): blit the current frame's
+SX/SY W-x-H sub-rectangle — the dirty rect, pre-cropped to the visible
+window — opaque to DX/DY.  (:ICON FRAMES X Y W H): grey-wipe the band
+slot and cookie-cut the whole current frame back over it (frames may
+disagree about which pixels are transparent, so a masked blit alone
+could not erase the previous frame).")
+
+(defvar *anim-step* 0
+  "The animation frame counter: every record shows its frame
+(MOD *ANIM-STEP* frame-count), so all animations stay in lockstep and
+a redraw mid-cycle repaints the frame the stepper is showing rather
+than snapping back to frame 0.")
+
+(defconstant +anim-ticks-per-step+ 3
+  "INTUITICKS per animation step.  Ticks arrive ~10/s, so 3 gives the
+~3 frames/s shuffle of the classic monster portraits — and a third of
+the blit cost of stepping on every tick.")
+
+(defun %anim-frame (frames)
+  "The (BITMAP . MASK) cons FRAMES shows at the current step."
+  (aref frames (mod *anim-step* (length frames))))
+
+(defun %anim-blit-step (rp)
+  "One animation heartbeat: advance the frame counter and re-blit
+every record's changed rectangle in place."
+  (incf *anim-step*)
+  (dolist (r *anim-blits*)
+    (ecase (first r)
+      (:picture
+       (destructuring-bind (frames sx sy dx dy w h) (rest r)
+         (amiga.gfx:blt-bitmap-rastport (car (%anim-frame frames))
+                                        sx sy rp dx dy w h)))
+      (:icon
+       (destructuring-bind (frames x y w h) (rest r)
+         (let ((f (%anim-frame frames)))
+           (amiga.gfx:set-a-pen rp 2)
+           (amiga.gfx:rect-fill rp x y (+ x w -1) (+ y h -1))
+           (if (cdr f)
+               (amiga.gfx:blt-mask-bitmap-rastport (car f) 0 0 rp x y w h
+                                                   (cdr f))
+               (amiga.gfx:blt-bitmap-rastport (car f) 0 0 rp x y w h))
+           (amiga.gfx:set-a-pen rp 1)))))))
 
 (defun %amiga-draw-picture (rp images path l log)
   "Draw the ILBM at PATH in the view slot — black backdrop, the image
 centered (center-cropped when it overhangs the viewport).  Returns T,
 or NIL — no PATH, or the file would not load — so the caller can fall
 back to the first-person view.  Pictures blit opaque: over the black
-backdrop a pen-0 pixel and a masked-out pixel look the same."
+backdrop a pen-0 pixel and a masked-out pixel look the same.  An
+animated picture draws its current frame and registers the visible
+part of its dirty rect with the stepper."
   (let ((entry (%cached-image rp images path log)))
     (when entry
-      (destructuring-bind (bm iw ih mask) entry
+      (destructuring-bind (bm iw ih mask frames rect) entry
         (declare (ignore mask))
         (let* ((ox (ui-layout-bx l))
                (oy (ui-layout-by l))
@@ -1013,6 +1133,20 @@ backdrop a pen-0 pixel and a masked-out pixel look the same."
                (sy (max 0 (floor (- ih h) 2)))
                (dx (+ ox (max 0 (floor (- w iw) 2))))
                (dy (+ oy (max 0 (floor (- h ih) 2)))))
+          (when frames
+            (setf bm (car (%anim-frame frames)))
+            (destructuring-bind (rx ry rw rh) rect
+              (let ((ix0 (max rx sx))
+                    (iy0 (max ry sy))
+                    (ix1 (min (+ rx rw) (+ sx bw)))
+                    (iy1 (min (+ ry rh) (+ sy bh))))
+                ;; a center-crop may push the moving part off screen
+                ;; entirely — then there is nothing to step
+                (when (and (< ix0 ix1) (< iy0 iy1))
+                  (push (list :picture frames ix0 iy0
+                              (+ dx (- ix0 sx)) (+ dy (- iy0 sy))
+                              (- ix1 ix0) (- iy1 iy0))
+                        *anim-blits*)))))
           (amiga.gfx:set-a-pen rp 0)
           (amiga.gfx:rect-fill rp ox oy (+ ox w -1) (+ oy h -1))
           (amiga.gfx:set-a-pen rp 1)
@@ -1195,9 +1329,18 @@ fixed spot.  An effect with neither icon nor :COMPASS shows nothing."
         (t
          (let ((entry (and icons (%effect-icon rp icons game e log))))
            (when entry
-             (destructuring-bind (bm iw ih mask) entry
+             (destructuring-bind (bm iw ih mask frames rect) entry
+               (declare (ignore rect))
+               (when frames
+                 ;; the icon's current animation frame — and its slot
+                 ;; goes to the stepper (the whole 16px icon: at that
+                 ;; size a dirty-rect blit saves nothing)
+                 (let ((f (%anim-frame frames)))
+                   (setf bm (car f) mask (cdr f))))
                (when (and (<= (+ x iw -1) right) (<= ih band-h))
                  (let ((y (+ band-y (max 0 (floor (- band-h ih) 2)))))
+                   (when frames
+                     (push (list :icon frames x y iw ih) *anim-blits*))
                    (if mask
                        (amiga.gfx:blt-mask-bitmap-rastport
                         bm 0 0 rp x y iw ih mask)
@@ -1847,6 +1990,8 @@ map/help/sheet pages close on a click outside a target — see
          (idle-base nil)    ; internal-real-time the idle clock last
                             ; consumed, or NIL when not standing idle
                             ; (see the INTUITICKS handler's living clock)
+         (anim-ticks 0)     ; INTUITICKS since the last animation step
+                            ; (see +ANIM-TICKS-PER-STEP+)
          (over nil))
     (dlog "play-amiga ~A display ~S profile ~S draw-depth ~D"
           map-file display (display-profile-name *display-profile*)
@@ -2066,6 +2211,11 @@ map/help/sheet pages close on a click outside a target — see
                                                             game))))
                                        (redraw)))))))))
                         (redraw ()
+                          ;; every redraw re-registers what animates on
+                          ;; the page it paints — a page with no
+                          ;; picture or band (map, help, an overlay
+                          ;; menu) thereby stops the anim stepper
+                          (setf *anim-blits* '())
                           ;; travel switched zones: swap in the zone's
                           ;; tile pack and repaint the chrome first
                           ;; (the plaque carries the zone title)
@@ -2534,6 +2684,10 @@ map/help/sheet pages close on a click outside a target — see
                          (%chrome-bg rp win l)
                          (%chrome-frames rp game l)
                          (setf pace-fn #'pace)
+                         ;; a fresh session's animations start at frame
+                         ;; 0 — keeps the unattended autoplay sessions
+                         ;; deterministic
+                         (setf *anim-step* 0)
                          (redraw))
                        (dlog "first frame up [launch+~D ms]"
                              (%dlog-elapsed-ms 0))
@@ -2586,6 +2740,14 @@ map/help/sheet pages close on a click outside a target — see
                            ;; modal picker — and the base resets there so
                            ;; a paused stretch never dumps in at once.
                            (idle-clock)
+                           ;; the animation heartbeat: re-blit the
+                           ;; registered dirty rectangles in place —
+                           ;; never a REDRAW (see *ANIM-BLITS*)
+                           (when (and *anim-blits*
+                                      (>= (incf anim-ticks)
+                                          +anim-ticks-per-step+))
+                             (setf anim-ticks 0)
+                             (%anim-blit-step rp))
                            (when *autoplay*
                              ;; a scripted entry is a key, or a
                              ;; (:click X Y) resolved through the same
@@ -2599,7 +2761,8 @@ map/help/sheet pages close on a click outside a target — see
                                (when (and c (eq (act c) :quit))
                                  (return)))))))
                    (%free-standard-pointer win)
-                   (setf walls (%free-wall-assets walls)
+                   (setf *anim-blits* '()   ; records hold freed bitmaps
+                         walls (%free-wall-assets walls)
                          pack-cache (%pack-cache-free-all pack-cache)
                          icons (%free-images icons)
                          log-lines (%free-log-lines log-lines))))))))))))))))
