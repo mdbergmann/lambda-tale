@@ -111,7 +111,7 @@ to the cell the party just left."
          (say game "~A" text))
        (dolist (h (alive-heroes game))
          (let ((n (max 0 (roll-dice dice))))
-           (say game "~A takes ~D damage." (hero-name h) n)
+           (say game "~A TAKES ~D damage." (hero-name h) n)
            (damage-hero game h n)))))
     (heal
      (dolist (h (alive-heroes game))

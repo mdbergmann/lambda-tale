@@ -132,13 +132,15 @@ may be dice (see PARSE-DICE).  Returns the new COMBAT."
 
 (defun %strike-monster (game attacker-name monster dmg)
   "Apply DMG to MONSTER with the hit/slay transcript — shared by melee
-and damage spells so the log reads the same either way."
+and damage spells so the log reads the same either way.  The verbs are
+CAPITALS on purpose: landed damage must stand out when the transcript
+scrolls by, while misses stay lowercase and quiet."
   (let ((type (monster-kind monster)))
     (decf (monster-hp monster) dmg)
     (if (monster-alive-p monster)
-        (say game "~A hits the ~A for ~D damage."
+        (say game "~A HITS the ~A for ~D damage."
              attacker-name (monster-type-name type) dmg)
-        (say game "~A slays the ~A!"
+        (say game "~A SLAYS the ~A!"
              attacker-name (monster-type-name type)))))
 
 (defun %hero-attack (game hero monster)
@@ -173,7 +175,7 @@ a hit — the chance grows one point per hero level."
                            (effects-foes-attack game))
                        ac)
         (let ((dmg (max 1 (roll-dice (monster-type-damage type)))))
-          (say game "The ~A hits ~A for ~D damage."
+          (say game "The ~A HITS ~A for ~D damage."
                (monster-type-name type) (hero-name hero) dmg)
           (damage-hero game hero dmg))
         (say game "The ~A misses ~A."

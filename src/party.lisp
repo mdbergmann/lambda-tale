@@ -361,7 +361,7 @@ The shop pages and the character sheet offer it on 'g'."
 and :PARTY-DEFEATED when nobody is left standing.  Returns remaining hp."
   (setf (hero-hp hero) (max 0 (- (hero-hp hero) amount)))
   (when (zerop (hero-hp hero))
-    (say game "~A falls!" (hero-name hero))
+    (say game "~A FALLS!" (hero-name hero))
     (emit game :hero-died hero)
     (unless (party-alive-p game)
       (emit game :party-defeated)))

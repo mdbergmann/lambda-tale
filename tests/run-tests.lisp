@@ -2200,7 +2200,7 @@ height" d)
     (damage-hero g h 999))
   (check-true "party-defeated event after the last hero" wiped)
   (check "party-alive-p when wiped" nil (party-alive-p g))
-  (check-true "fall message emitted" (search "falls" (first (funcall msgs)))))
+  (check-true "fall message emitted" (search "FALLS" (first (funcall msgs)))))
 
 ;; The roster holds up to +party-limit+ (7) members: 6 heroes + 1 guest.
 (check "party limit is seven" 7 +party-limit+)
@@ -2400,7 +2400,7 @@ height" d)
   (check "xp awarded" 10 (hero-xp h))
   (check "gold awarded" 6 (hero-gold h))
   (check-true "slain message"
-              (find-if (lambda (s) (search "slays" s)) (funcall msgs)))
+              (find-if (lambda (s) (search "SLAYS" s)) (funcall msgs)))
   (check-true "victory message"
               (find-if (lambda (s) (search "Victory" s)) (funcall msgs))))
 
@@ -2580,7 +2580,7 @@ height" d)
               (find-if (lambda (s) (search "casts test bolt" s))
                        (funcall msgs)))
   (check-true "spell kill reads like a kill"
-              (find-if (lambda (s) (search "slays the test rat" s))
+              (find-if (lambda (s) (search "SLAYS the test rat" s))
                        (funcall msgs))))
 
 ;; Heal targets a chosen hero; buffs and light become timed effects.
@@ -3017,7 +3017,7 @@ height" d)
   (check-true "a lucky doom casts"
               (with-rng (10) (cast-spell g mage 'test-doom)))
   (check-true "it slays outright"
-              (find-if (lambda (s) (search "slays the test rat" s))
+              (find-if (lambda (s) (search "SLAYS the test rat" s))
                        (funcall msgs)))
   (check "nothing is left" nil (alive-monsters (game-combat g))))
 (let* ((m (parse-map *art* :name "test"))
@@ -3199,7 +3199,7 @@ height" d)
   ;; d20=10 hits; the crit roll 50 fails; 1d6=2 -> 3 damage, no kill
   (with-rng (10 50 2 0 0) (combat-round g '(:attack)))
   (check-true "an ordinary blow lands without the killing eye"
-              (find-if (lambda (s) (search "hits the test bat for 3" s))
+              (find-if (lambda (s) (search "HITS the test bat for 3" s))
                        (funcall msgs)))
   (check-true "the bat fights on" (game-combat g)))
 
