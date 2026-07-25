@@ -350,8 +350,7 @@ beneath, when it carries one."
                  "Usable, consumed on use"
                  "Usable")))
      (when (item-type-description type)
-       (list "" (item-type-description type)))
-     (list "" "[Esc] back"))))
+       (list "" (item-type-description type))))))
 
 (defun equip-lines (game view)
   "The pack page as a list of menu lines — the front-ends draw these
@@ -380,8 +379,7 @@ for the item picked on the inspect page)."
                            i (format nil "~D) ~A  (pack ~D/~D)~A" i (hero-name h)
                                      (length (hero-items h)) +inventory-limit+
                                      (if (eq h hero) " (giver)" ""))))
-                        (game-party game)))
-              (list "" "[1-7] choose" "[Esc] back"))
+                        (game-party game))))
              (append
               (list (format nil "AC ~D   Attack ~A"
                             (hero-effective-ac hero game) (hero-attack-dice hero))
@@ -396,11 +394,17 @@ for the item picked on the inspect page)."
                                 (item-hand-marker name)
                                 (item-fit-marker hero name)))))
                   (list "The pack is empty."))
+              ;; the give/inspect modes need a prompt row — without it
+              ;; the three pack pages would be indistinguishable; the
+              ;; pack page keeps its own letter keys (first letter
+              ;; picks), while the digit pick and Esc are the help
+              ;; screen's business
               (case (equip-view-mode view)
-                (:give (list "" "[1-9] give" "[Esc] back"))
-                (:inspect (list "" "[1-9] inspect" "[Esc] back"))
-                (t (list "" "[1-9] equip/remove" "[P]ass an item"
-                         "[I]nspect an item" "[Esc] back")))))))))
+                (:give (list "" "Give what?"))
+                (:inspect (list "" "Inspect what?"))
+                (t (list ""
+                         (menu-option #\p "Pass an item")
+                         (menu-option #\i "Inspect an item"))))))))))
 
 (defun equip-act (game view char)
   "Apply key CHAR to the pack page.  On the pack itself a digit toggles
@@ -628,8 +632,7 @@ key (see MENU-NUMBERED)."
                       i (format nil "~D) ~A  (~D usable)"
                                 i (hero-name h)
                                 (length (usable-items h)))))
-                   (game-party game)))
-         (list "" "[1-7] choose" "[Esc] cancel")))
+                   (game-party game)))))
        ((null item)
         (append
          (list (format nil "~A uses." (hero-name hero)) "")
@@ -637,8 +640,7 @@ key (see MENU-NUMBERED)."
           (usable-items hero) (use-view-top view)
           (lambda (i name)
             (menu-numbered
-             i (format nil "~D) ~A" i (item-title name)))))
-         (list "" "[1-9] use" "[Esc] back")))
+             i (format nil "~D) ~A" i (item-title name)))))))
        (t                              ; a mending item picks its target
         (append
          (list (format nil "~A on whom?" (item-title item)) "")
@@ -649,8 +651,7 @@ key (see MENU-NUMBERED)."
                       i (format nil "~D) ~A  (HP ~D/~D)"
                                 i (hero-name h)
                                 (hero-hp h) (hero-max-hp h))))
-                   (game-party game)))
-         (list "" "[1-7] choose" "[Esc] back")))))))
+                   (game-party game)))))))))
 
 (defun use-act (game view char)
   "Apply key CHAR to the use menu.  Returns :DONE when a use resolved

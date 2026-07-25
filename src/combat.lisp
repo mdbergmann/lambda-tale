@@ -220,9 +220,10 @@ a hit — the chance grows one point per hero level."
 (defconstant +combat-speed-max+ 5
   "The fastest combat transcript speed: no lingering at all.")
 
-(defparameter *combat-speed* 3
+(defparameter *combat-speed* 1
   "Combat transcript speed, 1 (slow) .. +COMBAT-SPEED-MAX+ (instant).
-The +/- keys during the round orders adjust it.")
+Combat starts slow — the transcript should read like a fight the first
+time out; the +/- keys during the round orders speed it up.")
 
 (defun combat-message-delay ()
   "Seconds the front-ends linger on each combat message: 0.25s per
@@ -364,20 +365,21 @@ enemy the party faces, one row per living group."
 
 (defun %orders-hero-lines (game view)
   "The page that asks ONE hero for its order: the head block, the hero
-at hand, and the action keys."
+at hand, and the actions — the one choice the page cannot proceed
+without, so they stay on it, first letter as the key (no bracket
+noise).  The navigation keys (Esc undo, +/- speed) are common
+knowledge and live on the help screen instead.  The footer is two
+short rows on purpose: the page draws in the message column (the
+Amiga takeover), 27 characters wide at lores, and a row that has to
+wrap costs a line.  Every row here fits that column whole."
   (append
    (%orders-head-lines game)
    (list ""
          (format nil "What will ~A do?"
                  (hero-name (combat-orders-hero game view))))
-   ;; The footer is three short rows on purpose: the page draws in the
-   ;; message column (the Amiga takeover), 27 characters wide at
-   ;; lores, and a row that has to wrap costs a line.  Every row here
-   ;; fits that column whole.
    (list ""
-         "[a]ttack [d]efend [c]ast"
-         "[p]lay [u]se [f]lee"
-         (format nil "[Esc] undo  +/- speed ~D" *combat-speed*))))
+         "Attack  Defend  Cast"
+         "Play  Use  Flee")))
 
 (defun %orders-review-lines (game view)
   "The review page: every hero with the order it gave, and the
@@ -396,7 +398,7 @@ about."
            (combat-orders-chosen view))
    (list ""
          "Is this OK?"
-         "[y]es fight  [n]o redo")))
+         "Yes fight  No redo")))
 
 (defun combat-orders-lines (game view)
   "The round-orders page as menu lines (the SHOP-LINES pattern): the

@@ -221,8 +221,9 @@ also a window view on the Workbench screen (no custom palette):
 The whole game also **plays by mouse**: clicking the first-person view
 walks (left/right quarters turn, the middle steps forward, its bottom
 band steps back), clicking a roster row opens that character sheet,
-clicking a menu's numbered rows or its `[S]ell`-style footer hints
-acts as those keys, and the map/help/sheet pages close on a click
+clicking a menu's numbered rows or its `Sell`-style option rows (the
+first letter is the key) acts as those keys, and the map/help/sheet
+pages close on a click
 elsewhere.  Menu option rows carry their pick key (`menu-option` /
 `menu-numbered` in `src/events.lisp`), so front-ends map clicks to
 keys without parsing the text.  A menu list deeper than a page — a
@@ -886,8 +887,9 @@ with the enemy's portrait in the view column.  Then
 the round runs — heroes strike first, then every surviving monster
 swings at a random front-rank hero.  Each round opens with a
 `-- Round N --` line and its transcript plays out one message at a
-time; `+`/`-` set the pace (5 speeds, from a second per line to
-instant).  All randomness goes through
+time on a fresh page of its own; `+`/`-` set the pace (5 speeds, from
+a second per line — the starting pace — to instant).  All randomness
+goes through
 `*rng*`, so the test suite scripts entire fights deterministically.
 
 ## Spells

@@ -62,6 +62,7 @@
    #:on-event #:emit #:say #:flag #:set-flag #:clear-flag
    ;; message log (the Bard's Tale text column)
    #:attach-message-log #:log-message #:log-recent
+   #:log-length #:log-since
    #:wrap-text #:wrap-message
    ;; structured menu lines (option rows carry their pick key)
    #:menu-option #:menu-numbered #:menu-line-text #:menu-line-key

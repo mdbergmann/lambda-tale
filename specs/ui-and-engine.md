@@ -76,22 +76,24 @@ campaign data, never as code that knows about "the" town.
 - Menu lines are **structured** (2026-07-19): a pickable option row is
   `(TEXT . KEY)` (`menu-option`/`menu-numbered`, accessors
   `menu-line-text`/`menu-line-key` in events.lisp), plain lines stay
-  strings, and footer hints keep the bracket convention, Bard's Tale
-  style — the key leads the word where it can (`[S]ell`, `[G]old
-  pool`, `[Esc] back`), **one option per row** so a page with room
-  lists them vertically; `fit-menu-lines` packs the rows back
-  together (whole options only, never mid-hint) when a page runs out
-  of rows, and `menu-key-spans` locates the tokens.  A pointing
-  front-end maps
+  strings.  Since 2026-07-25 a page names **only its own keys** as
+  plain words whose first letter is the key (`Sell`, `Gold pool`),
+  each such row a `menu-option` so it clicks, **one option per row**;
+  the common navigation (digit picks, `Esc`, `u`/`d` scrolling,
+  `+`/`-` speed) lives on the help screen instead of on every page.
+  The older bracket-hint convention (`[S]ell  [Esc] back`) is still
+  understood: `fit-menu-lines` packs such rows back together (whole
+  options only, never mid-hint) when a page runs out of rows, and
+  `menu-key-spans` locates the tokens.  A pointing front-end maps
   clicks on either straight to the model's keys — the Amiga UI's
   hotspot list (`*hotspots*` in amiga-ui.lisp) is rebuilt on every
   redraw from exactly what was drawn, so the whole game plays by
-  mouse: walk zones on the view, roster rows, menu rows, footer
-  hints, and click-anywhere-to-close on the map/help/sheet pages.
+  mouse: walk zones on the view, roster rows, menu and option rows,
+  and click-anywhere-to-close on the map/help/sheet pages.
 - Menu lists **scroll** (2026-07-19): a list deeper than a page
   (`+menu-page-size+`, 7 — party-sized lists never scroll) windows to
-  page − 2 rows bracketed by clickable `^ more above [u]` /
-  `v more below [d]` marker rows; `u`/`d` move the window and digits
+  page − 2 rows bracketed by clickable `^ more above` /
+  `v more below` marker rows; `u`/`d` move the window and digits
   pick **within the visible window** (row 1 = the window's first
   row), which keeps every item of an arbitrarily long list reachable
   with single-digit keys.  The window math lives in one place

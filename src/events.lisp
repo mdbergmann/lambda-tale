@@ -86,6 +86,16 @@ to bottom with the newest line at the bottom."
   (let ((lines (message-log-lines log)))
     (reverse (subseq lines 0 (min n (length lines))))))
 
+(defun log-length (log)
+  "How many messages LOG currently holds (bounded by its limit)."
+  (length (message-log-lines log)))
+
+(defun log-since (log mark)
+  "The messages logged after the point where LOG held MARK lines,
+oldest first — the window a combat round's own transcript page shows."
+  (let ((lines (message-log-lines log)))
+    (reverse (subseq lines 0 (max 0 (- (length lines) mark))))))
+
 (defun wrap-text (text width)
   "Split TEXT into a list of lines at most WIDTH characters long,
 breaking at spaces; a word longer than WIDTH breaks mid-word.  Always
@@ -116,12 +126,14 @@ consecutive messages read as distinct paragraphs in the log."
 ;;; pickable option carries the key that picks it as (TEXT . KEY), so a
 ;;; pointing front-end can turn a click on the line into that key press
 ;;; without parsing the text.  Plain informational lines stay strings.
-;;; Footer hints keep their bracket convention and, Bard's Tale style,
-;;; lead with the key where it starts the word — "[S]ell", "[G]old
-;;; pool" — one option per row, so a page with room lists the options
-;;; vertically.  MENU-KEY-SPANS locates the tokens for per-segment
-;;; hotspots, and FIT-MENU-LINES packs the rows back together when a
-;;; page runs out of rows.
+;;; The pages name only their own keys — plain words whose first letter
+;;; is the key ("Sell", "Gold pool"), one option per row, each row a
+;;; MENU-OPTION so it clicks; the common navigation (digit picks, Esc,
+;;; u/d scrolling, +/- speed) lives on the help screen.  The older
+;;; bracket-hint convention ("[S]ell  [Esc] back") is still understood:
+;;; MENU-KEY-SPANS locates the tokens for per-segment hotspots, and
+;;; FIT-MENU-LINES packs such rows together when a page runs out of
+;;; rows.
 
 (defun menu-option (key text)
   "TEXT as a menu line that key KEY picks."
@@ -305,13 +317,13 @@ section occupies at most PAGE rows."
   (multiple-value-bind (start end above below)
       (menu-window (length items) top page)
     (append
-     (when above (list (menu-option #\u "^ more above [u]")))
+     (when above (list (menu-option #\u "^ more above")))
      (let ((i 0))
        (mapcar (lambda (item)
                  (incf i)
                  (funcall render i item))
                (subseq items start end)))
-     (when below (list (menu-option #\d "v more below [d]"))))))
+     (when below (list (menu-option #\d "v more below"))))))
 
 (defun %menu-token-key (token)
   "The key a footer bracket token names: a single character stands for

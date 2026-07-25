@@ -84,13 +84,14 @@ pick key (see MENU-NUMBERED)."
      (list (if (eq mode :save) "*** Save Game ***" "*** Load Game ***") "")
      (cond
        ((and (eq mode :save) (game-combat game))
-        (list "No saving during combat." "" "[Esc] back"))
+        (list "No saving during combat."))
        (entry
+        ;; a text-entry modal: the keys mean typing here, so the page
+        ;; says so — this is not the common navigation the help screen
+        ;; covers
         (list (format nil "New name: ~A_" entry)
               ""
-              "Type a name"
-              "[Return] save"
-              "[Esc] cancel"))
+              "Type a name; Return saves"))
        (t
         (append
          (if slots
@@ -101,10 +102,11 @@ pick key (see MENU-NUMBERED)."
                  i (format nil "~D) ~A" i name))))
              (list (if (eq mode :save) "No saved games yet." "No saved games.")))
          (if err (list "" err) nil)
-         (cons ""
-               (if (eq mode :save)
-                   (list "[1-9] overwrite" "[N]ew name" "[Esc] cancel")
-                   (list "[1-9] load" "[Esc] cancel")))))))))
+         ;; New name is this page's own key (first letter picks); a
+         ;; digit pick and Esc are common knowledge (the help screen
+         ;; carries them)
+         (when (eq mode :save)
+           (list "" (menu-option #\n "New name")))))))))
 
 (defun save-menu-act (game view char)
   "Apply key CHAR to the save/load menu.  Returns NIL (stay open),

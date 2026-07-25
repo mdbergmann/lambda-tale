@@ -251,10 +251,11 @@ overflowing the page."
   "The character-sheet page for roster slot INDEX as text lines: a
 header, the hero's stat block (windowed at scroll offset TOP when it
 overflows +SHEET-PAGE-SIZE+ rows, with clickable more-markers) and the
-key hints — the front-ends draw these verbatim (the SHOP-LINES
-pattern) and feed u/d through HERO-SHEET-SCROLL.  ORDERING true is the
-marching-order pick ('o'): the hints give way to the where-to prompt,
-a digit there moves the hero (MOVE-HERO) and Esc cancels."
+sheet's own key hints — the front-ends draw these verbatim (the
+SHOP-LINES pattern) and feed u/d through HERO-SHEET-SCROLL.  ORDERING
+true is the marching-order pick ('o'): the hints give way to the
+where-to prompt, a digit there moves the hero (MOVE-HERO) and Esc
+cancels."
   (let* ((hero (nth index (game-party game)))
          (body (when hero (%hero-sheet-body hero))))
     (append
@@ -267,20 +268,16 @@ a digit there moves the hero (MOVE-HERO) and Esc cancels."
                               (declare (ignore i))
                               line)
                             +sheet-page-size+))
+     ;; the sheet's own letter keys stay on the page (first letter
+     ;; picks); the digit pick, u/d scrolling and Esc are common
+     ;; knowledge — the help screen carries those
      (if (and hero ordering)
          (list ""
-               (format nil "Move ~A where?" (hero-name hero))
-               (format nil "[1-~D] the new slot"
-                       (length (game-party game)))
-               "[Esc] cancel")
-         (list* ""
-                "[1-7] view another"
-                "[E]quip pack"
-                "[G]old pool"
-                "[O]rder party"
-                (if (> (length body) +sheet-page-size+)
-                    (list "[u/d] scroll" "[Esc] back")
-                    (list "[Esc] back")))))))
+               (format nil "Move ~A where?" (hero-name hero)))
+         (list ""
+               (menu-option #\e "Equip pack")
+               (menu-option #\g "Gold pool")
+               (menu-option #\o "Order party"))))))
 
 (defun hero-sheet-scroll (game index top char)
   "The sheet page's scroll offset after key CHAR (u/d — see

@@ -34,4 +34,4 @@
         "Map view: F full map (debug)"
         "Mouse: click to walk and pick"
         ""
-        "[H]/[Esc] back"))
+        "H or Esc: back"))

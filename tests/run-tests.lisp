@@ -1139,6 +1139,23 @@ height" d)
   (check "log-message appends directly" '("three" "four" "five")
          (log-recent log 10)))
 
+;; LOG-LENGTH / LOG-SINCE: the combat round's own transcript page —
+;; the front-end marks the log at round start and draws only what the
+;; round said.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m))
+       (log (attach-message-log g)))
+  (check "log-length counts the lines" 0 (log-length log))
+  (say g "before")
+  (check "log-length follows the log" 1 (log-length log))
+  (let ((mark (log-length log)))
+    (say g "-- Round 1 --")
+    (say g "a hit")
+    (check "log-since shows the round only, oldest first"
+           '("-- Round 1 --" "a hit") (log-since log mark))
+    (check "log-since at the tip is empty" '()
+           (log-since log (log-length log)))))
+
 ;; Word wrap for the text column (the Amiga log wraps long messages).
 (check "wrap: short text passes through" '("short") (wrap-text "short" 10))
 (check "wrap: exact width does not wrap" '("12345") (wrap-text "12345" 5))
@@ -1219,7 +1236,7 @@ height" d)
 (check "hint-line-p leaves plain prose alone" nil
        (hint-line-p "Who is shopping?"))
 (check "hint-line-p leaves option lines alone" nil
-       (hint-line-p (menu-option #\u "^ more above [u]")))
+       (hint-line-p (menu-option #\u "^ more above")))
 (check "hint wrap keeps whole options per row"
        '("[1-9] buy  [S]ell" "[G]old pool  [Esc] back")
        (wrap-hint-line "[1-9] buy  [S]ell  [G]old pool  [Esc] back" 27))
@@ -1311,7 +1328,7 @@ height" d)
                 items 0
                 (lambda (i x) (menu-numbered i (format nil "~D) ~A" i x))))))
     (check "top window: rows then the below marker"
-           '("1) A" "2) B" "3) C" "4) D" "5) E" "v more below [d]")
+           '("1) A" "2) B" "3) C" "4) D" "5) E" "v more below")
            (menu-texts lines))
     (check "the below marker carries the scroll key" #\d
            (menu-line-key (first (last lines))))
@@ -1321,7 +1338,7 @@ height" d)
                 items 4
                 (lambda (i x) (menu-numbered i (format nil "~D) ~A" i x))))))
     (check "tail window: the above marker then the tail rows"
-           '("^ more above [u]" "1) E" "2) F" "3) G" "4) H" "5) I")
+           '("^ more above" "1) E" "2) F" "3) G" "4) H" "5) I")
            (menu-texts lines))
     (check "the above marker carries the scroll key" #\u
            (menu-line-key (first lines)))))
@@ -2053,15 +2070,19 @@ height" d)
          (first lines))
   (check "sheet page embeds the summary block" "B the Tester"
          (third lines))
-  (check "sheet page ends with the key hints, one option per row"
-         '("[1-7] view another" "[E]quip pack" "[G]old pool"
-           "[O]rder party" "[Esc] back")
-         (last lines 5))
+  ;; the sheet names only its own keys, bracket-free, each row a
+  ;; clickable option; the digit pick, scrolling and Esc live on the
+  ;; help screen
+  (check "sheet page ends with the sheet's own keys, one option per row"
+         (list (menu-option #\e "Equip pack")
+               (menu-option #\g "Gold pool")
+               (menu-option #\o "Order party"))
+         (last lines 3))
   ;; ORDERING true is the marching-order pick: the hints give way to
-  ;; the where-to prompt, sized to the roster
+  ;; the where-to prompt
   (check "ordering sheet asks where to move the hero"
-         '("Move B where?" "[1-2] the new slot" "[Esc] cancel")
-         (last (hero-sheet-lines g 1 0 t) 3)))
+         '("" "Move B where?")
+         (last (hero-sheet-lines g 1 0 t) 2)))
 
 ;; Class portraits: DEFINE-HERO-CLASS :IMAGE resolves map-relative
 ;; (the effect-icon rule); a class without one has no portrait.
@@ -2803,9 +2824,9 @@ height" d)
   (enter-location g '("Trapdoor Inn" :tavern :down "tests/tmp-down.map"))
   (check "a drink is three gold by default" 3
          (tavern-price (game-location g)))
-  (check-true "the trapdoor is offered"
-              (find-if (lambda (s) (search "[D]own the trapdoor" s))
-                       (menu-texts (tavern-lines g))))
+  (check-true "the trapdoor is offered as a clickable option"
+              (member (menu-option #\d "Down the trapdoor")
+                      (tavern-lines g) :test #'equal))
   (check "the trapdoor drops through" :left (tavern-act g #\d))
   (check "the trapdoor landed below" "the snug" (map-title (game-map g)))
   (check "the location is left behind" nil (game-location g)))
@@ -3325,6 +3346,11 @@ height" d)
               (find "What will Alva do?"
                     (menu-texts (combat-orders-lines g view))
                     :test #'equal))
+  ;; the page names its actions bracket-free, first letter as the key;
+  ;; the navigation keys (Esc undo, +/- speed) live on the help screen
+  (check "orders page ends with the actions"
+         '("Attack  Defend  Cast" "Play  Use  Flee")
+         (last (menu-texts (combat-orders-lines g view)) 2))
   (check "the page asks one hero, not the roster" nil
          (find-if (lambda (s) (search "Zzgo" s))
                   (menu-texts (combat-orders-lines g view))))
@@ -3351,7 +3377,9 @@ height" d)
                                                (search "defend" s)))
                               lines)))
     (check-true "the review asks the question"
-                (find "Is this OK?" lines :test #'equal)))
+                (find "Is this OK?" lines :test #'equal))
+    (check "the review names the two answers, bracket-free"
+           "Yes fight  No redo" (first (last lines))))
   (check "no round ran while picking" 0
          (combat-round-no (game-combat g)))
   (check "y fights the reviewed round"
@@ -3559,6 +3587,8 @@ height" d)
 
 ;; Combat transcript speed: +/- during orders, clamped both ways; the
 ;; front-ends linger COMBAT-MESSAGE-DELAY seconds on each message.
+;; Combat starts slow — the default is the floor, and +/- speed it up.
+(check "combat speed starts slow" 1 *combat-speed*)
 (let* ((m (parse-map *art* :name "test"))
        (g (new-game m :party (list (%combat-hero))))
        (msgs (watch-messages g))
@@ -3920,10 +3950,12 @@ height" d)
   (check-true "pack page marks the unfit item"
               (find-if (lambda (s) (search "2) T Mail (unfit)" s))
                        (menu-texts (equip-lines g view))))
-  (check "pack page ends with the key hints, one option per row"
-         '("[1-9] equip/remove" "[P]ass an item" "[I]nspect an item"
-           "[Esc] back")
-         (last (equip-lines g view) 4))
+  ;; the pack page names only its own keys, bracket-free, each row a
+  ;; clickable option (digit picks and Esc live on the help screen)
+  (check "pack page ends with its own keys, one option per row"
+         (list (menu-option #\p "Pass an item")
+               (menu-option #\i "Inspect an item"))
+         (last (equip-lines g view) 2))
   (check "a digit equips the item" nil (equip-act g view #\1))
   (check "equipped through the page" 't-sword (equipped-of-kind h :weapon))
   (check-true "the worn item is starred"
@@ -3963,8 +3995,8 @@ height" d)
   (check "the view is on the inspect page" :inspect (equip-view-mode view))
   (check-true "the inspect page keeps the pack header"
               (search "*** Wiz's Pack ***" (first (equip-lines g view))))
-  (check-true "the inspect page hints its pick"
-              (member "[1-9] inspect" (menu-texts (equip-lines g view))
+  (check-true "the inspect page prompts its pick"
+              (member "Inspect what?" (menu-texts (equip-lines g view))
                       :test #'equal))
   (check "a digit shows the item's card" nil (equip-act g view #\1))
   (check "the card item is remembered" 't-sword (equip-view-pending view))
@@ -3995,8 +4027,9 @@ height" d)
   (check-true "the class restriction carries the unfit marker"
               (member "Classes: Tester (unfit)"
                       (menu-texts (equip-lines g view)) :test #'equal))
-  (check "the card ends with esc back"
-         '("" "[Esc] back") (last (equip-lines g view) 2))
+  (check "the card ends with the description, no key footer"
+         "Mail of the old kings; it hums in the dark."
+         (first (last (equip-lines g view))))
   (equip-act g view #\Escape)
   (check "esc then leaves the inspect page" nil (equip-act g view #\Escape))
   (check "back on the pack page" :pack (equip-view-mode view))
@@ -4011,7 +4044,7 @@ height" d)
   (dolist (name '(teq-1 teq-2 teq-3 teq-4 teq-5 teq-6 teq-7 teq-8))
     (give-item g h name))
   (check-true "deep pack: the below marker shows"
-              (member "v more below [d]" (menu-texts (equip-lines g view))
+              (member "v more below" (menu-texts (equip-lines g view))
                       :test #'equal))
   (check "d scrolls the pack" nil (equip-act g view #\d))
   (check "the view holds the clamped offset" 3 (equip-view-top view))
@@ -4096,8 +4129,8 @@ height" d)
   (check "the view is on the give page" :give (equip-view-mode view))
   (check-true "the give page keeps the pack header"
               (search "*** Ava's Pack ***" (first (equip-lines g view))))
-  (check-true "the give page hints at giving"
-              (member "[1-9] give" (menu-texts (equip-lines g view))
+  (check-true "the give page prompts at giving"
+              (member "Give what?" (menu-texts (equip-lines g view))
                       :test #'equal))
   (check "a digit picks the item to hand over" nil (equip-act g view #\1))
   (check "the view moves to the recipient page" :to (equip-view-mode view))
@@ -4821,14 +4854,15 @@ height" d)
   (check "shop stock from map data" '(t-sword t-mail t-torch)
          (shop-stock (game-location g)))
   (check ":enter-location emitted" '("The Test Shoppe") entered)
-  (check-true "entry message"
-              (find-if (lambda (s) (search "enters The Test Shoppe" s))
-                       (funcall msgs)))
+  ;; entering is quiet — the location's own page names it; routine
+  ;; comings and goings must not silt up the log
+  (check "entering says nothing" nil (funcall msgs))
   (check-error "no walking inside a location" (move-party g :forward))
   (check-error "no nested locations"
     (enter-location g '("Another" :shop)))
   (check-true "leave-location returns the location" (leave-location g))
   (check "location cleared" nil (game-location g))
+  (check "leaving says nothing either" nil (funcall msgs))
   (check ":leave-location emitted" '("The Test Shoppe") left)
   ;; the Bard's Tale exit: leaving stepped the party back out the
   ;; door onto the cell it came from, facing away from the shoppe
@@ -4978,9 +5012,9 @@ height" d)
   (check "shop-act sells" 25 (hero-gold h))
   (check "b flips back to the buy page" nil (shop-act g view #\b))
   ;; the inspect flow ('i' on the buy page): read the card, spend no gold
-  (check-true "the buy page hints inspect"
-              (member "[I]nspect" (menu-texts (shop-lines g view))
-                      :test #'equal))
+  (check-true "the buy page offers inspect as a clickable option"
+              (member (menu-option #\i "Inspect")
+                      (shop-lines g view) :test #'equal))
   (check "i opens the inspect page" nil (shop-act g view #\i))
   (check "inspect mode" :inspect (shop-view-mode view))
   (check-true "the inspect page browses"
@@ -4989,9 +5023,9 @@ height" d)
   (check-true "the stock is still listed priced"
               (find-if (lambda (s) (search "1) T Sword  10 gp" s))
                        (menu-texts (shop-lines g view))))
-  (check-true "the inspect page hints its pick"
-              (member "[1-9] inspect" (menu-texts (shop-lines g view))
-                      :test #'equal))
+  (check "the inspect page carries no key footer" nil
+         (find-if (lambda (s) (find #\[ s))
+                  (menu-texts (shop-lines g view))))
   (check "a digit shows the item's card" nil (shop-act g view #\1))
   (check "the card item is remembered" 't-sword (shop-view-pending view))
   (check-true "the card is titled with the item"
@@ -5050,15 +5084,15 @@ height" d)
   (enter-location g '("The Vault" :shop :stock (t-sword)))
   (shop-act g view #\1)                 ; A shops
   (check-true "the buy footer offers pooling"
-              (find-if (lambda (s) (search "[G]old pool" s))
-                       (menu-texts (shop-lines g view))))
+              (member (menu-option #\g "Gold pool")
+                      (shop-lines g view) :test #'equal))
   (check "g pools onto the shopper" nil (shop-act g view #\g))
   (check "the shopper holds the party's gold" 45 (hero-gold a))
   (check "the partner's purse is empty" 0 (hero-gold b))
   (shop-act g view #\s)
   (check-true "the sell footer offers pooling too"
-              (find-if (lambda (s) (search "[G]old pool" s))
-                       (menu-texts (shop-lines g view))))
+              (member (menu-option #\g "Gold pool")
+                      (shop-lines g view) :test #'equal))
   (setf (hero-gold b) 7)
   (check "G pools from the sell page too" nil (shop-act g view #\G))
   (check "the sell-page pool lands" 52 (hero-gold a))
@@ -5112,18 +5146,18 @@ height" d)
     (check-true "deep stock: the first window starts at the head"
                 (find-if (lambda (s) (search "1) Tscr 1" s)) texts))
     (check-true "deep stock: the below marker shows"
-                (member "v more below [d]" texts :test #'equal))
+                (member "v more below" texts :test #'equal))
     (check "deep stock: no above marker at the head" nil
-           (member "^ more above [u]" texts :test #'equal)))
+           (member "^ more above" texts :test #'equal)))
   (check "d scrolls the stock" nil (shop-act g view #\d))
   (check "the view holds the clamped offset" 4 (shop-view-top view))
   (let ((texts (menu-texts (shop-lines g view))))
     (check-true "scrolled stock: row 1 is the sixth item"
                 (find-if (lambda (s) (search "1) Tscr 5" s)) texts))
     (check-true "scrolled stock: the above marker shows"
-                (member "^ more above [u]" texts :test #'equal))
+                (member "^ more above" texts :test #'equal))
     (check "scrolled stock: no below marker at the tail" nil
-           (member "v more below [d]" texts :test #'equal)))
+           (member "v more below" texts :test #'equal)))
   (shop-act g view #\2)                 ; buys the sixth item, tscr-6
   (check "a digit buys within the window" '(tscr-6) (hero-items h))
   (check "the windowed buy paid the right price" 94 (hero-gold h))
@@ -5137,7 +5171,7 @@ height" d)
   (check "the page flip resets the offset" 0 (shop-view-top view))
   (let ((texts (menu-texts (shop-lines g view))))
     (check-true "a full pack scrolls on the sell page"
-                (member "v more below [d]" texts :test #'equal)))
+                (member "v more below" texts :test #'equal)))
   (shop-act g view #\d)
   (check "the pack window clamps to its tail" 3 (shop-view-top view))
   (shop-act g view #\1)                 ; sells pack item 4 (tscr-1)
@@ -5155,7 +5189,7 @@ height" d)
   (use-act g v #\1)                     ; the hero uses
   (let ((texts (menu-texts (use-lines g v))))
     (check-true "a full pack scrolls on the use menu"
-                (member "v more below [d]" texts :test #'equal)))
+                (member "v more below" texts :test #'equal)))
   (check "d scrolls the use list" 3
          (progn (use-act g v #\d) (use-view-top v)))
   (check "a windowed digit resolves the use" :done (use-act g v #\1))
@@ -5174,7 +5208,7 @@ height" d)
   (cast-act g v #\1)                    ; the mage casts
   (let ((texts (menu-texts (cast-lines g v))))
     (check-true "a deep book scrolls on the cast menu"
-                (member "v more below [d]" texts :test #'equal)))
+                (member "v more below" texts :test #'equal)))
   (loop for top = (cast-view-top v)    ; page down to the very bottom
         do (cast-act g v #\d)
         until (= top (cast-view-top v)))
@@ -5193,7 +5227,7 @@ height" d)
            :slots '("s1" "s2" "s3" "s4" "s5" "s6" "s7" "s8" "s9"))))
   (let ((texts (menu-texts (save-menu-lines g v))))
     (check-true "nine slots scroll in the picker"
-                (member "v more below [d]" texts :test #'equal)))
+                (member "v more below" texts :test #'equal)))
   (check "d scrolls the slots" nil (save-menu-act g v #\d))
   (check "the slot window scrolled" 4 (save-menu-top v))
   (check "a windowed digit loads the right slot"
@@ -5208,10 +5242,11 @@ height" d)
   (check-true "an empty pack still says so"
               (member "Pack: nothing" (menu-texts (hero-sheet-lines g 0))
                       :test #'equal))
-  (check "a short sheet keeps the plain hints"
-         '("[1-7] view another" "[E]quip pack" "[G]old pool"
-           "[O]rder party" "[Esc] back")
-         (last (hero-sheet-lines g 0) 5))
+  (check "a short sheet keeps the sheet's own keys"
+         (list (menu-option #\e "Equip pack")
+               (menu-option #\g "Gold pool")
+               (menu-option #\o "Order party"))
+         (last (hero-sheet-lines g 0) 3))
   (check "a short sheet does not scroll" nil
          (hero-sheet-scroll g 0 0 #\d))
   (give-item g h 't-sword)
@@ -5219,17 +5254,19 @@ height" d)
   (dotimes (i 7) (give-item g h 't-torch))
   (let ((texts (menu-texts (hero-sheet-lines g 0))))
     (check-true "a full pack scrolls the sheet"
-                (member "v more below [d]" texts :test #'equal))
-    (check-true "the sheet hints say so"
-                (member "[u/d] scroll" texts :test #'equal)))
+                (member "v more below" texts :test #'equal))
+    ;; scrolling is common knowledge — no [u/d] hint row; the help
+    ;; screen carries it
+    (check "the sheet carries no scroll hint" nil
+           (member "[u/d] scroll" texts :test #'equal)))
   (let ((top (hero-sheet-scroll g 0 0 #\d)))
     (check "the sheet scrolls by its window" 6 top)
     (let ((texts (menu-texts (hero-sheet-lines g 0 top))))
       (check-true "the scrolled sheet reaches the pack rows"
                   (member "  T Sword*" texts :test #'equal))
       (check-true "the scrolled sheet shows both markers"
-                  (and (member "^ more above [u]" texts :test #'equal)
-                       (member "v more below [d]" texts :test #'equal))))
+                  (and (member "^ more above" texts :test #'equal)
+                       (member "v more below" texts :test #'equal))))
     (setf top (hero-sheet-scroll g 0 top #\d))
     (check "the sheet clamps at its tail" 9 top)
     (check-true "the tail window shows the last pack row"
@@ -7072,8 +7109,8 @@ never its own"
                    t)))))))
 
 ;; The location interaction: the overlay page variant, the message-area
-;; takeover (menu lines + rule + log tail on the white page) and the
-;; view-column picture with its fall-back contract.
+;; takeover (the menu owns the whole white page) and the view-column
+;; picture with its fall-back contract.
 #+lambda-tale-window-tests
 (let* ((m (parse-map *art* :name "test"))
        (g (new-game m :party (with-rng () (list (make-hero "A" :tester)))))
@@ -7096,6 +7133,9 @@ never its own"
              (shop-act g view #\s)
              (%amiga-draw-page rp (location-lines g view) l)   ; sell page
              (%amiga-draw-log rp log l)
+             ;; a combat round's own transcript page (top-aligned,
+             ;; messages since the mark only)
+             (%amiga-draw-transcript rp log l 0)
              ;; the message-area takeover, uncached and cached: the
              ;; location menu and the character sheet
              (%amiga-draw-takeover rp (location-lines g view) log l)
@@ -7205,24 +7245,11 @@ never its own"
                                        (wrap-menu-line line max-chars))
                                      (location-lines g view)))
                        (hero-row (position-if #'menu-line-key rows))
-                       (esc-row (position-if
-                                 (lambda (r)
-                                   (search "[Esc]" (menu-line-text r)))
-                                 rows))
-                       (esc-start
-                         (first
-                          (first
-                           (menu-key-spans
-                            (menu-line-text (nth esc-row rows))))))
                        (row-y (lambda (n) (+ py 4 (* n lh) 2))))
                   (%amiga-draw-page rp (location-lines g view) l)
                   (check "page: clicking the hero row picks it" #\1
                          (%hotspot-at (+ px 10)
                                       (funcall row-y hero-row)))
-                  (check "page: clicking the footer's Esc hint leaves"
-                         :esc
-                         (%hotspot-at (+ px 8 (* esc-start cw) 2)
-                                      (funcall row-y esc-row)))
                   (check "page: the title row is not a target" nil
                          (%hotspot-at (+ px 10) (funcall row-y 0))))
                 ;; the message-area takeover (microfont geometry)
@@ -7250,15 +7277,6 @@ never its own"
                                               all)
                                    all)))
                        (hero-row (position-if #'menu-line-key rows))
-                       (esc-row (position-if
-                                 (lambda (r)
-                                   (search "[Esc]" (menu-line-text r)))
-                                 rows))
-                       (esc-start
-                         (first
-                          (first
-                           (menu-key-spans
-                            (menu-line-text (nth esc-row rows))))))
                        (row-y (lambda (n)
                                 (+ oy 1
                                    (* n +microfont-line-height+) 3))))
@@ -7267,14 +7285,34 @@ never its own"
                   (check "takeover: clicking the hero row picks it" #\1
                          (%hotspot-at (+ ox 2)
                                       (funcall row-y hero-row)))
-                  (check "takeover: footer Esc hint leaves"
-                         :esc
-                         (%hotspot-at (+ ox (* esc-start
-                                               +microfont-advance+)
-                                         2)
-                                      (funcall row-y esc-row)))
                   (check "takeover: the title row is not a target" nil
-                         (%hotspot-at (+ ox 2) (funcall row-y 0))))
+                         (%hotspot-at (+ ox 2) (funcall row-y 0)))
+                  ;; the buy page's own keys are option rows — the
+                  ;; whole row clicks as its key
+                  (shop-act g fresh #\1)
+                  (let* ((*hotspots* '())
+                         (rows (let ((all
+                                       (mapcan
+                                        (lambda (line)
+                                          (wrap-menu-line line
+                                                          max-chars))
+                                        (location-lines g fresh))))
+                                 (if (> (length all) page-rows)
+                                     (delete-if (lambda (r)
+                                                  (equal
+                                                   (menu-line-text r)
+                                                   ""))
+                                                all)
+                                     all)))
+                         (sell-row (position-if
+                                    (lambda (r)
+                                      (eql (menu-line-key r) #\s))
+                                    rows)))
+                    (%amiga-draw-takeover rp (location-lines g fresh)
+                                          log l)
+                    (check "takeover: the Sell option row clicks" #\s
+                           (%hotspot-at (+ ox 2)
+                                        (funcall row-y sell-row)))))
                 t)))))
   (leave-location g))
 

@@ -1401,14 +1401,49 @@ cache (see %LOG-LINE-BITMAP)."
         (incf y lh)))
     (amiga.gfx:set-a-pen rp 1)))
 
+(defun %amiga-draw-transcript (rp log l base &optional lines-cache)
+  "A combat round's own page: only the messages said since BASE (the
+log length when the round began), top-aligned on a cleared white page
+— each round turns a new page instead of running into the walkabout
+log.  A round longer than the page keeps its newest lines.
+LINES-CACHE as in %AMIGA-DRAW-LOG."
+  (let* ((ox (ui-layout-log-x l))
+         (oy (ui-layout-by l))
+         (w (ui-layout-log-w l))
+         (h (- (ui-layout-page-b l) oy))
+         (lh +microfont-line-height+)
+         (n (max 1 (floor (- h 2) lh)))
+         (max-chars (max 4 (floor (- w 4) +microfont-advance+)))
+         (wrapped (mapcan (lambda (m) (wrap-message m max-chars))
+                          (log-since log base)))
+         ;; WRAP-MESSAGE leads every message with a blank spacer line;
+         ;; the page's first message needs none
+         (wrapped (if (and wrapped (equal (first wrapped) ""))
+                      (rest wrapped)
+                      wrapped))
+         (lines (if (> (length wrapped) n) (last wrapped n) wrapped)))
+    ;; page interior (inside the black outline)
+    (amiga.gfx:set-a-pen rp 1)
+    (amiga.gfx:rect-fill rp (- ox 3) oy (+ ox w -1) (+ oy h -1))
+    (let ((y (1+ oy)))
+      (dolist (m lines)
+        (%put-microfont-line rp lines-cache
+                             (if (> (length m) max-chars)
+                                 (subseq m 0 max-chars)
+                                 m)
+                             ox y)
+        (incf y lh)))
+    (amiga.gfx:set-a-pen rp 1)))
+
 (defun %amiga-draw-takeover (rp lines log l &optional lines-cache)
   "An interaction taking over the message area — a location's menu or
 the character sheet: LINES (microfont, wrapped) from the top of the
-white page, then a rule, then the trailing log lines at the bottom, so
-game feedback (a purchase, a drink) stays visible while the menu is
-up.  The page interior repaints wholesale — the takeover's 'cls' — so
-switching pages never leaves stale text.  LINES-CACHE as in
-%AMIGA-DRAW-LOG."
+white page.  The menu owns the whole page — the log-tail split the
+page used to carry under a rule read poorly in practice, so game
+feedback waits for the page to close.  The page interior repaints
+wholesale — the takeover's 'cls' — so switching pages never leaves
+stale text.  LINES-CACHE as in %AMIGA-DRAW-LOG."
+  (declare (ignore log))
   (let* ((ox (ui-layout-log-x l))
          (oy (ui-layout-by l))
          (w (ui-layout-log-w l))
@@ -1421,14 +1456,7 @@ switching pages never leaves stale text.  LINES-CACHE as in
          ;; lines, before it truncates content (the lores shop page is
          ;; the tight case) — see FIT-MENU-LINES
          (menu (fit-menu-lines lines rows max-chars))
-         (n-menu (min (length menu) rows))
-         ;; the rule and the log tail live in whatever rows the menu
-         ;; leaves free (none is fine — the menu keeps the page)
-         (tail-rows (max 0 (- rows n-menu 1)))
-         (tail (when (plusp tail-rows)
-                 (last (mapcan (lambda (m) (wrap-message m max-chars))
-                               (log-recent log tail-rows))
-                       tail-rows))))
+         (n-menu (min (length menu) rows)))
     ;; page interior: the takeover's cls
     (amiga.gfx:set-a-pen rp 1)
     (amiga.gfx:rect-fill rp (- ox 3) oy (+ ox w -1) (+ oy h -1))
@@ -1447,28 +1475,17 @@ switching pages never leaves stale text.  LINES-CACHE as in
                                      (- ox 3) (+ ox w -1)))
           (incf y lh)
           (incf n))))
-    ;; log tail, newest at the page bottom, under the rule
-    (when tail
-      (let ((y (+ oy (- h (* (length tail) lh)) -1)))
-        (amiga.gfx:set-a-pen rp 0)
-        (amiga.gfx:draw-line rp (- ox 2) (- y 3) (+ ox w -3) (- y 3))
-        (dolist (m tail)
-          (%put-microfont-line rp lines-cache
-                               (if (> (length m) max-chars)
-                                   (subseq m 0 max-chars)
-                                   m)
-                               ox y)
-          (incf y lh))))
     (amiga.gfx:set-a-pen rp 1)))
 
 (defun %amiga-hero-row (rp game l y hero index)
   "One roster table row at baseline Y, Bard's Tale columns: number,
 name, armor class (with equipment and spell effects), then
 max/current hit points and max/current spell points, and the class
-code.  The current points are picked out in white; a downed hero's
-name and hit points turn amber.  Columns come from the profile's
-ROSTER-COLS character cells; the numbers are right-aligned in their
-column (ROSTER-CELL) so their digits line up down the table."
+code.  The current points are picked out in white; a downed hero
+keeps the normal pens and shows DEAD in the hit-point columns instead
+of numbers.  Columns come from the profile's ROSTER-COLS character
+cells; the numbers are right-aligned in their column (ROSTER-CELL) so
+their digits line up down the table."
   (let* ((ox (ui-layout-bx l))
          (cw (ui-layout-cw l))
          (cols (display-profile-roster-cols *display-profile*))
@@ -1482,14 +1499,19 @@ column (ROSTER-CELL) so their digits line up down the table."
              (num (cell pen text)          ; right-aligned number column
                (col (roster-cell cell text) pen text)))
       (col (getf cols :no) 0 (format nil "~D" (1+ index)))
-      (col (getf cols :name) (if down 3 0)
+      (col (getf cols :name) 0
            (let ((name (hero-name hero)))
              (if (> (length name) name-w) (subseq name 0 name-w) name)))
       (num (getf cols :ac) 0
            (format nil "~D" (hero-effective-ac hero game)))
-      (num (getf cols :hit) 0 (format nil "~D" (hero-max-hp hero)))
-      (num (getf cols :hpts) (if down 3 1)
-           (format nil "~D" (hero-hp hero)))
+      ;; a downed hero's hit points give way to DEAD, right-aligned
+      ;; under the HIT heading (it runs one cell into the column gap)
+      (if down
+          (num (getf cols :hit) 0 "DEAD")
+          (progn
+            (num (getf cols :hit) 0 (format nil "~D" (hero-max-hp hero)))
+            (num (getf cols :hpts) 1
+                 (format nil "~D" (hero-hp hero)))))
       (num (getf cols :spl) 0 (format nil "~D" (hero-max-sp hero)))
       (num (getf cols :spts) 1 (format nil "~D" (hero-sp hero)))
       (col (getf cols :cl) 0 (hero-class-abbrev hero)))
@@ -1985,6 +2007,8 @@ map/help/sheet pages close on a click outside a target — see
          (zone-dirty nil)   ; party traveled: the chrome needs a repaint
          (ordersv nil)      ; COMBAT-ORDERS while a round is picked
          (pacing nil)       ; a combat round is running: pace messages
+         (round-base nil)   ; log length when that round began — its
+                            ; transcript draws on a page of its own
          (pace-fn nil)      ; draws one paced transcript beat (set once
                             ; the window exists)
          (idle-base nil)    ; internal-real-time the idle clock last
@@ -2352,17 +2376,21 @@ map/help/sheet pages close on a click outside a target — see
                             (:door (say game "You pass through a door."))
                             (:blocked (say game "You bump into a wall."))))
                         (pace ()
-                          ;; one combat-transcript beat: show the fresh
-                          ;; log line and the roster (hp/sp move as the
+                          ;; one combat-transcript beat: show the round's
+                          ;; own page and the roster (hp/sp move as the
                           ;; round plays), then linger on it
-                          (%amiga-draw-log rp log l log-lines)
+                          (if round-base
+                              (%amiga-draw-transcript rp log l round-base
+                                                      log-lines)
+                              (%amiga-draw-log rp log l log-lines))
                           (%amiga-party rp game l nil)
                           (sleep (combat-message-delay)))
                         (fight (thunk)
                           ;; run one round (or a flee attempt) with the
-                          ;; paced transcript, then open fresh orders
-                          ;; when combat goes on
+                          ;; paced transcript on a page of its own, then
+                          ;; open fresh orders when combat goes on
                           (setf ordersv nil)
+                          (setf round-base (log-length log))
                           (unwind-protect
                               (progn (setf pacing t) (funcall thunk))
                             (setf pacing nil))

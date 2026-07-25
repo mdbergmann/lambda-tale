@@ -99,7 +99,8 @@ and emits :ENTER-LOCATION."
         (dolist (name (location-arg loc :stock))
           (find-item-type name)))   ; catch bad stock at entry, loudly
       (setf (game-location game) loc)
-      (say game "The party enters ~A." title)
+      ;; no log line — the location's own page names it; routine
+      ;; comings and goings would only silt up the log
       (emit game :enter-location loc)
       loc)))
 
@@ -116,7 +117,7 @@ the party just came from there.  A location entered without a step
   (let ((loc (game-location game)))
     (when loc
       (setf (game-location game) nil)
-      (say game "You leave ~A." (location-title loc))
+      ;; as quiet as entering — the view coming back says it all
       (let ((entry (location-entry-dir loc)))
         (when entry
           (let ((out (dir-opposite entry)))
@@ -222,8 +223,7 @@ the inspect page — the same stock, a digit showing that item's card
                          (menu-numbered i (format nil "~D) ~A  (~D gp)"
                                                   i (hero-name h)
                                                   (hero-gold h))))
-                       (game-party game)))
-             (list "" "[1-7] choose" "[Esc] leave")))
+                       (game-party game)))))
            ((member (shop-view-mode view) '(:buy :inspect))
             (append
              (list (format nil "~A ~A.  Gold: ~D gp"
@@ -240,10 +240,14 @@ the inspect page — the same stock, a digit showing that item's card
                                          (item-hand-marker name)
                                          (item-fit-marker hero name)
                                          (item-price name)))))
-             (if (eq (shop-view-mode view) :buy)
-                 (list "" "[1-9] buy" "[S]ell" "[I]nspect" "[G]old pool"
-                       "[Esc] back")
-                 (list "" "[1-9] inspect" "[Esc] back"))))
+             ;; the page-specific keys stay (first letter picks, and
+             ;; the option row clicks as its key); the digit pick and
+             ;; Esc are common knowledge — the help screen's business
+             (when (eq (shop-view-mode view) :buy)
+               (list ""
+                     (menu-option #\s "Sell")
+                     (menu-option #\i "Inspect")
+                     (menu-option #\g "Gold pool")))))
            (t
             (append
              (list (format nil "~A sells.  Gold: ~D gp"
@@ -258,8 +262,9 @@ the inspect page — the same stock, a digit showing that item's card
                                          (item-hand-marker name)
                                          (item-fit-marker hero name)
                                          (item-sell-price name)))))
-             (list "" "[1-9] sell" "[B]uy" "[G]old pool"
-                   "[Esc] back"))))))))
+             (list ""
+                   (menu-option #\b "Buy")
+                   (menu-option #\g "Gold pool")))))))))
 
 (defun shop-act (game view char)
   "Apply key CHAR to the shop interaction.  Digits pick within the
@@ -398,12 +403,10 @@ the drink price, and the trapdoor when the tavern has one."
                               (format nil "~D/~D" (hero-tunes h)
                                       (hero-max-tunes h))))))
                (game-party game)))
-     (list* ""
-            "[1-7] drink"
-            (append
-             (when (location-arg loc :down)
-               (list "[D]own the trapdoor"))
-             (list "[Esc] leave"))))))
+     ;; the trapdoor row stays — it is world knowledge, not a key
+     ;; reference (those live on the help screen)
+     (when (location-arg loc :down)
+       (list "" (menu-option #\d "Down the trapdoor"))))))
 
 (defun tavern-act (game char)
   "Apply key CHAR to the tavern menu: a digit buys that hero a drink,
