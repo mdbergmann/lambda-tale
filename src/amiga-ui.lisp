@@ -62,6 +62,7 @@
 (require "amiga/intuition")
 (require "amiga/graphics")
 (require "amiga/gadtools")
+(require "amiga/exec")
 
 (in-package :tale)
 
@@ -415,29 +416,18 @@ pack has none); the walls carve the perspective on top of it."
 ;;; platform-independent: the manifest and the asset generator use it
 ;;; on the host too); PLAY-AMIGA's :GFX-DIR argument rebinds it.
 
-(defun %window-bitmap (rp)
-  "The BitMap a window rastport renders into (rp_BitMap)."
-  (ffi:make-foreign-pointer (ffi:peek-u32 rp 4)))
-
 ;;; ---------------------------------------------------------------------
 ;;; The planar fast path.
 ;;;
-;;; This is the one place in the engine that knows a BitMap's layout.
-;;; amiga.gfx is RTG-safe by construction — bitmaps come from
-;;; AllocBitMap with a friend, pixels go in as chunky through
-;;; WriteChunkyPixels, "no planar layout, chip-ram or bytes-per-row
-;;; assumptions anywhere" — and that stays true of the piece bitmaps
-;;; the renderer blits every frame.  What is poked here is a SCRATCH
-;;; bitmap this engine allocated itself with no friend and without
-;;; BMF_DISPLAYABLE, which graphics.library therefore returns as a
-;;; standard planar BitMap in ordinary RAM.  Poking that is legal; the
-;;; blitter then converts it into the friend bitmap's real format, so
-;;; an RTG display never sees a plane poke.
-;;;
-;;; struct BitMap (graphics/gfx.h):
-;;;   UWORD BytesPerRow  0    UWORD Rows   2
-;;;   UBYTE Flags        4    UBYTE Depth  5
-;;;   UWORD pad          6    PLANEPTR Planes[8]  8
+;;; ILBM plane rows and BitMap plane rows share a layout (MSB-first,
+;;; word-padded), so a piece never becomes chunky: the rows go through
+;;; AMIGA.GFX:WRITE-PLANES into a SCRATCH bitmap allocated with no
+;;; friend and without BMF_DISPLAYABLE — a standard planar BitMap in
+;;; ordinary RAM, the one kind whose planes may legally be written —
+;;; and the blitter then converts it into the friend bitmap's real
+;;; format, so an RTG display never sees a plane poke.  The piece
+;;; bitmaps the renderer blits every frame stay RTG-safe by
+;;; construction (AllocBitMap with a friend, OS blits only).
 
 (defvar *wall-load-planar* t
   "Load wall pieces through the planar fast path (%POKE-PLANES) rather
@@ -445,52 +435,18 @@ than decoding to chunky pens and calling WriteChunkyPixels.  Bound to
 NIL to fall back — the chunky path is the portable one, and is what
 the host renderer and the asset tools use regardless.")
 
-(defconstant +bitmap-bytes-per-row+ 0)
-(defconstant +bitmap-depth+ 5)
-(defconstant +bitmap-planes+ 8)
-
 (defun %poke-planes (bitmap img)
-  "Copy PLANAR-IMAGE IMG's bitplane rows into BITMAP's planes.  IMG's
-rows and the BitMap's rows are both MSB-first and word-padded, so this
-is a row-by-row byte copy — the point of the whole path.  BITMAP must
-be at least as deep as IMG (its extra planes are left as allocated,
-i.e. cleared) and its rows at least as wide."
-  (let ((dst-row-bytes (ffi:peek-u16 bitmap +bitmap-bytes-per-row+))
-        (src-row-bytes (planar-image-row-bytes img))
-        (bm-depth (ffi:peek-u8 bitmap +bitmap-depth+))
-        (h (planar-image-height img))
-        (depth (planar-image-depth img)))
-    (when (< bm-depth depth)
-      (error "%POKE-PLANES: bitmap is ~D planes deep, the image needs ~D"
-             bm-depth depth))
-    (when (< dst-row-bytes src-row-bytes)
-      (error "%POKE-PLANES: bitmap rows are ~D bytes, the image needs ~D"
-             dst-row-bytes src-row-bytes))
-    (dotimes (p depth t)
-      (let ((plane (ffi:make-foreign-pointer
-                    (ffi:peek-u32 bitmap (+ +bitmap-planes+ (* 4 p)))))
-            (src (planar-image-plane img p)))
-        (when (ffi:null-pointer-p plane)
-          (error "%POKE-PLANES: bitmap plane ~D is NULL" p))
-        ;; When the strides agree the plane is one contiguous run, so it
-        ;; goes over in a single call; otherwise each row is copied into
-        ;; its slot at the destination stride.  Either way the per-byte
-        ;; FFI:POKE-U8 loop (a VM dispatch per byte, ~40K per pack) is
-        ;; gone — that loop was the bulk of a pack load on a 68020.
-        (if (= src-row-bytes dst-row-bytes)
-            (ffi:poke-bytes plane src 0 0 (* h src-row-bytes))
-            (dotimes (y h)
-              (ffi:poke-bytes plane src (* y dst-row-bytes)
-                              (* y src-row-bytes)
-                              (* (1+ y) src-row-bytes))))))))
-
-(defun %chip-mask (bytes)
-  "Copy the cookie-cut mask BYTES into chip RAM where
-BltMaskBitMapRastPort can reach them; returns the chip allocation
-(caller frees with AMIGA:FREE-CHIP)."
-  (let ((chip (amiga:alloc-chip (length bytes))))
-    (ffi:poke-bytes chip bytes)
-    chip))
+  "Copy PLANAR-IMAGE IMG's bitplane rows into the scratch BITMAP's
+planes (AMIGA.GFX:WRITE-PLANES — one contiguous copy per plane when
+the strides agree, row-by-row at the destination stride otherwise;
+never a VM dispatch per byte, which was the bulk of a pack load on a
+68020).  BITMAP must be at least as deep as IMG (its extra planes are
+left as allocated, i.e. cleared) and its rows at least as wide."
+  (amiga.gfx:write-planes bitmap
+                          (loop for p below (planar-image-depth img)
+                                collect (planar-image-plane img p))
+                          (planar-image-row-bytes img)
+                          (planar-image-height img)))
 
 (defun %planar-piece-mask (img)
   "IMG's cookie-cut mask in chip RAM, or NIL for a fully painted piece
@@ -503,7 +459,7 @@ would fold every plane twice."
                (not (%mask-opaque-p bytes row-bytes
                                     (planar-image-width img)
                                     (planar-image-height img))))
-      (%chip-mask bytes))))
+      (amiga.exec:alloc-chip-bytes bytes))))
 
 (defun %load-wall-assets (rp log)
   "Load the active tile pack (*GFX-DIR*): every wall piece the active
@@ -522,13 +478,13 @@ back to the wireframe view — when the pack is missing, unreadable, or
 mis-sized.  MASK is a chip-RAM cookie-cut plane for a piece that uses
 pen 0 (transparent), else NIL (a plain opaque blit); the backdrops are
 always opaque."
-  (let ((walls (make-hash-table :test #'equal))
-        (palette nil)
-        (friend (%window-bitmap rp))
-        (depth (max 2 (amiga.gfx:get-bitmap-attr (%window-bitmap rp)
-                                                 amiga.gfx:+bma-depth+)))
-        (drawn (%draw-depth))   ; distance levels this machine blits
-        (planes (view-planes *fp-view-width* *fp-view-height*)))
+  (let* ((walls (make-hash-table :test #'equal))
+         (palette nil)
+         (friend (amiga.gfx:rastport-bitmap rp))
+         (depth (max 2 (amiga.gfx:get-bitmap-attr friend
+                                                  amiga.gfx:+bma-depth+)))
+         (drawn (%draw-depth))  ; distance levels this machine blits
+         (planes (view-planes *fp-view-width* *fp-view-height*)))
     (labels ((add-entry (key bm mask)
                ;; into the hash the moment the bitmap exists, so an
                ;; error later in the load still frees it via
@@ -545,9 +501,10 @@ always opaque."
                ;; cookie-cut mask in chip RAM so the backdrop shows
                ;; through; a fully-painted piece needs none.
                (when (image-transparent-p img)
-                 (%chip-mask (mask-bytes (image-width img)
-                                         (image-height img)
-                                         (image-pixels img)))))
+                 (amiga.exec:alloc-chip-bytes
+                  (mask-bytes (image-width img)
+                              (image-height img)
+                              (image-pixels img)))))
              (check-size (file iw ih w h)
                ;; Blits copy W x H from the bitmap wherever the piece's
                ;; slot sits, so a mis-sized pack file would read past
@@ -693,21 +650,10 @@ NIL."
 ;;; work, and host-testable); exec's free-memory probe is the one part
 ;;; that has to be here.
 
-(defvar *exec-base* nil "exec.library, opened on demand for AvailMem.")
-
-(defconstant +lvo-avail-mem+ -216)
-(defconstant +memf-any+ 0)
-
 (defun %free-memory ()
-  "Free system RAM in bytes — AvailMem(MEMF_ANY) — or NIL when exec
-cannot be reached (then the caller must not gate on memory)."
-  (handler-case
-      (progn
-        (unless *exec-base*
-          (setf *exec-base* (amiga:open-library "exec.library" 36)))
-        (and *exec-base*
-             (amiga:call-library *exec-base* +lvo-avail-mem+
-                                 (list :d1 +memf-any+))))
+  "Free system RAM in bytes — AvailMem(MEMF_ANY) — or NIL when the
+probe fails (then the caller must not gate on memory)."
+  (handler-case (amiga.exec:avail-mem)
     (error () nil)))
 
 (defun %pack-cache-free-all (cache)
@@ -771,17 +717,10 @@ the busy pointer through this.")
 (defun %pointer-chip (image)
   "IMAGE as chip-RAM sprite data plus SET-POINTER geometry: returns
 \(CHIP HEIGHT XOFF YOFF); the caller frees CHIP (AMIGA:FREE-CHIP)."
-  (let* ((rows (pointer-sprite-rows image))
-         (chip (amiga:alloc-chip (* 2 (+ 2 (* 2 (length rows)) 2))))
-         (off 0))
-    (flet ((word (w) (ffi:poke-u16 chip w off) (incf off 2)))
-      (word 0) (word 0)                 ; position control
-      (dolist (row rows)
-        (word (first row))
-        (word (second row)))
-      (word 0) (word 0))                ; sprite terminator
+  (multiple-value-bind (chip height)
+      (amiga.intuition:make-pointer-sprite (pointer-sprite-rows image))
     (multiple-value-bind (hx hy) (pointer-hotspot image)
-      (list chip (length rows) (- hx) (- hy)))))
+      (list chip height (- hx) (- hy)))))
 
 (defun %apply-standard-pointer (win)
   "Show the pointer matching the current hover state on WIN — a
@@ -960,7 +899,7 @@ garbage."
   (let* ((img (read-ilbm-planar path))
          (w (planar-image-width img))
          (h (planar-image-height img))
-         (friend (%window-bitmap rp))
+         (friend (amiga.gfx:rastport-bitmap rp))
          (depth (max 2 (amiga.gfx:get-bitmap-attr friend
                                                   amiga.gfx:+bma-depth+)
                      (planar-image-depth img)))
@@ -1175,7 +1114,7 @@ being the session's cache; renders and uploads it on first sight."
           (clrhash lines))
         (multiple-value-bind (pens w h)
             (microfont-line text 0 1)   ; black glyphs on the white page
-          (let* ((friend (%window-bitmap rp))
+          (let* ((friend (amiga.gfx:rastport-bitmap rp))
                  (depth (max 2 (amiga.gfx:get-bitmap-attr
                                 friend amiga.gfx:+bma-depth+)))
                  (bm (amiga.gfx:alloc-bitmap w h depth :friend friend)))
