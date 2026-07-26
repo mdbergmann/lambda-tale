@@ -69,7 +69,9 @@ handlers took."
 ;;; one to a game and render its trailing lines, newest at the bottom.
 
 (defstruct (message-log (:constructor %make-message-log))
-  (lines '())         ; newest first
+  (lines '())         ; newest first, each entry (stamp . text) — the
+                      ; stamp is the GET-INTERNAL-REAL-TIME of logging,
+                      ; EXPIRE-MESSAGES's yardstick
   (limit 100))
 
 (defun attach-message-log (game &key (limit 100))
@@ -84,7 +86,7 @@ it.  The log keeps the most recent LIMIT messages."
 
 (defun log-message (log text)
   "Append TEXT to LOG, dropping the oldest line beyond the limit."
-  (push text (message-log-lines log))
+  (push (cons (get-internal-real-time) text) (message-log-lines log))
   (let ((tail (nthcdr (1- (message-log-limit log))
                       (message-log-lines log))))
     (when (consp tail)
@@ -95,7 +97,7 @@ it.  The log keeps the most recent LIMIT messages."
   "The last N messages logged to LOG, oldest first — ready to draw top
 to bottom with the newest line at the bottom."
   (let ((lines (message-log-lines log)))
-    (reverse (subseq lines 0 (min n (length lines))))))
+    (mapcar #'cdr (reverse (subseq lines 0 (min n (length lines)))))))
 
 (defun log-length (log)
   "How many messages LOG currently holds (bounded by its limit)."
@@ -105,7 +107,26 @@ to bottom with the newest line at the bottom."
   "The messages logged after the point where LOG held MARK lines,
 oldest first — the window a combat round's own transcript page shows."
   (let ((lines (message-log-lines log)))
-    (reverse (subseq lines 0 (max 0 (- (length lines) mark))))))
+    (mapcar #'cdr (reverse (subseq lines 0 (max 0 (- (length lines) mark)))))))
+
+(defparameter *message-ttl* 60
+  "Seconds a line lingers on the message board before EXPIRE-MESSAGES
+sweeps it — old news clears itself even while the party stands still.
+NIL keeps every line until the ring's LIMIT drops it.")
+
+(defun expire-messages (log &optional (now (get-internal-real-time)))
+  "Drop LOG's lines logged more than *MESSAGE-TTL* seconds before NOW.
+Returns true when any line went, so a front-end's idle beat can redraw
+the board exactly then.  Call it only while the plain log is showing:
+a combat transcript's mark counts lines (LOG-SINCE), so a sweep
+mid-round would shift the round's window."
+  (when *message-ttl*
+    (let* ((cutoff (- now (* *message-ttl* internal-time-units-per-second)))
+           (lines (message-log-lines log))
+           (kept (remove-if (lambda (entry) (< (car entry) cutoff))
+                            lines)))
+      (setf (message-log-lines log) kept)
+      (< (length kept) (length lines)))))
 
 (defun wrap-text (text width)
   "Split TEXT into a list of lines at most WIDTH characters long,

@@ -68,7 +68,7 @@
    #:zone-sfx-dir #:load-sound-pack #:dungeon-map-sfx
    ;; message log (the Bard's Tale text column)
    #:attach-message-log #:log-message #:log-recent
-   #:log-length #:log-since
+   #:log-length #:log-since #:expire-messages #:*message-ttl*
    #:wrap-text #:wrap-message
    ;; structured menu lines (option rows carry their pick key)
    #:menu-option #:menu-numbered #:menu-line-text #:menu-line-key

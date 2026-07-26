@@ -1139,6 +1139,28 @@ height" d)
   (check "log-message appends directly" '("three" "four" "five")
          (log-recent log 10)))
 
+;; EXPIRE-MESSAGES: the board clears itself of old news — the
+;; front-ends call it from their idle beat and redraw when it returns
+;; true.  NOW is a parameter, so the tests age lines without waiting.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m))
+       (log (attach-message-log g))
+       (later (+ (get-internal-real-time)
+                 (* (1+ *message-ttl*) internal-time-units-per-second))))
+  (say g "old news")
+  (check "a fresh line survives the sweep" nil
+         (expire-messages log))
+  (check "the fresh line stays on the board" '("old news")
+         (log-recent log 10))
+  (check-true "an over-aged line is swept" (expire-messages log later))
+  (check "the board is clear after the sweep" '() (log-recent log 10))
+  (check "a sweep with nothing to drop reports so" nil
+         (expire-messages log later))
+  (let ((*message-ttl* nil))
+    (say g "kept")
+    (check "TTL nil never sweeps" nil (expire-messages log later))
+    (check "TTL nil keeps the line" '("kept") (log-recent log 10))))
+
 ;; LOG-LENGTH / LOG-SINCE: the combat round's own transcript page —
 ;; the front-end marks the log at round start and draws only what the
 ;; round said.

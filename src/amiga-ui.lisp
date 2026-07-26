@@ -2749,6 +2749,17 @@ map/help/sheet pages close on a click outside a target — see
                            ;; modal picker — and the base resets there so
                            ;; a paused stretch never dumps in at once.
                            (idle-clock)
+                           ;; sweep old news off the message board —
+                           ;; only while the board itself is showing
+                           ;; (a takeover page or combat transcript
+                           ;; owns the pane and its line marks)
+                           (when (and (eq mode :play)
+                                      (menus-idle-p)
+                                      (not (game-combat game))
+                                      (not over)
+                                      (not pacing)
+                                      (expire-messages log))
+                             (%amiga-draw-log rp log l log-lines))
                            ;; the animation heartbeat: re-blit the
                            ;; registered dirty rectangles in place —
                            ;; never a REDRAW (see *ANIM-BLITS*)

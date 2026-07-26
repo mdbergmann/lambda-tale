@@ -185,6 +185,12 @@ engine has no default world; the game names its starting map."
                          (dungeon-map-height (game-map game))
                          full)))
              (draw-play-page ()
+               ;; sweep old news off the message board while the plain
+               ;; walkabout page is showing (combat marks the log by
+               ;; line count — see EXPIRE-MESSAGES)
+               (unless (or menu cast use sing pacing
+                           (game-location game) (game-combat game))
+                 (expire-messages log))
                ;; menu lines may carry their pick key (see MENU-OPTION);
                ;; the terminal draws the text only
                (cond (menu
