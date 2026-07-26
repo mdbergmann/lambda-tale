@@ -1961,6 +1961,7 @@ map/help/sheet pages close on a click outside a target — see
           (%draw-depth))
     (labels ((wire (g)
                (setf log (attach-message-log g))
+               (attach-sounds g)
                (setf shopv (when (game-location g) (make-shop-view)))
                (setf castv nil)
                (setf usev nil)
@@ -2180,11 +2181,12 @@ map/help/sheet pages close on a click outside a target — see
                           ;; menu) thereby stops the anim stepper
                           (setf *anim-blits* '())
                           ;; travel switched zones: swap in the zone's
-                          ;; tile pack and repaint the chrome first
-                          ;; (the plaque carries the zone title)
+                          ;; tile pack (and sound pack) and repaint the
+                          ;; chrome first (the plaque carries the title)
                           (when zone-dirty
                             (setf zone-dirty nil)
                             (ensure-walls)
+                            (amiga-sound-open (zone-sfx-dir game))
                             (clear-inner)
                             (%chrome-frames rp game l))
                           ;; re-tint the sky/ground for the hour: an
@@ -2429,7 +2431,9 @@ map/help/sheet pages close on a click outside a target — see
                                       ;; packs and repaint the chrome
                                       ;; (the plaque carries the zone
                                       ;; name)
-                                      (ensure-walls)))
+                                      (ensure-walls)
+                                      (amiga-sound-open
+                                       (zone-sfx-dir game))))
                                    (clear-inner)
                                    (%chrome-frames rp game l)
                                    (log-message log "Game loaded.")
@@ -2647,6 +2651,7 @@ map/help/sheet pages close on a click outside a target — see
                        ;; pointer has something to restore to
                        (%ensure-standard-pointer scr win display)
                        (ensure-walls)
+                       (amiga-sound-open (zone-sfx-dir game))
                        (dlog-timed ("chrome + first frame")
                          (%chrome-bg rp win l)
                          (%chrome-frames rp game l)
@@ -2728,6 +2733,7 @@ map/help/sheet pages close on a click outside a target — see
                                (when (and c (eq (act c) :quit))
                                  (return)))))))
                    (%free-standard-pointer win)
+                   (amiga-sound-close)
                    (setf *anim-blits* '()   ; records hold freed bitmaps
                          walls (%free-wall-assets walls)
                          pack-cache (%pack-cache-free-all pack-cache)

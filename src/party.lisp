@@ -357,14 +357,18 @@ The shop pages and the character sheet offer it on 'g'."
     (if (> (length alive) n) (subseq alive 0 n) alive)))
 
 (defun damage-hero (game hero amount)
-  "Deal AMOUNT damage to HERO.  Emits :HERO-DIED when this kills them
-and :PARTY-DEFEATED when nobody is left standing.  Returns remaining hp."
+  "Deal AMOUNT damage to HERO.  Emits :HERO-HURT when they take it and
+stand, :HERO-DIED when this kills them (never both — the death cry
+covers the blow) and :PARTY-DEFEATED when nobody is left standing.
+Returns remaining hp."
   (setf (hero-hp hero) (max 0 (- (hero-hp hero) amount)))
-  (when (zerop (hero-hp hero))
-    (say game "~A FALLS!" (hero-name hero))
-    (emit game :hero-died hero)
-    (unless (party-alive-p game)
-      (emit game :party-defeated)))
+  (if (zerop (hero-hp hero))
+      (progn
+        (say game "~A FALLS!" (hero-name hero))
+        (emit game :hero-died hero)
+        (unless (party-alive-p game)
+          (emit game :party-defeated)))
+      (emit game :hero-hurt hero amount))
   (hero-hp hero))
 
 (defun heal-hero (game hero amount)
@@ -396,6 +400,7 @@ and :PARTY-DEFEATED when nobody is left standing.  Returns remaining hp."
                               (hero-iq hero))))
     (incf (hero-sp hero) (max 0 (- new-sp (hero-max-sp hero))))
     (setf (hero-max-sp hero) new-sp))
+  (emit game :level-up hero)
   (say game "~A rises to level ~D!" (hero-name hero) (hero-level hero)))
 
 (defun award-xp (game hero amount)

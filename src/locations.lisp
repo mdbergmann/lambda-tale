@@ -164,6 +164,7 @@ of that kind equipped and can use it.  Returns T on success."
           (t
            (decf (hero-gold hero) (item-type-price type))
            (give-item game hero name)
+           (emit game :coin (item-type-price type))
            (say game "~A buys ~A for ~D gold." (hero-name hero)
                 (item-type-title type) (item-type-price type))
            (when (and (member (item-type-kind type)
@@ -183,6 +184,7 @@ says why and returns NIL when the hero does not carry it."
       (let ((price (item-sell-price name)))
         (drop-item game hero name)
         (incf (hero-gold hero) price)
+        (emit game :coin price)
         (say game "~A sells ~A for ~D gold." (hero-name hero)
              (item-title name) price)
         t)))

@@ -946,6 +946,36 @@ special; a tavern may also hold the way below (`:down FILE`, the
 trapdoor to the cellar).  The "Bard songs" test section of
 `tests/run-tests.lisp` is the executable specification.
 
+## Sound
+
+Sound works like tiles: the engine names the cues, a **sound pack**
+ships them.  The vocabulary (`*sound-names*`) covers the moments the
+game already announces — `hit`, `slay`, `miss`, `hurt`, `death`,
+`combat`, `victory`, `defeat`, `door`, `blocked`, `cast`, `song`,
+`level`, `coin`, `drink` — and a pack is a directory of IFF **8SVX**
+samples named after them (`hit.8svx`, `door.8svx`, ...), declared per
+zone in the map right beside the tile pack:
+
+    (zone :kind :city :gfx "gfx/" :sfx "sfx/")
+
+A pack may ship any subset; missing cues stay silent.  `hit.8svx` is
+the pack's probe file (the `front-0.iff` of sound): `zone-sfx-dir`
+resolves the directory beside the map file first, then relative to
+the game directory.
+
+Mechanics never play sounds — they emit events, and `attach-sounds`
+(wired by both front-ends, next to the message log) maps them to cues
+through `play-sound`.  On the Amiga the cues are audible: the pack's
+samples are uploaded to chip RAM once and one `audio.device` channel
+plays them (cl-amiga's `AMIGA.AUDIO` module), a new cue cutting the
+one still sounding; travel swaps sound packs exactly like tile packs.
+The host front-end stays silent — `*sound-backend*` is the single
+hook, so a host player (or a test) can install its own.  `read-8svx`
+/ `write-8svx` round-trip the format (uncompressed and
+Fibonacci-delta), so asset generators need no second toolchain.  The
+"Sound" test section of `tests/run-tests.lisp` is the executable
+specification.
+
 ## Save games
 
 Save games (`save-game`/`load-game`) are a single readable Lisp form:
@@ -1038,6 +1068,7 @@ results.
 - **M4 (in progress)**: the game proper — now the separate
   [Closure](../closure-tale/README.md) subproject — plus engine support as
   it needs it: zones/travel/shops (**done**), day/night and darkness
-  (**done**), spells (**done**), named saves (**done**); next sound,
-  then polish.  The Bard's Tale II chrome and the day/night sky art
-  are parked until the game content lands.
+  (**done**), spells (**done**), named saves (**done**), sound —
+  8SVX cue packs per zone, audio.device playback (**done**); next
+  polish.  The Bard's Tale II chrome and the day/night sky art are
+  parked until the game content lands.

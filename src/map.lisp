@@ -74,6 +74,7 @@
   (start-y 0)
   (start-facing :north)
   gfx                 ; zone's tile-pack dir from (ZONE :GFX ...), or NIL
+  sfx                 ; zone's sound-pack dir from (ZONE :SFX ...), or NIL
   dark                ; always dark (ZONE :DARK D) — needs a light;
                       ; T = one cell of sight, an integer = that many
   sky                 ; (ZONE :SKY (R G B)) noon sky colour, or NIL for
@@ -266,7 +267,7 @@ components, e.g. (102 170 204) or #(102 170 204)" path key spec)))))
                     (dungeon-map-width map) (dungeon-map-height map)))
            (setf (cell-special map x y) ops)))
         ((string-equal (symbol-name (first form)) "ZONE")
-         (destructuring-bind (&key kind title wrap start-facing gfx dark
+         (destructuring-bind (&key kind title wrap start-facing gfx sfx dark
                                    sky ground)
              (rest form)
            (when kind
@@ -284,6 +285,11 @@ components, e.g. (102 170 204) or #(102 170 204)" path key spec)))))
                (error "~A: zone :gfx ~S must be a directory string ~
 (e.g. \"gfx/\")" path gfx))
              (setf (dungeon-map-gfx map) gfx))
+           (when sfx
+             (unless (stringp sfx)
+               (error "~A: zone :sfx ~S must be a directory string ~
+(e.g. \"sfx/\")" path sfx))
+             (setf (dungeon-map-sfx map) sfx))
            (when dark
              (unless (or (eq dark t) (and (integerp dark) (plusp dark)))
                (error "~A: zone :dark ~S must be T (one cell of sight) ~
@@ -346,11 +352,13 @@ skipped entirely, same as DLOG-TIMED."
 After the art the file may carry Lisp data forms — the story layer of
 the map, read with *READ-EVAL* bound to NIL and never evaluated:
     (zone :kind KIND :title TITLE :wrap W :start-facing DIR :gfx PACK
-          :dark D :sky C :ground C)
+          :sfx SOUNDS :dark D :sky C :ground C)
                              zone metadata: KIND is :dungeon (default),
                              :city, ... — maps self-describe what they
                              are; PACK names the zone's tile-pack
-                             directory (see ZONE-GFX-DIR); :dark D makes
+                             directory (see ZONE-GFX-DIR); SOUNDS the
+                             zone's sound-pack directory (see
+                             ZONE-SFX-DIR); :dark D makes
                              the zone dark at all hours (see GAME-DARK-P):
                              T = one cell of sight, a positive integer =
                              that many cells (see GAME-VIEW-DEPTH); :sky

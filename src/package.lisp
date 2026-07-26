@@ -60,6 +60,10 @@
    #:game-zones #:travel-party #:load-campaign
    ;; events and story flags
    #:on-event #:emit #:say #:flag #:set-flag #:clear-flag
+   ;; sound: 8SVX samples and the cue layer (see src/sound.lisp)
+   #:make-sound #:sound-rate #:sound-bytes #:read-8svx #:write-8svx
+   #:*sound-names* #:*sound-backend* #:play-sound #:attach-sounds
+   #:zone-sfx-dir #:load-sound-pack #:dungeon-map-sfx
    ;; message log (the Bard's Tale text column)
    #:attach-message-log #:log-message #:log-recent
    #:log-length #:log-since

@@ -4,3 +4,5 @@ tests/tmp-saves/
 tests/tmp-*.map
 *.mapc
 *.uaem
+tests/tmp-*.8svx
+tests/tmp-sfx/

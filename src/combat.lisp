@@ -138,10 +138,14 @@ scrolls by, while misses stay lowercase and quiet."
   (let ((type (monster-kind monster)))
     (decf (monster-hp monster) dmg)
     (if (monster-alive-p monster)
-        (say game "~A HITS the ~A for ~D damage."
-             attacker-name (monster-type-name type) dmg)
-        (say game "~A SLAYS the ~A!"
-             attacker-name (monster-type-name type)))))
+        (progn
+          (emit game :hit monster dmg)
+          (say game "~A HITS the ~A for ~D damage."
+               attacker-name (monster-type-name type) dmg))
+        (progn
+          (emit game :slay monster)
+          (say game "~A SLAYS the ~A!"
+               attacker-name (monster-type-name type))))))
 
 (defun %hero-attack (game hero monster)
   "One melee strike.  Active effects weigh in: :FOES-AC makes the
@@ -161,8 +165,10 @@ a hit — the chance grows one point per hero level."
                                (max 1 (+ (roll-dice (hero-attack-dice hero))
                                          (stat-bonus (hero-str hero))
                                          (effects-damage-bonus game))))))
-        (say game "~A misses the ~A."
-             (hero-name hero) (monster-type-name type)))))
+        (progn
+          (emit game :miss hero monster)
+          (say game "~A misses the ~A."
+               (hero-name hero) (monster-type-name type))))))
 
 (defun %monster-attack (game combat monster)
   (let* ((targets (front-ranks game))

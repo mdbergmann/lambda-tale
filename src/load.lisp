@@ -39,6 +39,7 @@
     (ld "view.lisp")
     (ld "game.lisp")
     (ld "events.lisp")
+    (ld "sound.lisp")
     (ld "races.lisp")
     (ld "party.lisp")
     (ld "time.lisp")
@@ -55,6 +56,7 @@
     (ld "microfont.lisp")
     (ld "render.lisp")
     (ld "render-fp.lisp")
+    #+amigaos (ld "amiga-sound.lisp")
     #+amigaos (ld "amiga-ui.lisp")
     #-amigaos (ld "host-ui.lisp")
     ;; TALE::%DLOG is looked up at runtime: this form is READ before

@@ -8128,6 +8128,203 @@ pieces need a mask" pname)
     (check (format nil "version: TALE exports ~A" name) :external status)))
 
 ;;; ---------------------------------------------------------------------
+;;; Sound: 8SVX samples, the cue layer and sound packs (M4)
+
+;; WRITE-8SVX / READ-8SVX round-trip — an odd sample count pads the
+;; BODY chunk on disk but comes back exactly.
+(let ((bytes (make-array 101 :element-type '(unsigned-byte 8))))
+  (dotimes (i 101) (setf (aref bytes i) (mod (* i 7) 256)))
+  (write-8svx "tests/tmp-sound.8svx" (make-sound 8000 bytes))
+  (let ((s (read-8svx "tests/tmp-sound.8svx")))
+    (check "8svx round-trip: rate" 8000 (sound-rate s))
+    (check "8svx round-trip: length survives the pad" 101
+           (length (sound-bytes s)))
+    (check-true "8svx round-trip: samples" (equalp bytes (sound-bytes s)))))
+(delete-file "tests/tmp-sound.8svx")
+
+;; Error paths: not IFF at all, missing file.
+(with-open-file (s "tests/tmp-sound.8svx" :direction :output
+                   :if-exists :supersede)
+  (write-line "not an iff file at all" s))
+(check-error "read-8svx rejects a non-IFF file"
+  (read-8svx "tests/tmp-sound.8svx"))
+(delete-file "tests/tmp-sound.8svx")
+(check-error "read-8svx on a missing file"
+  (read-8svx "tests/no-such.8svx"))
+
+;; Fibonacci-delta BODY (sCompression 1): seed 0, then nibble codes
+;; 9 10 15 8 = deltas +1 +2 +21 +0 -> samples 1 3 24 24.
+(let ((bytes '(70 79 82 77  0 0 0 44        ; FORM, size 44
+               56 83 86 88                  ; 8SVX
+               86 72 68 82  0 0 0 20        ; VHDR, size 20
+               0 0 0 4  0 0 0 0  0 0 0 32   ; oneShot, repeat, hiCycle
+               31 64 1 1  0 1 0 0           ; 8000 Hz, 1 octave, fib, 1.0
+               66 79 68 89  0 0 0 4         ; BODY, size 4
+               0 0 154 248)))               ; pad, seed 0, 4 codes
+  (with-open-file (s "tests/tmp-sound.8svx" :direction :output
+                     :element-type '(unsigned-byte 8)
+                     :if-exists :supersede)
+    (write-sequence (coerce bytes 'vector) s)))
+(let ((s (read-8svx "tests/tmp-sound.8svx")))
+  (check "fibonacci-delta: rate read" 8000 (sound-rate s))
+  (check "fibonacci-delta: two samples per code byte" 4
+         (length (sound-bytes s)))
+  (check-true "fibonacci-delta: decoded samples"
+              (equalp #(1 3 24 24) (sound-bytes s))))
+(delete-file "tests/tmp-sound.8svx")
+
+;; PLAY-SOUND: silent without a backend, funnels cues through one.
+(check "play-sound without a backend returns the cue" 'hit
+       (play-sound 'hit))
+(let ((heard '()))
+  (let ((*sound-backend* (lambda (name) (push name heard))))
+    (play-sound 'door)
+    (play-sound 'coin))
+  (check "play-sound funnels every cue through the backend"
+         '(door coin) (reverse heard)))
+
+;; The cue recorder the event checks below share.
+(defmacro with-cues ((cues) &body body)
+  "Run BODY with a recording *SOUND-BACKEND* bound; CUES is a closure
+yielding the cues played so far, oldest first."
+  (let ((acc (gensym "CUES")))
+    `(let* ((,acc '())
+            (*sound-backend* (lambda (name) (push name ,acc)))
+            (,cues (lambda () (reverse ,acc))))
+       ,@body)))
+
+;; ATTACH-SOUNDS: a wall bump and a door step become their cues.
+(let* ((m (parse-map *art* :name "test"))
+       (g (attach-sounds (new-game m :party (list (%combat-hero))))))
+  (with-cues (cues)
+    (move-party g :forward)             ; north into the border: blocked
+    (turn-right g)
+    (move-party g :forward)             ; east to (1,0): plain step
+    (turn-right g)
+    (move-party g :forward)             ; south through the door
+    (check "movement cues: the bump and the door, steps silent"
+           '(blocked door) (funcall cues))))
+
+;; Combat cues: the sting, the killing blow, the fanfare — the same
+;; scripted round the clean-kill check above plays.
+(let* ((m (parse-map *art* :name "test"))
+       (g (attach-sounds (new-game m :party (list (%combat-hero))))))
+  (with-cues (cues)
+    (start-combat g '(("test rat" 1)))
+    (with-rng (10 2) (combat-round g))
+    (check "combat cues: sting, slay, victory"
+           '(combat slay victory) (funcall cues))))
+
+;; A landed blow that does not kill cues HIT (via the shared
+;; %STRIKE-MONSTER funnel), a miss cues MISS.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (attach-sounds (new-game m :party (list h)))))
+  (start-combat g '(("test ogre" 1)))
+  (let ((ogre (first (combat-monsters (game-combat g)))))
+    (setf (monster-hp ogre) 50)
+    (with-cues (cues)
+      (%strike-monster g "Alva" ogre 3)
+      (check "a landed blow cues hit" '(hit) (funcall cues)))
+    (with-cues (cues)
+      (with-rng (0) (%hero-attack g h ogre))   ; roll 1: a clean miss
+      (check "a swing gone wide cues miss" '(miss) (funcall cues)))))
+
+;; Hero damage: HURT while they stand, the death cry alone when they
+;; fall (never both for one blow).
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (attach-sounds (new-game m :party (list h)))))
+  (with-cues (cues)
+    (damage-hero g h 3)
+    (check "a standing hero cues hurt" '(hurt) (funcall cues)))
+  (with-cues (cues)
+    (damage-hero g h 100)
+    (check "the killing blow cues the death cry alone" '(death)
+           (funcall cues)))
+  (with-cues (cues)
+    (award-xp g h 200)                  ; past level 2's 100 xp
+    (check "rising a level cues level" '(level) (funcall cues))))
+
+;; Gold changing hands cues COIN — the sell side exercises the emit.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (attach-sounds (new-game m :party (list h)))))
+  (give-item g h 't-torch)
+  (with-cues (cues)
+    (sell-item g h 't-torch)
+    (check "a sale cues coin" '(coin) (funcall cues))))
+
+;; The rest of the mapping table, driven by the events directly.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (attach-sounds (new-game m :party (list h)))))
+  (with-cues (cues)
+    (emit g :spell-cast h 'test-bolt)
+    (emit g :song-sung h 'test-tune)
+    (emit g :drink h)
+    (emit g :combat-end :fled)          ; fleeing has no cue
+    (emit g :combat-end :defeat)
+    (check "cast, song, drink and defeat map; fleeing stays silent"
+           '(cast song drink defeat) (funcall cues))))
+
+;; The zone form carries the sound pack like the tile pack.
+(let ((path "tests/tmp-sfx.map"))
+  (with-open-file (s path :direction :output :if-exists :supersede)
+    (write-string *art* s)
+    (terpri s)
+    (write-line "(zone :kind :city :title \"Sfxville\" :sfx \"sfx/\")" s))
+  (let ((m (load-map-file path)))
+    (check "zone :sfx is map data" "sfx/" (dungeon-map-sfx m))
+    (check "zone :gfx stays untouched" nil (dungeon-map-gfx m)))
+  (delete-file path)
+  (let ((cache (probe-file "tests/tmp-sfx.mapc")))
+    (when cache (delete-file cache))))
+(let ((path "tests/tmp-sfx.map"))
+  (with-open-file (s path :direction :output :if-exists :supersede)
+    (write-string *art* s)
+    (terpri s)
+    (write-line "(zone :sfx sounds)" s))
+  (check-error "zone :sfx must be a directory string"
+    (load-map-file path))
+  (delete-file path))
+
+;; ZONE-SFX-DIR resolves beside the map when the pack lives there,
+;; else game-relative; no :SFX zone means no pack.  LOAD-SOUND-PACK
+;; reads the shipped subset of the vocabulary, in vocabulary order.
+(ensure-directories-exist "tests/tmp-sfx/")
+(write-8svx "tests/tmp-sfx/hit.8svx"
+            (make-sound 8000 (make-array 64 :element-type '(unsigned-byte 8)
+                                            :initial-element 100)))
+(write-8svx "tests/tmp-sfx/door.8svx"
+            (make-sound 4000 (make-array 32 :element-type '(unsigned-byte 8)
+                                            :initial-element 156)))
+(let* ((m (parse-map *art* :name "tests/tmp-here.map"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (check "no :sfx zone, no pack dir" nil (zone-sfx-dir g))
+  (setf (dungeon-map-sfx m) "tmp-sfx/")
+  (check "the pack beside the map wins" "tests/tmp-sfx/"
+         (zone-sfx-dir g))
+  (setf (dungeon-map-sfx m) "elsewhere/sfx/")
+  (check "no local probe file: the dir goes game-relative"
+         "elsewhere/sfx/" (zone-sfx-dir g)))
+(let ((pack (load-sound-pack "tests/tmp-sfx/")))
+  (check "the pack ships its subset, vocabulary order" '(hit door)
+         (mapcar #'car pack))
+  (check "pack samples arrive decoded" 64
+         (length (sound-bytes (cdr (assoc 'hit pack)))))
+  (check "pack rates arrive per file" 4000
+         (sound-rate (cdr (assoc 'door pack)))))
+(check "an empty dir is an empty pack" '()
+       (load-sound-pack "tests/no-such-dir/"))
+(delete-file "tests/tmp-sfx/hit.8svx")
+(delete-file "tests/tmp-sfx/door.8svx")
+
+;; The vocabulary itself is engine API — a pack generator iterates it.
+(check "the cue vocabulary" 15 (length *sound-names*))
+(check-true "hit is the pack probe cue" (member 'hit *sound-names*))
+
+;;; ---------------------------------------------------------------------
 ;;; Summary
 
 (format t "~%Lambda's Tale engine tests: ~D checks, ~D failures.~%"

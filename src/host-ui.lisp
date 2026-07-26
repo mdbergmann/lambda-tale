@@ -109,6 +109,9 @@ engine has no default world; the game names its starting map."
          (over nil))
     (labels ((wire (g)
                (setf log (attach-message-log g))
+               ;; cues go through *SOUND-BACKEND* — silence on the host,
+               ;; but the wiring matches the Amiga front-end
+               (attach-sounds g)
                (setf shop (when (game-location g) (make-shop-view)))
                (setf cast nil)
                (setf use nil)

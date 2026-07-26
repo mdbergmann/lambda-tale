@@ -12,10 +12,21 @@
 ;;;   :enter-location LOC    the party entered a location (shop, ...)
 ;;;   :leave-location LOC    ... and left it again
 ;;;   :blocked DIR           the party bumped into a wall
+;;;   :door DIR              the party stepped through a door
 ;;;   :combat-start MONSTERS combat began
 ;;;   :combat-end RESULT     combat ended (:victory, :defeat or :fled)
+;;;   :hit MONSTER DMG       the party landed a blow (melee or spell)
+;;;   :slay MONSTER          ... and it felled the monster
+;;;   :miss HERO MONSTER     a hero's swing missed
+;;;   :hero-hurt HERO DMG    a hero took damage and stands
 ;;;   :hero-died HERO        a hero dropped to 0 hp
 ;;;   :party-defeated        the last hero fell
+;;;   :level-up HERO         a hero rose a level
+;;;   :coin AMOUNT           gold changed hands in a shop (buy, sell)
+;;; plus :spell-cast, :song-sung, :item-used, :item-passed, :drink,
+;;; :hero-revived, :party-joined, :time-band, :sunrise, :sunset and
+;;; :effect-expired from their subsystems — ATTACH-SOUNDS (sound.lisp)
+;;; maps a subset of all these to the sound-cue vocabulary.
 ;;; Story specials can emit arbitrary further topics via the EVENT op
 ;;; (see specials.lisp); front-ends and campaign code subscribe alike.
 

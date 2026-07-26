@@ -467,9 +467,9 @@ no timed effect."
   "Attempt to step the party one cell.  RELATIVE is :forward or :back
 \(a Bard's Tale back-step keeps the current facing).  Returns
 :moved, :door (stepped through a door) or :blocked.  Entering a cell
-emits :ENTER-CELL and triggers the cell's special; bumping a wall
-emits :BLOCKED.  Signals an error during combat — there is no walking
-away from a fight (see ATTEMPT-FLEE)."
+emits :ENTER-CELL and triggers the cell's special; a door step emits
+:DOOR first; bumping a wall emits :BLOCKED.  Signals an error during
+combat — there is no walking away from a fight (see ATTEMPT-FLEE)."
   (when (game-combat game)
     (error "move-party: the party is in combat (attack or flee first)"))
   (when (game-location game)
@@ -492,6 +492,11 @@ away from a fight (see ATTEMPT-FLEE)."
               (progn
                 (setf (game-x game) nx
                       (game-y game) ny)
+                ;; The door creaks before the room answers: the cue
+                ;; must precede whatever the target cell's special
+                ;; emits (an encounter sting, a location).
+                (when (eq wall :door)
+                  (emit game :door (dir-keyword dir)))
                 ;; The step costs time before the party looks around:
                 ;; a light that gutters out right now shrinks what this
                 ;; very step maps, and an AT-NIGHT special on the target
