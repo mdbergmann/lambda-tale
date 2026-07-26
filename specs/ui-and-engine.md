@@ -177,8 +177,8 @@ profile, not a patch.)
   bottom, older lines scrolling up, exactly like Bard's Tale's text
   column.  Backed by the engine's `attach-message-log` ring
   (`:message` events); front-ends render as many trailing lines as
-  fit.  On the Amiga the log renders in the engine's own **5x7
-  microfont** (src/microfont.lisp — 6x8 cells, rendered once per
+  fit.  On the Amiga the log renders in the engine's own **7x7
+  microfont** (src/microfont.lisp — 8x8 cells, rendered once per
   distinct line into a cached offscreen bitmap and blitted), smaller
   than topaz 8 so the narrow column holds more text.
 - **Effect strip** (below the log page, separated by a small gap, on
@@ -264,7 +264,7 @@ with pictures in the view column.)
 - The **cast/use/sing menus and the save picker keep the overlay
   page** over the view column (`%amiga-draw-page`) — they can open in
   combat, where the log must stay readable for the transcript.  The
-  page draws in the same **5x7 microfont** as the log and the
+  page draws in the same **7x7 microfont** as the log and the
   takeover, so the whole UI carries one type size and a long slot or
   spell list fits the lo-res page.  The
   full-page sheet overlay (`%amiga-draw-sheet`) stays available as a
@@ -296,8 +296,10 @@ with pictures in the view column.)
   compass effect burns — and the game clock on the first line, the map
   size (and the `FULL` marker) on the second.  No key hints — those
   live on the help page.
-- The whole map page is drawn in the **5x7 microfont** — cell glyphs,
-  legend and footer alike.
+- The whole map page is drawn in the microfont — legend and footer in
+  the bold **7x7** face, the cell glyphs in the compact **5x7 small
+  face** (`microfont-small-glyph`), whose 6px advance still enters the
+  7px cells a 30x30 city draws at lores.
 - `f` inside map mode toggles the omniscient debug view (full map
   regardless of knowledge); it exists for development, not gameplay.
 - `h`/`?` opens the **help page** (the key reference, `help-lines`)

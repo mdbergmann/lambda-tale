@@ -117,7 +117,7 @@ specs/               design constraints (UI layout, map scale, screens)
 Both front-ends draw the Bard's Tale split screen (see
 [specs/ui-and-engine.md](specs/ui-and-engine.md)): the first-person
 view with the location plaque under it on the left, the scrolling
-message log on the right (in the engine's compact 5x7 microfont on
+message log on the right (in the engine's bold 7x7 microfont on
 the Amiga) with a slim strip of active-effect icons below it, laid
 out in effect order — an effect granting a compass shows the live
 rose in its slot — and the numbered party roster (`# CHARACTER AC

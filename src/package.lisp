@@ -173,9 +173,11 @@
    #:help-lines
    ;; keyboard input normalization (see src/keys.lisp)
    #:vanilla-key-char
-   ;; the microfont (the message log's compact 5x7 pixel font)
+   ;; the microfont (the message log's bold 7x7 pixel font, plus the
+   ;; compact 5x7 small face for the automap's cell letters)
    #:+microfont-advance+ #:+microfont-line-height+
    #:microfont-glyph #:microfont-text-width #:microfont-line
+   #:+microfont-small-advance+ #:microfont-small-glyph
    ;; debug log (timestamped trace file, see src/debug-log.lisp)
    #:*debug-log-path* #:debug-log-enable #:debug-log-disable
    #:debug-log-enabled-p #:dlog #:dlog-timed

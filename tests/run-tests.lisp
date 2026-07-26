@@ -7417,38 +7417,51 @@ never its own"
                            '(:no :name :ac :hit :hpts :spl :spts :cl))))))
 
 ;;; ---------------------------------------------------------------------
-;;; The microfont: the message log's compact 5x7 pixel font.
+;;; The microfont: the message log's bold 7x7 pixel font.
 
-(check "microfont advance is 6 pixels" 6 +microfont-advance+)
+(check "microfont advance is 8 pixels" 8 +microfont-advance+)
 (check "microfont line height is 8 pixels" 8 +microfont-line-height+)
-(check "microfont text width" 30 (microfont-text-width "hello"))
+(check "microfont text width" 40 (microfont-text-width "hello"))
 
-;; Glyph shapes: 'A' has its crossbar, space is blank; anything
-;; outside printable ASCII falls back to the hollow box.
+;; Glyph shapes: 'A' has its bold two-pixel strokes, crossbar and foot
+;; serifs, space is blank; anything outside printable ASCII falls back
+;; to the hollow box.
 (check-true "glyph A"
-            (equalp #(#b01110 #b10001 #b10001 #b10001
-                      #b11111 #b10001 #b10001)
+            (equalp #(#b0011000 #b0111100 #b1100110 #b1100110
+                      #b1111110 #b1100110 #b1110111)
                     (microfont-glyph #\A)))
 (check-true "space is blank" (equalp #(0 0 0 0 0 0 0)
                                      (microfont-glyph #\Space)))
 (check-true "non-ASCII falls back to the box"
             (eq *microfont-fallback* (microfont-glyph (code-char 200))))
 
+;; The small face: compact 5x7 glyphs for the automap's cell letters,
+;; where the bold face's 8px advance cannot enter a 7px cell.
+(check "small face advance is 6 pixels" 6 +microfont-small-advance+)
+(check-true "small glyph T carries its serifs"
+            (equalp #(#b11111 #b10101 #b00100 #b00100
+                      #b00100 #b00100 #b01110)
+                    (microfont-small-glyph #\T)))
+(check-true "small face non-ASCII falls back to the 5-wide box"
+            (eq tale::*microfont-small-fallback*
+                (microfont-small-glyph (code-char 200))))
+
 ;; Rendering: row-major pens, FG where a glyph bit is set, BG
 ;; elsewhere; WIDTH pads or cuts.
 (multiple-value-bind (pens w h) (microfont-line "A" 7 2)
-  (check "rendered width of one glyph cell" 6 w)
+  (check "rendered width of one glyph cell" 8 w)
   (check "rendered height is the line height" 8 h)
-  (check "buffer covers the cell" 48 (length pens))
-  ;; row 0 of 'A' is 01110 -> pens 2 7 7 7 2, then the spacing column
-  (check "top row pixels" '(2 7 7 7 2 2)
-         (loop for x below 6 collect (aref pens x)))
-  ;; row 4 is the 11111 crossbar
-  (check "crossbar row pixels" '(7 7 7 7 7 2)
-         (loop for x below 6 collect (aref pens (+ (* 4 6) x))))
+  (check "buffer covers the cell" 64 (length pens))
+  ;; row 0 of 'A' is the 0011000 apex -> pens 2 2 7 7 2 2 2, then the
+  ;; spacing column
+  (check "top row pixels" '(2 2 7 7 2 2 2 2)
+         (loop for x below 8 collect (aref pens x)))
+  ;; row 4 is the 1111110 crossbar
+  (check "crossbar row pixels" '(7 7 7 7 7 7 2 2)
+         (loop for x below 8 collect (aref pens (+ (* 4 8) x))))
   ;; row 7 is the spacing row
-  (check "spacing row is background" '(2 2 2 2 2 2)
-         (loop for x below 6 collect (aref pens (+ (* 7 6) x)))))
+  (check "spacing row is background" '(2 2 2 2 2 2 2 2)
+         (loop for x below 8 collect (aref pens (+ (* 7 8) x)))))
 (multiple-value-bind (pens w h) (microfont-line "AB" 1 0 :width 8)
   (declare (ignore pens))
   (check "explicit width cuts the text" 8 w)

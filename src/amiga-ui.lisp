@@ -15,7 +15,7 @@
 ;;; There is no status line: the party roster sits right under the
 ;;; view, the key reference lives on the help page ('h' or '?'), and
 ;;; the position/clock show in the map mode's footer.  The message log
-;;; renders in the engine's compact 5x7 microfont (microfont.lisp) so
+;;; renders in the engine's bold 7x7 microfont (microfont.lisp) so
 ;;; the narrow column holds more text.  Active effects show as icons
 ;;; only, laid out left to right in effect order on the 20px grey
 ;;; strip below the log page; an effect that grants a :COMPASS shows
@@ -1092,7 +1092,7 @@ part of its dirty rect with the stepper."
           (amiga.gfx:blt-bitmap-rastport bm sx sy rp dx dy bw bh)
           t)))))
 
-;;; Message-log lines render in the engine's 5x7 microfont
+;;; Message-log lines render in the engine's 7x7 microfont
 ;;; (microfont.lisp) — smaller than topaz 8, so the narrow column
 ;;; holds more text.  Each distinct display line is rasterized once
 ;;; (black on the white page) into an offscreen bitmap and blitted on
@@ -1133,20 +1133,20 @@ being the session's cache; renders and uploads it on first sight."
 
 (defun %map-glyph (rp px py cell ch pen)
   "Draw CH with PEN centered in the CELL-pixel map cell at (PX,PY),
-always in the 5x7 microfont — the whole map page is microfont, and a
-30x30 city at lores draws 7px cells, too small for topaz 8 anyway.
-Cells under 6px carry no glyph.  Only the glyph's own pixels are set:
-a chunky upload would stamp its background rectangle over the wall
+in the microfont's compact small face — a 30x30 city at lores draws
+7px cells, which the bold face's 8px advance cannot enter.  Cells
+under 6px carry no glyph.  Only the glyph's own pixels are set: a
+chunky upload would stamp its background rectangle over the wall
 lines framing the cell."
-  (when (>= cell +microfont-advance+)
+  (when (>= cell +microfont-small-advance+)
     (amiga.gfx:set-a-pen rp pen)
-    (let ((rows (microfont-glyph ch))
-          (gx (+ px (max 1 (floor (- cell +microfont-glyph-width+) 2))))
+    (let ((rows (microfont-small-glyph ch))
+          (gx (+ px (max 1 (floor (- cell +microfont-small-width+) 2))))
           (gy (+ py (max 1 (floor (- cell +microfont-glyph-height+) 2)))))
       (dotimes (row +microfont-glyph-height+)
         (let ((bits (aref rows row)))
-          (dotimes (col +microfont-glyph-width+)
-            (when (logbitp (- +microfont-glyph-width+ 1 col) bits)
+          (dotimes (col +microfont-small-width+)
+            (when (logbitp (- +microfont-small-width+ 1 col) bits)
               (amiga.gfx:write-pixel rp (+ gx col) (+ gy row)))))))))
 
 (defun %amiga-draw-map-region (rp game ox oy cell x0 y0 vw vh full
@@ -1183,7 +1183,7 @@ instead of seconds at 14MHz."
     ;; feature glyphs, black — direct scan of the packed feature bytes
     (let ((features (dungeon-map-features map))
           (mw (dungeon-map-width map)))
-      (when (>= cell +microfont-advance+)
+      (when (>= cell +microfont-small-advance+)
         (dotimes (ry vh)
           (let ((row (+ (* (+ y0 ry) mw) x0)))
             (dotimes (rx vw)
@@ -1582,7 +1582,7 @@ front-ends that want it."
 
 (defun %amiga-draw-page (rp menu-lines l &optional lines-cache)
   "An overlay menu page (cast, use, sing, save slots): MENU-LINES on
-a white page over the view column, in the engine's 5x7 microfont —
+a white page over the view column, in the engine's 7x7 microfont —
 the same type as the message log and the location takeover, and small
 enough that a long save-slot or spell list fits the lo-res page
 without truncation.  The log and roster panes stay live around it —
@@ -1660,7 +1660,7 @@ found locations; the two-line footer carries what the play page has
 no room for: the zone title, the party position — plus the facing
 while a compass burns — and the game clock (keys are on the help
 page).  Every glyph on the page — cells, legend and footer — is the
-5x7 microfont, so the map reads as one plate instead of two type
+7x7 microfont, so the map reads as one plate instead of two type
 sizes, and the footer costs half the height topaz 8 did."
   (let* ((bx (ui-layout-bx l))
          (by (ui-layout-by l))
