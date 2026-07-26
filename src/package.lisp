@@ -19,6 +19,8 @@
    #:dungeon-map-wrap #:dungeon-map-start-x #:dungeon-map-start-y
    #:dungeon-map-start-facing #:dungeon-map-kind #:dungeon-map-title
    #:dungeon-map-dark #:map-title
+   #:dungeon-map-encounters #:dungeon-map-encounter-chance
+   #:dungeon-map-night-encounters #:dungeon-map-night-encounter-chance
    #:cell-wall #:cell-feature #:cell-special #:wall-passable-p #:neighbor
    ;; knowledge
    #:make-map-knowledge #:know-cell #:know-wall
@@ -151,6 +153,7 @@
    #:monster-type-image
    #:monster-kind #:monster-hp #:monster-alive-p
    #:start-combat #:combat-round #:attempt-flee #:hero-can-attack-p
+   #:*encounter-rate* #:maybe-wandering-encounter
    #:combat-monsters #:alive-monsters #:combat-groups #:combat-banner
    #:combat-enemy-image #:combat-image-path
    #:combat-round-no

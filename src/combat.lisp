@@ -133,6 +133,81 @@ may be dice (see PARSE-DICE).  Returns the new COMBAT."
       combat)))
 
 ;;; ---------------------------------------------------------------------
+;;; Wandering monsters — the Bard's Tale random encounter.
+;;;
+;;; A zone opts in by declaring a table and a chance (ZONE :ENCOUNTERS
+;;; ((MONSTER COUNT-DICE [WEIGHT])...) :ENCOUNTER-CHANCE P); every
+;;; successful step rolls against it — MOVE-PARTY calls
+;;; MAYBE-WANDERING-ENCOUNTER after the cell's own special has had its
+;;; say, so a scripted (ENCOUNTER ...) fight always wins.  After dark
+;;; an outdoor zone switches to its :NIGHT-ENCOUNTERS table and
+;;; :NIGHT-ENCOUNTER-CHANCE when it declares them — the classic
+;;; "the streets are meaner at night" — each falling back to the base
+;;; key it goes without, while a :DARK zone keeps its base pair at all
+;;; hours: there is no night underground.  *ENCOUNTER-RATE* scales the
+;;; whole thing.
+
+(defparameter *encounter-rate* 1
+  "Scales every zone's wandering-encounter chance: 1 as authored, 2
+doubles it, 1/2 halves it.  NIL (or any non-positive value) disables
+wandering monsters entirely — combat then comes only from
+\(ENCOUNTER ...) cell specials.  Read on every step, so a rebinding
+takes effect at once: a campaign sets its taste, a difficulty setting
+may rebind it later, the REPL can turn it live.")
+
+(defun %zone-encounter-check (map time)
+  "The wandering-monster chance and table MAP presents at clock TIME,
+as (values CHANCE TABLE) — the :NIGHT-* keys after dark in an outdoor
+zone, each falling back to its base key when not declared.  A :DARK
+zone keeps the base pair at all hours.  CHANCE is NIL when the zone
+declares a table but no chance (then nothing ever shows up), and both
+are NIL when there is no table at all."
+  (let* ((night (and (not (dungeon-map-dark map))
+                     (not (daylight-p time))))
+         (table (or (and night (dungeon-map-night-encounters map))
+                    (dungeon-map-encounters map))))
+    (when table
+      (values (or (and night (dungeon-map-night-encounter-chance map))
+                  (dungeon-map-encounter-chance map))
+              table))))
+
+(defun %pick-encounter (table)
+  "One (MONSTER COUNT-DICE [WEIGHT]) entry drawn from TABLE, weighted
+by each entry's WEIGHT (default 1).  A single-entry table draws no
+random number, so scripted tests spend rolls only where a choice
+exists."
+  (if (null (rest table))
+      (first table)
+      (let ((r (roll (let ((total 0))
+                       (dolist (e table total)
+                         (incf total (or (third e) 1)))))))
+        (dolist (e table)
+          (let ((w (or (third e) 1)))
+            (if (< r w)
+                (return e)
+                (decf r w)))))))
+
+(defun maybe-wandering-encounter (game)
+  "Roll the current zone's wandering-monster check and start the fight
+when it comes up: with CHANCE * *ENCOUNTER-RATE* percent probability
+\(see %ZONE-ENCOUNTER-CHECK for which chance and table apply at the
+current clock) one weighted table entry spawns as a COUNT-DICE strong
+group.  A disabled *ENCOUNTER-RATE*, a zone without a table, a fight
+already running or the party standing inside a location all skip the
+check without drawing a random number.  Returns the new COMBAT, or
+NIL when no monsters showed up."
+  (let ((rate *encounter-rate*))
+    (when (and rate (plusp rate)
+               (not (game-combat game))
+               (not (game-location game)))
+      (multiple-value-bind (chance table)
+          (%zone-encounter-check (game-map game) (game-time game))
+        (when (and chance (< (roll 100) (* chance rate)))
+          (let ((entry (%pick-encounter table)))
+            (start-combat game (list (list (first entry)
+                                           (second entry))))))))))
+
+;;; ---------------------------------------------------------------------
 ;;; Attack resolution
 
 (defun %attack-hits-p (bonus ac)

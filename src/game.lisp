@@ -504,6 +504,13 @@ combat — there is no walking away from a fight (see ATTEMPT-FLEE)."
                 (advance-time game)
                 (observe game)
                 (emit game :enter-cell nx ny)
-                (let ((*step-dir* dir))
-                  (trigger-special game))
+                (let ((map (game-map game)))
+                  (let ((*step-dir* dir))
+                    (trigger-special game))
+                  ;; The cell's own story has had its say; now the
+                  ;; zone's wandering monsters may find the party —
+                  ;; unless a TRAVEL op just switched zones (the roll
+                  ;; belongs to the map the step was taken on).
+                  (when (eq map (game-map game))
+                    (maybe-wandering-encounter game)))
                 (if (eq wall :door) :door :moved)))))))

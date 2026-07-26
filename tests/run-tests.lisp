@@ -2486,6 +2486,162 @@ height" d)
          (combat-enemy-image (game-combat g)))
   (check "and the fight then has no picture" nil (combat-image-path g)))
 
+;;; ---------------------------------------------------------------------
+;;; Wandering monsters (the zone's random encounters)
+
+(defun %group-names (g)
+  "The current fight's groups as (NAME . COUNT) conses."
+  (mapcar (lambda (grp) (cons (monster-type-name (car grp)) (cdr grp)))
+          (combat-groups (game-combat g))))
+
+;; Zone keys land in the map slots.
+(let ((m (parse-map *art* :name "test")))
+  (%apply-map-form m '(zone :encounters (("test rat" "1d3" 3)
+                                         ("test ogre" 1))
+                            :encounter-chance 10
+                            :night-encounters (("test ogre" 2))
+                            :night-encounter-chance 30)
+                   "test")
+  (check "zone encounter table parsed"
+         '(("test rat" "1d3" 3) ("test ogre" 1))
+         (dungeon-map-encounters m))
+  (check "zone encounter chance parsed" 10 (dungeon-map-encounter-chance m))
+  (check "zone night table parsed" '(("test ogre" 2))
+         (dungeon-map-night-encounters m))
+  (check "zone night chance parsed" 30
+         (dungeon-map-night-encounter-chance m)))
+
+;; Bad zone encounter data fails at map load, not at play time.
+(let ((m (parse-map *art* :name "test")))
+  (check-error "encounter chance 0 rejected"
+    (%apply-map-form m '(zone :encounter-chance 0) "test"))
+  (check-error "encounter chance above 100 rejected"
+    (%apply-map-form m '(zone :night-encounter-chance 101) "test"))
+  (check-error "encounter table must be a list of entries"
+    (%apply-map-form m '(zone :encounters "test rat") "test"))
+  (check-error "encounter entry needs a monster name string"
+    (%apply-map-form m '(zone :encounters ((test-rat 1))) "test"))
+  (check-error "encounter entry dice must parse"
+    (%apply-map-form m '(zone :encounters (("test rat" "d6"))) "test"))
+  (check-error "encounter weight must be a positive integer"
+    (%apply-map-form m '(zone :night-encounters (("test rat" 1 0))) "test")))
+
+;; Which chance and table apply when: day, night, the :night-* fallbacks
+;; and the sunless underground.
+(let ((m (parse-map *art* :name "test")))
+  (%apply-map-form m '(zone :encounters (("test rat" 2))
+                            :encounter-chance 10
+                            :night-encounters (("test ogre" 2))
+                            :night-encounter-chance 30)
+                   "test")
+  (multiple-value-bind (chance table) (%zone-encounter-check m 480)
+    (check "day check uses the base chance" 10 chance)
+    (check "day check uses the base table" '(("test rat" 2)) table))
+  (multiple-value-bind (chance table) (%zone-encounter-check m 1300)
+    (check "night check uses the night chance" 30 chance)
+    (check "night check uses the night table" '(("test ogre" 2)) table)))
+(let ((m (parse-map *art* :name "test")))
+  (%apply-map-form m '(zone :encounters (("test rat" 2))
+                            :encounter-chance 5
+                            :night-encounter-chance 20)
+                   "test")
+  (multiple-value-bind (chance table) (%zone-encounter-check m 0)
+    (check "a lone night chance raises the rate on the base table"
+           20 chance)
+    (check "the base table serves the night then" '(("test rat" 2)) table)))
+(let ((m (parse-map *art* :name "test")))
+  (%apply-map-form m '(zone :dark t
+                            :encounters (("test rat" 2))
+                            :encounter-chance 5
+                            :night-encounters (("test ogre" 1))
+                            :night-encounter-chance 50)
+                   "test")
+  (multiple-value-bind (chance table) (%zone-encounter-check m 0)
+    (check "a dark zone keeps its base chance at midnight" 5 chance)
+    (check "no night table underground" '(("test rat" 2)) table)))
+(check "no table, no check" nil
+       (%zone-encounter-check (parse-map *art* :name "test") 0))
+
+;; The weighted pick.
+(let ((table '(("test rat" 1 3) ("test ogre" 1))))
+  (check "a roll inside the first weight picks the first entry" "test rat"
+         (with-rng (2) (first (%pick-encounter table))))
+  (check "a roll past the first weight picks the second entry" "test ogre"
+         (with-rng (3) (first (%pick-encounter table)))))
+(check "a single-entry table draws no random number" "test rat"
+       (let ((*rng* (lambda (n) (declare (ignore n)) (error "rolled ~D" n))))
+         (first (%pick-encounter '(("test rat" 2))))))
+
+;; The step roll: chance window, *ENCOUNTER-RATE* scaling, the kill
+;; switch, and no roll while a fight already runs.
+(check "the default encounter rate plays chances as authored" 1
+       *encounter-rate*)
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (%apply-map-form m '(zone :encounters (("test rat" 2))
+                            :encounter-chance 10)
+                   "test")
+  (check-true "a roll under the chance fires"
+              (with-rng (9) (maybe-wandering-encounter g)))
+  (check "the wandering group" '(("test rat" . 2)) (%group-names g))
+  (setf (game-combat g) nil)
+  (check "a roll at the chance stays quiet" nil
+         (with-rng (10) (maybe-wandering-encounter g)))
+  (let ((*encounter-rate* 1/2))
+    (check "a rational rate halves the chance" nil
+           (with-rng (9) (maybe-wandering-encounter g)))
+    (check-true "the halved chance still fires under it"
+                (with-rng (4) (maybe-wandering-encounter g))))
+  (setf (game-combat g) nil)
+  (let ((*encounter-rate* 3))
+    (check-true "a raised rate widens the window"
+                (with-rng (25) (maybe-wandering-encounter g))))
+  (setf (game-combat g) nil)
+  (let ((*encounter-rate* nil)
+        (*rng* (lambda (n) (declare (ignore n)) (error "rolled ~D" n))))
+    (check "rate NIL disables wandering monsters" nil
+           (maybe-wandering-encounter g)))
+  (let ((*encounter-rate* 0)
+        (*rng* (lambda (n) (declare (ignore n)) (error "rolled ~D" n))))
+    (check "rate 0 disables wandering monsters" nil
+           (maybe-wandering-encounter g)))
+  (with-rng (9) (maybe-wandering-encounter g))
+  (let ((*rng* (lambda (n) (declare (ignore n)) (error "rolled ~D" n))))
+    (check "an ongoing fight skips the check" nil
+           (maybe-wandering-encounter g)))
+  (setf (game-combat g) nil))
+
+;; A step draws the roll, and the step's own minute decides the table:
+;; at 19:59 one step lands on 20:00 — the sunset-crossing step already
+;; rolls against the night pair (25 is over the day 10, under the
+;; night 30).
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (%apply-map-form m '(zone :encounters (("test rat" 2))
+                            :encounter-chance 10
+                            :night-encounters (("test ogre" 2))
+                            :night-encounter-chance 30)
+                   "test")
+  (setf (game-time g) 1199
+        (game-facing g) +east+)
+  (with-rng (25) (move-party g))
+  (check "the sunset-crossing step rolls the night table"
+         '(("test ogre" . 2)) (%group-names g)))
+
+;; A cell's scripted (ENCOUNTER ...) preempts the wandering roll — no
+;; random number is drawn behind a fight the story already started.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (%apply-map-form m '(zone :encounters (("test ogre" 1))
+                            :encounter-chance 100)
+                   "test")
+  (setf (cell-special m 1 0) '((encounter ("test rat" 2)))
+        (game-facing g) +east+)
+  (let ((*rng* (lambda (n) (declare (ignore n)) (error "rolled ~D" n))))
+    (move-party g))
+  (check "the scripted fight preempts the wandering roll"
+         '(("test rat" . 2)) (%group-names g)))
+
 ;; A clean kill: hero hits, monster dies, rewards are handed out.
 (let* ((m (parse-map *art* :name "test"))
        (h (%combat-hero))
@@ -5206,6 +5362,52 @@ height" d)
   (start-combat g '(("test rat" 1)))
   (check-error "no traveling during combat"
     (travel-party g "tmp-dung.map")))
+
+;; The wandering roll respects the party's whereabouts: a step into a
+;; location draws no roll, however certain-fire the street's table.
+(let* ((m (load-map-file "tests/tmp-town.map"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (%apply-map-form m '(zone :encounters (("test rat" 1))
+                            :encounter-chance 100)
+                   "tmp-town")
+  (setf (game-facing g) +east+)
+  (let ((*rng* (lambda (n) (declare (ignore n)) (error "rolled ~D" n))))
+    (move-party g)                          ; into the shoppe
+    (check-true "a location cell skips the wandering roll"
+                (game-location g))))
+
+;; ... and a TRAVEL step rolls neither on the zone it left nor with
+;; the destination's own certain-fire table (the roll belongs to the
+;; map the step was taken on).  The zone form in the file also proves
+;; the new keys ride the story layer end-to-end.
+(with-open-file (s "tests/tmp-wander.map" :direction :output
+                   :if-exists :supersede)
+  (write-string "+-+-+
+|@ >|
++-+-+
+
+(zone :kind :city :title \"Wanderville\"
+      :encounters ((\"test rat\" 1)) :encounter-chance 100)
+(special (1 0) (travel \"tmp-dung.map\"))
+" s))
+(let* ((m (load-map-file "tests/tmp-wander.map"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (check "the file's zone form armed the table" 100
+         (dungeon-map-encounter-chance m))
+  (travel-party g "tmp-dung.map")           ; load + cache the dungeon zone
+  (%apply-map-form (game-map g)
+                   '(zone :encounters (("test rat" 1))
+                          :encounter-chance 100)
+                   "tmp-dung")
+  (travel-party g "tmp-wander.map" 0 0 :east)
+  (let ((*rng* (lambda (n) (declare (ignore n)) (error "rolled ~D" n))))
+    (move-party g)                          ; onto the stairs: travel
+    (check "the travel step draws no wandering roll" "Testpit"
+           (map-title (game-map g)))
+    (check "and starts no fight" nil (game-combat g))))
+(delete-file "tests/tmp-wander.map")
+(when (probe-file "tests/tmp-wander.mapc")
+  (delete-file "tests/tmp-wander.mapc"))
 
 ;; A travel loop in map data hits the recursion cap instead of hanging.
 (with-open-file (s "tests/tmp-loop-a.map" :direction :output

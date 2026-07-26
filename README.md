@@ -792,9 +792,11 @@ After the art a map file may carry its story layer as Lisp data forms
 ```
 
 The `zone` form's keywords are `:kind`, `:title`, `:wrap`,
-`:start-facing`, `:gfx` (the tile pack), `:dark` (see above), and
+`:start-facing`, `:gfx` (the tile pack), `:dark` (see above),
 `:sky` / `:ground` — the outdoor noon colours the day-band tint works
-from (see "The day-bands and the sky").
+from (see "The day-bands and the sky") — and the wandering-monster
+keys `:encounters` / `:encounter-chance` and their `:night-*`
+counterparts (see "Wandering monsters").
 
 The op vocabulary — `message`, `set-flag`/`clear-flag`,
 `when-flag`/`unless-flag`, `at-night`/`at-day`, `once`, `teleport`,
@@ -864,6 +866,41 @@ tables (`*sky-band-tints*` / `*ground-band-tints*`) and the pure
 `sky-color-for` / `ground-color-for` functions live in
 `src/palette.lisp`; the "Day-time sky and ground colour" section of
 `tests/run-tests.lisp` is the spec.
+
+### Wandering monsters
+
+Classic Bard's Tale springs random fights on a walking party, and the
+streets get meaner after dark.  A zone opts in by declaring a
+**wandering-monster table** and a per-step chance:
+
+```lisp
+(zone :kind :city :title "Closure" :gfx "gfx/"
+      :encounters (("giant rat" "1d3" 2) ("footpad" 1))
+      :encounter-chance 2
+      :night-encounters (("footpad" "1d2" 2) ("skeleton" "1d2"))
+      :night-encounter-chance 8)
+```
+
+Every successful step rolls `:encounter-chance` percent; when it comes
+up, one table entry — `(MONSTER COUNT-DICE [WEIGHT])`, drawn by weight
+(default 1) — spawns as a group and combat starts exactly as from an
+`(encounter ...)` special.  After dark (the daylight window, not the
+day-bands) an outdoor zone switches to its `:night-encounters` /
+`:night-encounter-chance`, each falling back to the base key it goes
+without — so "same monsters, more often" and "meaner monsters, same
+rate" are both one extra key.  A `:dark` zone keeps its base pair at
+all hours: there is no night underground.  The roll happens after the
+target cell's special has run — a scripted fight, an entered location
+or a `travel` to another zone all preempt it — and the step's own
+minute decides the table, so the sunset-crossing step already rolls
+against the night pair.
+
+**`*encounter-rate*`** scales every zone's chance globally: `1` plays
+the authored numbers, `2` doubles them, `1/2` halves them, and `NIL`
+(or `0`) disables wandering monsters entirely — combat then comes only
+from scripted specials.  It is a plain special variable read on every
+step: a campaign sets its taste, a difficulty setting can rebind it
+later, the REPL can turn it live.
 
 ### The living-world clock (time passes while you stand)
 

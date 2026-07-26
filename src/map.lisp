@@ -79,7 +79,16 @@
                       ; T = one cell of sight, an integer = that many
   sky                 ; (ZONE :SKY (R G B)) noon sky colour, or NIL for
                       ;   *DEFAULT-SKY* (see SKY-COLOR-FOR)
-  ground)             ; (ZONE :GROUND (R G B)) noon ground colour, or NIL
+  ground              ; (ZONE :GROUND (R G B)) noon ground colour, or NIL
+  encounters          ; (ZONE :ENCOUNTERS ...) wandering-monster table,
+                      ;   ((MONSTER COUNT-DICE [WEIGHT])...), or NIL —
+                      ;   see MAYBE-WANDERING-ENCOUNTER in combat.lisp
+  encounter-chance    ; (ZONE :ENCOUNTER-CHANCE P) percent chance per
+                      ;   step of a wandering encounter, or NIL
+  night-encounters    ; (ZONE :NIGHT-ENCOUNTERS ...) the table after
+                      ;   dark, or NIL to use ENCOUNTERS at all hours
+  night-encounter-chance) ; (ZONE :NIGHT-ENCOUNTER-CHANCE P), or NIL to
+                      ;   use ENCOUNTER-CHANCE at all hours
 
 (defparameter *wall-decode* #(:open :wall :door)
   "Wall byte codes, index = code — the packed walls representation and
@@ -253,6 +262,36 @@ components, e.g. (102 170 204) or #(102 170 204)" path key spec)))))
         (error "~A: zone ~S component ~S must be an integer 0-255"
                path key c)))))
 
+(defun %zone-encounter-chance (path key chance)
+  "Validate CHANCE, a zone KEY value — the percent chance per step of a
+wandering encounter, a real in (0,100]."
+  (unless (and (realp chance) (< 0 chance) (<= chance 100))
+    (error "~A: zone ~S ~S must be a percent chance in (0,100]"
+           path key chance))
+  chance)
+
+(defun %zone-encounter-table (path key table)
+  "Validate TABLE, a zone KEY wandering-monster table — a non-empty
+list of (MONSTER-NAME COUNT-DICE [WEIGHT]) entries: a monster name
+string, a count dice spec (see PARSE-DICE) and an optional positive
+integer weight (default 1).  The names are resolved at spawn time
+\(FIND-MONSTER-TYPE), not here — the campaign may load after the map."
+  (unless (consp table)
+    (error "~A: zone ~S ~S must be a non-empty list of ~
+\(MONSTER-NAME COUNT-DICE [WEIGHT]) entries" path key table))
+  (dolist (entry table table)
+    (unless (and (consp entry) (<= 2 (length entry) 3)
+                 (stringp (first entry))
+                 (or (integerp (second entry)) (stringp (second entry))))
+      (error "~A: zone ~S entry ~S must be (MONSTER-NAME COUNT-DICE ~
+[WEIGHT])" path key entry))
+    (parse-dice (second entry))
+    (let ((weight (third entry)))
+      (when weight
+        (unless (and (integerp weight) (plusp weight))
+          (error "~A: zone ~S weight ~S in ~S must be a positive integer"
+                 path key weight entry))))))
+
 (defun %apply-map-form (map form path)
   (unless (and (consp form) (symbolp (first form)))
     (error "~A: invalid map form ~S (expected (zone ...) or ~
@@ -268,7 +307,8 @@ components, e.g. (102 170 204) or #(102 170 204)" path key spec)))))
            (setf (cell-special map x y) ops)))
         ((string-equal (symbol-name (first form)) "ZONE")
          (destructuring-bind (&key kind title wrap start-facing gfx sfx dark
-                                   sky ground)
+                                   sky ground encounters encounter-chance
+                                   night-encounters night-encounter-chance)
              (rest form)
            (when kind
              (unless (keywordp kind)
@@ -299,7 +339,22 @@ or a positive integer (cells of sight in the dark)" path dark))
              (setf (dungeon-map-sky map) (%zone-color path :sky sky)))
            (when ground
              (setf (dungeon-map-ground map)
-                   (%zone-color path :ground ground)))))
+                   (%zone-color path :ground ground)))
+           (when encounters
+             (setf (dungeon-map-encounters map)
+                   (%zone-encounter-table path :encounters encounters)))
+           (when encounter-chance
+             (setf (dungeon-map-encounter-chance map)
+                   (%zone-encounter-chance path :encounter-chance
+                                           encounter-chance)))
+           (when night-encounters
+             (setf (dungeon-map-night-encounters map)
+                   (%zone-encounter-table path :night-encounters
+                                          night-encounters)))
+           (when night-encounter-chance
+             (setf (dungeon-map-night-encounter-chance map)
+                   (%zone-encounter-chance path :night-encounter-chance
+                                           night-encounter-chance)))))
         (t (error "~A: unknown map form ~S (expected (zone ...) or ~
                    (special (x y) op...))"
                   path (first form)))))
@@ -352,7 +407,9 @@ skipped entirely, same as DLOG-TIMED."
 After the art the file may carry Lisp data forms — the story layer of
 the map, read with *READ-EVAL* bound to NIL and never evaluated:
     (zone :kind KIND :title TITLE :wrap W :start-facing DIR :gfx PACK
-          :sfx SOUNDS :dark D :sky C :ground C)
+          :sfx SOUNDS :dark D :sky C :ground C
+          :encounters T :encounter-chance P
+          :night-encounters T :night-encounter-chance P)
                              zone metadata: KIND is :dungeon (default),
                              :city, ... — maps self-describe what they
                              are; PACK names the zone's tile-pack
@@ -365,7 +422,14 @@ the map, read with *READ-EVAL* bound to NIL and never evaluated:
                              and :ground are (R G B) colours — the zone's
                              NOON sky/ground, from which the engine tints
                              every day-band (see SKY-COLOR-FOR); omitted,
-                             the zone uses *DEFAULT-SKY* / *DEFAULT-GROUND*
+                             the zone uses *DEFAULT-SKY* / *DEFAULT-GROUND*;
+                             :encounters is the zone's wandering-monster
+                             table ((MONSTER COUNT-DICE [WEIGHT])...) and
+                             :encounter-chance the percent chance per step,
+                             with :night-encounters/:night-encounter-chance
+                             taking over after dark in an outdoor zone —
+                             see MAYBE-WANDERING-ENCOUNTER in combat.lisp
+                             and the *ENCOUNTER-RATE* dial
     (special (X Y) OP...)    attach a special to cell (X,Y)
 The forms section starts at the first line beginning with '(' or ';'
 \(no valid art line starts with either).  The :wrap and :start-facing
