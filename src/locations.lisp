@@ -7,8 +7,10 @@
 ;;; gains a modal LOCATION state (like combat), the front-ends switch to
 ;;; its menu.  KIND is an open set; the engine ships mechanics for
 ;;; :SHOP (ARG... is :stock (ITEM-NAME...); stock is unlimited, Bard's
-;;; Tale style).  Unknown kinds still enter/leave cleanly — campaigns
-;;; script them via the :ENTER-LOCATION event.
+;;; Tale style), :TAVERN (drinks, and maybe a trapdoor), :TEMPLE
+;;; (healing and raising the fallen, for gold) and :ENERGY (spell
+;;; points at so many gold apiece).  Unknown kinds still enter/leave
+;;; cleanly — campaigns script them via the :ENTER-LOCATION event.
 ;;;
 ;;; The interaction itself is modeled here too, platform-free: a
 ;;; SHOP-VIEW holds the UI state (which hero is shopping, buy or sell
@@ -432,26 +434,204 @@ Returns :LEFT when the party leaves the location, else NIL."
            :left)
           (t nil))))
 
+;;; ---------------------------------------------------------------------
+;;; Temple mechanics: healers for hire.  A :TEMPLE location makes a
+;;; hero whole for gold — so many gold per missing hit point (:PRICE)
+;;; plus a flat :RAISE fee to bring a fallen hero back to their feet,
+;;; the Bard's Tale temple.  The healed hero pays from their own
+;;; purse (gold scattered over the party pools on the character
+;;; sheet first).
+
+(defun temple-price (location)
+  "LOCATION's healing rate, gold per missing hit point (:PRICE,
+default 2)."
+  (or (location-arg location :price) 2))
+
+(defun temple-raise-fee (location)
+  "LOCATION's flat fee for raising a fallen hero (:RAISE, default 50),
+asked on top of the healing rate over their missing hit points."
+  (or (location-arg location :raise) 50))
+
+(defun temple-cost (location hero)
+  "What LOCATION's priests ask to make HERO whole: the healing rate
+over the missing hit points, plus the raise fee when HERO is down.
+Zero for an unhurt hero."
+  (+ (* (temple-price location)
+        (- (hero-max-hp hero) (hero-hp hero)))
+     (if (hero-alive-p hero) 0 (temple-raise-fee location))))
+
+(defun temple-heal (game hero)
+  "The priests make HERO whole — hit points to the maximum, the
+fallen raised — for TEMPLE-COST gold out of HERO's own purse.
+Returns T and emits :COIN and :TEMPLE-HEAL; says why and returns NIL
+when HERO needs no healing or cannot pay.  A fallen hero may pay for
+their own raising (the purse survives its owner, as POOL-GOLD
+knows)."
+  (let* ((loc (game-location game))
+         (cost (temple-cost loc hero)))
+    (cond ((zerop cost)
+           (say game "~A needs no healing." (hero-name hero))
+           nil)
+          ((< (hero-gold hero) cost)
+           (say game "~A cannot pay the priests' ~D gold."
+                (hero-name hero) cost)
+           nil)
+          (t
+           (let ((raised (not (hero-alive-p hero))))
+             (decf (hero-gold hero) cost)
+             (setf (hero-hp hero) (hero-max-hp hero))
+             (emit game :coin cost)
+             (if raised
+                 (say game "The priests chant, and ~A rises, whole ~
+                            again!  (~D gold)"
+                      (hero-name hero) cost)
+                 (say game "The priests mend ~A's wounds.  (~D gold)"
+                      (hero-name hero) cost))
+             (emit game :temple-heal hero)
+             t)))))
+
+(defun temple-lines (game)
+  "The temple menu as menu lines: the rates, then one numbered row per
+party member — hit points, purse, and what the priests would ask."
+  (let ((loc (game-location game)))
+    (append
+     (list (format nil "*** ~A ***" (location-title loc)) ""
+           (format nil "Healing ~D gold a wound; ~D to raise the fallen."
+                   (temple-price loc) (temple-raise-fee loc))
+           "")
+     (let ((i 0))
+       (mapcar (lambda (h)
+                 (incf i)
+                 (menu-numbered
+                  i (format nil "~D) ~A  HP ~D/~D~:[~; (down)~]  ~
+                                 (~D gp)~@[  costs ~D~]"
+                            i (hero-name h) (hero-hp h) (hero-max-hp h)
+                            (not (hero-alive-p h)) (hero-gold h)
+                            (let ((c (temple-cost loc h)))
+                              (when (plusp c) c)))))
+               (game-party game))))))
+
+(defun temple-act (game char)
+  "Apply key CHAR to the temple menu: a digit heals that hero (the
+fallen very much included — that is what temples are for), Esc
+leaves.  Returns :LEFT when the party leaves the location, else NIL."
+  (let ((digit (digit-char-p char)))
+    (cond ((and digit (<= 1 digit (length (game-party game))))
+           (temple-heal game (nth (1- digit) (game-party game)))
+           nil)
+          ((member char '(#\Escape #\l #\L #\q #\Q))
+           (leave-location game)
+           :left)
+          (t nil))))
+
+;;; ---------------------------------------------------------------------
+;;; The energy fount: spell points for sale, Roscoe's Energy Emporium
+;;; by way of the public baths.  An :ENERGY location refills a
+;;; caster's spell points at so many gold apiece (:PRICE); singers
+;;; have the tavern, the fallen the temple.
+
+(defun energy-price (location)
+  "LOCATION's rate, gold per spell point restored (:PRICE, default 3)."
+  (or (location-arg location :price) 3))
+
+(defun energy-cost (location hero)
+  "What LOCATION asks to refill HERO's spell points: the rate over the
+missing points.  Zero for a full (or spell-less) hero."
+  (* (energy-price location)
+     (- (hero-max-sp hero) (hero-sp hero))))
+
+(defun energy-restore (game hero)
+  "Refill HERO's spell points for ENERGY-COST gold out of HERO's own
+purse.  Returns T and emits :COIN and :ENERGY-RESTORED; says why and
+returns NIL when HERO casts no spells, is down, brims already, or
+cannot pay."
+  (let* ((loc (game-location game))
+         (cost (energy-cost loc hero)))
+    (cond ((not (hero-caster-p hero))
+           (say game "~A has no spell points to fill." (hero-name hero))
+           nil)
+          ((not (hero-alive-p hero))
+           (say game "~A is beyond these waters -- the temple, perhaps."
+                (hero-name hero))
+           nil)
+          ((zerop cost)
+           (say game "~A brims with power already." (hero-name hero))
+           nil)
+          ((< (hero-gold hero) cost)
+           (say game "~A cannot pay the ~D gold." (hero-name hero) cost)
+           nil)
+          (t
+           (decf (hero-gold hero) cost)
+           (setf (hero-sp hero) (hero-max-sp hero))
+           (emit game :coin cost)
+           (say game "Power floods back into ~A.  (~D gold)"
+                (hero-name hero) cost)
+           (emit game :energy-restored hero)
+           t))))
+
+(defun energy-lines (game)
+  "The energy-fount menu as menu lines: the rate, then one numbered
+row per party member — spell points for the casters, the purse, and
+the cost of a refill."
+  (let ((loc (game-location game)))
+    (append
+     (list (format nil "*** ~A ***" (location-title loc)) ""
+           (format nil "Spell points, ~D gold apiece."
+                   (energy-price loc))
+           "")
+     (let ((i 0))
+       (mapcar (lambda (h)
+                 (incf i)
+                 (menu-numbered
+                  i (if (hero-caster-p h)
+                        (format nil "~D) ~A  SP ~D/~D  (~D gp)~
+                                     ~@[  costs ~D~]"
+                                i (hero-name h) (hero-sp h)
+                                (hero-max-sp h) (hero-gold h)
+                                (let ((c (energy-cost loc h)))
+                                  (when (plusp c) c)))
+                        (format nil "~D) ~A  no spells  (~D gp)"
+                                i (hero-name h) (hero-gold h)))))
+               (game-party game))))))
+
+(defun energy-act (game char)
+  "Apply key CHAR to the energy-fount menu: a digit refills that
+hero's spell points, Esc leaves.  Returns :LEFT when the party leaves
+the location, else NIL."
+  (let ((digit (digit-char-p char)))
+    (cond ((and digit (<= 1 digit (length (game-party game))))
+           (energy-restore game (nth (1- digit) (game-party game)))
+           nil)
+          ((member char '(#\Escape #\l #\L #\q #\Q))
+           (leave-location game)
+           :left)
+          (t nil))))
+
 (defun location-lines (game view)
   "Menu lines for the current location: the shop model for :SHOP, the
-tavern menu for :TAVERN, and for kinds the engine has no mechanics
-for (a :HOUSE and friends) the Bard's Tale interior notice — the
-title over a lone clickable EXIT."
+tavern menu for :TAVERN, the temple for :TEMPLE, the energy fount for
+:ENERGY, and for kinds the engine has no mechanics for (a :HOUSE and
+friends) the Bard's Tale interior notice — the title over a lone
+clickable EXIT."
   (let ((loc (game-location game)))
     (case (location-kind loc)
       (:shop (shop-lines game view))
       (:tavern (tavern-lines game))
+      (:temple (temple-lines game))
+      (:energy (energy-lines game))
       (t (list (format nil "*** ~A ***" (location-title loc)) ""
                "There is nothing to do here."
                "" (menu-option #\Escape "EXIT"))))))
 
 (defun location-act (game view char)
-  "Apply key CHAR inside the current location (see SHOP-ACT and
-TAVERN-ACT)."
+  "Apply key CHAR inside the current location (see SHOP-ACT,
+TAVERN-ACT, TEMPLE-ACT and ENERGY-ACT)."
   (let ((loc (game-location game)))
     (case (location-kind loc)
       (:shop (shop-act game view char))
       (:tavern (tavern-act game char))
+      (:temple (temple-act game char))
+      (:energy (energy-act game char))
       (t (when (member char '(#\Escape #\e #\E #\l #\L #\q #\Q))
            (leave-location game)
            :left)))))

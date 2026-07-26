@@ -52,8 +52,16 @@ campaign data, never as code that knows about "the" town.
   script — leaves the party where it stands).  Kinds without engine
   mechanics (`:house` and friends) show the interior notice with a
   lone clickable **EXIT**.
-  KIND is an open set; the engine ships `:shop` mechanics, campaigns
-  script other kinds via events.
+  KIND is an open set; the engine ships `:shop`, `:tavern`, `:temple`
+  and `:energy` mechanics, campaigns script other kinds via events.
+- A **temple** (`:temple`, 2026-07-26) heals for gold: `:price` gold
+  per missing hit point (default 2) plus a flat `:raise` fee (default
+  50) to bring a fallen hero back — a digit on its menu makes that
+  hero whole, paid from their own purse (`temple-lines`/`temple-act`,
+  the tavern's shape).  An **energy fount** (`:energy`) refills a
+  caster's spell points at `:price` gold apiece (default 3), living
+  casters only (`energy-lines`/`energy-act`).  Both emit `:coin` on
+  payment, plus `:temple-heal`/`:energy-restored`.
 - **Items are campaign data** (`define-item`): kind (`:weapon` /
   `:armor` / `:shield` / `:misc`), price, damage dice, AC bonus
   (descending AC — the bonus subtracts), optional class restrictions,
@@ -73,6 +81,14 @@ campaign data, never as code that knows about "the" town.
   is testable on the host.  Keys: `1`-`7` pick the shopping hero,
   `1`-`9` buy/sell, `s`/`b` flip the page, `i` inspect stock (the
   item card, before any gold is spent), `Esc` back/leave.
+- Gold moves both ways (2026-07-26): `g` (sheet and shop pages) pools
+  the party's gold onto one hero (`pool-gold`), and the sheet's `t`
+  trades it back out — pick who receives, type the sum (digits,
+  Backspace, Return — the save menu's text-entry manners), Esc backs
+  out a page at a time (`trade-view` / `trade-lines` / `trade-act`,
+  `trade-gold` underneath).  The pack page's `t` throws an item away
+  for good behind a clickable yes/no (`discard-item`) — the one pack
+  action that destroys, hence the only one with an are-you-sure.
 - Menu lines are **structured** (2026-07-19): a pickable option row is
   `(TEXT . KEY)` (`menu-option`/`menu-numbered`, accessors
   `menu-line-text`/`menu-line-key` in events.lisp), plain lines stay

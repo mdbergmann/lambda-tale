@@ -214,6 +214,24 @@ POOL-GOLD."
      (emit game :item-passed from to name)
      t)))
 
+(defun discard-item (game hero name)
+  "Throw one item NAME from HERO's pack away for good — the pack
+page's 't', behind its are-you-sure row (the only pack action that
+destroys; a shop at least pays half).  The item is unequipped on the
+way out.  Returns T and emits :ITEM-DISCARDED; says why and returns
+NIL when the hero does not carry it."
+  (find-item-type name)                 ; an unknown item is a bug, not a refusal
+  (if (not (hero-carrying-p hero name))
+      (progn
+        (say game "~A does not carry ~A." (hero-name hero)
+             (item-title name))
+        nil)
+      (progn
+        (drop-item game hero name)
+        (say game "~A throws ~A away." (hero-name hero) (item-title name))
+        (emit game :item-discarded hero name)
+        t)))
+
 ;;; ---------------------------------------------------------------------
 ;;; Equipment
 
@@ -313,9 +331,10 @@ of every equipped item — and, when GAME is given, minus the party-wide
   hero                ; the hero whose pack page this is
   (mode :pack)        ; :pack — equip/remove; :give — pick the item to
                       ; hand over; :to — pick who receives PENDING;
-                      ; :inspect — pick the item whose card to show
-  pending             ; the item chosen on the :GIVE or :INSPECT page,
-                      ; else NIL
+                      ; :inspect — pick the item whose card to show;
+                      ; :toss — pick the item to throw away
+  pending             ; the item chosen on the :GIVE, :INSPECT or
+                      ; :TOSS page, else NIL
   (top 0))            ; scroll offset into the pack list
 
 (defun make-equip-view (hero)
@@ -354,13 +373,15 @@ beneath, when it carries one."
 
 (defun equip-lines (game view)
   "The pack page as a list of menu lines — the front-ends draw these
-verbatim (the SHOP-LINES pattern).  Four pages share the model, as in
+verbatim (the SHOP-LINES pattern).  Five pages share the model, as in
 SHOP-LINES: the pack itself (equipped items starred, items the hero's
 class cannot use marked (unfit), the AC/attack header showing the
 effect of every toggle), the give page (the same list, a digit
 choosing what to hand over), the recipient page (the party, each
-with the room left in their pack) and the item card (ITEM-CARD-LINES
-for the item picked on the inspect page)."
+with the room left in their pack), the throw-away page (the same
+list again, the picked item held behind a clickable yes/no — the one
+pack action that destroys) and the item card (ITEM-CARD-LINES for
+the item picked on the inspect page)."
   (let ((hero (equip-view-hero view)))
     (if (and (eq (equip-view-mode view) :inspect)
              (equip-view-pending view))
@@ -402,21 +423,35 @@ for the item picked on the inspect page)."
               (case (equip-view-mode view)
                 (:give (list "" "Give what?"))
                 (:inspect (list "" "Inspect what?"))
+                (:toss
+                 ;; throwing away destroys — the one pack action with
+                 ;; an are-you-sure, its yes/no rows clickable
+                 (if (equip-view-pending view)
+                     (list ""
+                           (format nil "Throw away ~A?"
+                                   (item-title (equip-view-pending view)))
+                           (menu-option #\y "Yes, be rid of it")
+                           (menu-option #\n "No, keep it"))
+                     (list "" "Throw away what?")))
                 (t (list ""
                          (menu-option #\p "Pass an item")
-                         (menu-option #\i "Inspect an item"))))))))))
+                         (menu-option #\i "Inspect an item")
+                         (menu-option #\t "Throw away an item"))))))))))
 
 (defun equip-act (game view char)
   "Apply key CHAR to the pack page.  On the pack itself a digit toggles
 that item — worn comes off, equipment goes on (TOGGLE-EQUIP says why
-when it cannot) — p opens the give page, i the inspect page, u/d
-scroll a long pack and Esc closes the page.  On the give page a digit
-chooses the item to hand over, and the recipient page then chooses who
-receives it (PASS-ITEM says why when it cannot); the page stays open
-for the next item, the way the shop's sell page keeps selling.  On the
-inspect page a digit shows that item's card, and the page stays open
-for the next card.  Esc steps back one page at a time (SHOP-ACT's
-pattern).  Returns :CANCELLED on Esc at the pack page, else NIL."
+when it cannot) — p opens the give page, i the inspect page, t the
+throw-away page, u/d scroll a long pack and Esc closes the page.  On
+the give page a digit chooses the item to hand over, and the recipient
+page then chooses who receives it (PASS-ITEM says why when it cannot);
+the page stays open for the next item, the way the shop's sell page
+keeps selling.  On the inspect page a digit shows that item's card,
+and the page stays open for the next card.  On the throw-away page a
+digit picks the item and y then destroys it (DISCARD-ITEM) while n
+keeps it — the page stays open for the next item.  Esc steps back one
+page at a time (SHOP-ACT's pattern).  Returns :CANCELLED on Esc at
+the pack page, else NIL."
   (let ((hero (equip-view-hero view))
         (mode (equip-view-mode view))
         (digit (digit-char-p char)))
@@ -445,6 +480,32 @@ pattern).  Returns :CANCELLED on Esc at the pack page, else NIL."
                 (when name
                   (setf (equip-view-pending view) name
                         (equip-view-mode view) :to)))
+              nil)
+             ((eql char #\Escape)
+              (setf (equip-view-mode view) :pack)
+              nil)
+             (t
+              (let ((top (menu-scroll (equip-view-top view) char
+                                      (length (hero-items hero)))))
+                (when top (setf (equip-view-top view) top)))
+              nil)))
+      ;; the are-you-sure, else picking the item to throw away
+      ((eq mode :toss)
+       (cond ((equip-view-pending view)
+              (cond ((member char '(#\y #\Y))
+                     (discard-item game hero (equip-view-pending view))
+                     ;; the pack just shrank — the window starts over,
+                     ;; the page stays open for the next item
+                     (setf (equip-view-pending view) nil
+                           (equip-view-top view) 0))
+                    ((or (member char '(#\n #\N)) (eql char #\Escape))
+                     (setf (equip-view-pending view) nil)))
+              nil)
+             (digit
+              (let ((name (menu-window-pick (hero-items hero)
+                                            (equip-view-top view) digit)))
+                (when name
+                  (setf (equip-view-pending view) name)))
               nil)
              ((eql char #\Escape)
               (setf (equip-view-mode view) :pack)
@@ -490,6 +551,11 @@ pattern).  Returns :CANCELLED on Esc at the pack page, else NIL."
        (if (hero-items hero)
            (setf (equip-view-mode view) :inspect)
            (say game "~A has nothing to inspect." (hero-name hero)))
+       nil)
+      ((member char '(#\t #\T))
+       (if (hero-items hero)
+           (setf (equip-view-mode view) :toss)
+           (say game "~A has nothing to throw away." (hero-name hero)))
        nil)
       ((eql char #\Escape) :cancelled)
       (t

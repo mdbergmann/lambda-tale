@@ -99,6 +99,7 @@ engine has no default world; the game names its starting map."
          (sheet-top 0)       ; sheet scroll offset (u/d)
          (ordering nil)      ; sheet: picking the hero's new slot (o)
          (equip nil)         ; EQUIP-VIEW while the pack page is open
+         (trade nil)         ; TRADE-VIEW while the trade page is open
          (shop nil)          ; SHOP-VIEW while inside a location
          (cast nil)          ; CAST-VIEW while the cast menu is open
          (use nil)           ; USE-VIEW while the use menu is open
@@ -117,6 +118,7 @@ engine has no default world; the game names its starting map."
                (setf use nil)
                (setf sing nil)
                (setf equip nil)
+               (setf trade nil)
                (setf menu nil)
                (setf orders nil)
                ;; pace the combat transcript: linger on each message a
@@ -234,10 +236,11 @@ engine has no default world; the game names its starting map."
                (dolist (line (help-lines))
                  (format t "~A~%" line)))
              (draw-sheet-page ()
-               (dolist (line (if equip
-                                 (equip-lines game equip)
-                                 (hero-sheet-lines game sheet-hero
-                                                   sheet-top ordering)))
+               (dolist (line (cond (equip (equip-lines game equip))
+                                   (trade (trade-lines game trade))
+                                   (t (hero-sheet-lines game sheet-hero
+                                                        sheet-top
+                                                        ordering))))
                  (format t "~A~%" (menu-line-text line))))
              (draw ()
                (%clear-screen)
@@ -336,6 +339,7 @@ engine has no default world; the game names its starting map."
                  (setf sheet-hero i
                        sheet-top 0
                        equip nil
+                       trade nil
                        ordering nil
                        mode :sheet))
                nil)
@@ -351,6 +355,18 @@ engine has no default world; the game names its starting map."
                       (progn
                         (case (equip-act game equip c)
                           (:cancelled (setf equip nil)))
+                        nil)))
+                 (trade
+                  ;; the trade page: the shared model eats the keys
+                  ;; (a digit picks who receives, then digits type the
+                  ;; sum, Return trades, Esc backs out a page at a
+                  ;; time) — Q on the pick page still quits
+                  (if (and (null (trade-view-to trade))
+                           (member c '(#\q #\Q)))
+                      :quit
+                      (progn
+                        (case (trade-act game trade c)
+                          ((:done :cancelled) (setf trade nil)))
                         nil)))
                  (ordering
                   ;; the marching-order pick: a digit is the hero's new
@@ -383,6 +399,13 @@ engine has no default world; the game names its starting map."
                                             (game-party game))))
                              (when hero
                                (pool-gold game hero)))
+                           nil)
+                          ((member c '(#\t #\T))
+                           ;; trade gold away (pointless alone)
+                           (let ((hero (nth sheet-hero
+                                            (game-party game))))
+                             (when (and hero (rest (game-party game)))
+                               (setf trade (make-trade-view hero))))
                            nil)
                           ((member c '(#\o #\O))
                            (when (rest (game-party game))

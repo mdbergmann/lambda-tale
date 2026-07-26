@@ -657,7 +657,9 @@ outlines the rim one pixel thick."
 (defun draw-location-scene (kind w h)
   "A W x H location picture for the view column — :SHOP (stocked
 shelves over a counter), :TAVERN (a table with a foaming mug beside a
-barrel), anything else (a plain doorway)."
+barrel), :TEMPLE (an altar on a dais under a tall arched window),
+:ENERGY (a glowing well, sparks rising), anything else (a plain
+doorway)."
   (let ((img (make-image w h 2 :palette *picture-palette*)))
     (ecase kind
       (:shop
@@ -706,6 +708,57 @@ barrel), anything else (a plain doorway)."
                     (+ bx (floor w 11)) (- by (floor h 16)) 0)
          (%img-fill img (- bx (floor w 11)) (+ by (floor h 16))
                     (+ bx (floor w 11)) (+ by (floor h 16)) 0)))
+      (:temple
+       ;; grey floor, a two-step dais, the altar slab on it, candle
+       ;; flames at its ends, a tall arched window behind
+       (%img-fill img 0 (floor (* 7 h) 8) (1- w) (1- h) 2)
+       ;; the window: white arch high on the back wall
+       (let ((wx (floor w 2))
+             (wy (floor h 4)))
+         (%img-ellipse img wx wy (floor w 12) (floor h 10) 1)
+         (%img-fill img (- wx (floor w 12)) wy
+                    (+ wx (floor w 12)) (floor (* 7 h) 16) 1)
+         (%img-fill img wx (- wy (floor h 12))
+                    wx (floor (* 7 h) 16) 0))    ; the mullion
+       ;; the dais: two grey steps, white nosings
+       (%img-fill img (floor w 6) (floor (* 13 h) 16)
+                  (floor (* 5 w) 6) (floor (* 7 h) 8) 2)
+       (%img-fill img (floor w 6) (floor (* 13 h) 16)
+                  (floor (* 5 w) 6) (floor (* 13 h) 16) 1)
+       (%img-fill img (floor w 4) (floor (* 3 h) 4)
+                  (floor (* 3 w) 4) (floor (* 13 h) 16) 2)
+       (%img-fill img (floor w 4) (floor (* 3 h) 4)
+                  (floor (* 3 w) 4) (floor (* 3 h) 4) 1)
+       ;; the altar: a grey slab with a white top
+       (%img-fill img (floor (* 3 w) 8) (floor (* 9 h) 16)
+                  (floor (* 5 w) 8) (floor (* 3 h) 4) 2)
+       (%img-fill img (floor (* 3 w) 8) (floor (* 9 h) 16)
+                  (floor (* 5 w) 8) (floor (* 9 h) 16) 1)
+       ;; the candles: amber flames over white stems at the slab's ends
+       (dolist (cx (list (floor (* 3 w) 8) (floor (* 5 w) 8)))
+         (%img-fill img cx (floor (* 7 h) 16)
+                    cx (floor (* 17 h) 32) 1)
+         (%img-fill img cx (floor (* 13 h) 32)
+                    cx (floor (* 7 h) 16) 3)))
+      (:energy
+       ;; grey floor, a round well glowing amber, sparks rising
+       (%img-fill img 0 (floor (* 7 h) 8) (1- w) (1- h) 2)
+       (let ((cx (floor w 2))
+             (cy (floor (* 11 h) 16)))
+         ;; the basin: a grey rim around amber water
+         (%img-ellipse img cx cy (floor (* 2 w) 7) (floor h 6) 2 1)
+         (%img-ellipse img cx cy (floor (* 2 w) 10) (floor h 9) 3)
+         ;; the glow: white glints on the water
+         (%img-fill img (- cx (floor w 12)) cy
+                    (- cx (floor w 24)) cy 1)
+         (%img-fill img (+ cx (floor w 24)) (- cy (floor h 24))
+                    (+ cx (floor w 12)) (- cy (floor h 24)) 1)
+         ;; the sparks: amber motes climbing over the well
+         (loop for (dx dy) in '((0 4) (-3 6) (3 7) (-5 9) (5 10) (0 11))
+               do (let ((sx (+ cx (floor (* dx w) 32)))
+                        (sy (- cy (floor (* dy h) 24))))
+                    (when (< 0 sy h)
+                      (%img-fill img sx sy sx sy 3))))))
       (t
        ;; a plain amber doorway
        (let ((dx0 (floor (* 3 w) 8))

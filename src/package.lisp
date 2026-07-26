@@ -95,16 +95,19 @@
    #:hero-image #:hero-image-path #:hero-sheet-lines #:hero-sheet-scroll
    #:+party-limit+ #:party-full-p #:join-party #:move-hero
    #:damage-hero #:heal-hero #:stat-bonus #:award-xp #:xp-for-level
-   #:pool-gold
+   #:pool-gold #:trade-gold
+   ;; trading gold ('t' on the character sheet)
+   #:make-trade-view #:trade-view-hero #:trade-view-to
+   #:trade-view-amount #:trade-lines #:trade-act
    ;; items, inventory and equipment
    #:define-item #:find-item-type #:item-title #:item-usable-p
    #:item-fit-marker #:item-target-kind #:*item-kinds*
    #:+inventory-limit+ #:hero-items #:hero-equipped #:hero-carrying-p
-   #:give-item #:drop-item #:pass-item
+   #:give-item #:drop-item #:pass-item #:discard-item
    #:equip-item #:unequip-item #:equipped-of-kind
    #:toggle-equip #:hero-attack-dice #:hero-effective-ac
-   ;; the pack page ('e' on the character sheet — equip, and 'p' to
-   ;; hand an item to another party member)
+   ;; the pack page ('e' on the character sheet — equip, 'p' to hand
+   ;; an item to another party member, 't' to throw one away)
    #:make-equip-view #:equip-view-hero #:equip-view-top
    #:equip-view-mode #:equip-view-pending
    #:equip-lines #:equip-act
@@ -134,6 +137,12 @@
    #:sing-lines #:sing-act
    ;; taverns (drinks refill a singer's tunes)
    #:tavern-price #:buy-drink #:tavern-lines #:tavern-act
+   ;; temples (healing and raising, for gold) and the energy fount
+   ;; (spell points at so many gold apiece)
+   #:temple-price #:temple-raise-fee #:temple-cost #:temple-heal
+   #:temple-lines #:temple-act
+   #:energy-price #:energy-cost #:energy-restore
+   #:energy-lines #:energy-act
    ;; combat
    #:define-monster #:find-monster-type #:monster-type-name
    #:monster-type-level #:monster-type-ac #:monster-type-xp

@@ -277,6 +277,7 @@ cancels."
          (list ""
                (menu-option #\e "Equip pack")
                (menu-option #\g "Gold pool")
+               (menu-option #\t "Trade gold")
                (menu-option #\o "Order party"))))))
 
 (defun hero-sheet-scroll (game index top char)
@@ -343,6 +344,129 @@ The shop pages and the character sheet offer it on 'g'."
                (hero-name hero) (hero-gold hero)))
         (say game "Nobody else has gold to pool."))
     gained))
+
+(defun trade-gold (game from to amount)
+  "Hand AMOUNT gold from FROM's purse to TO's — the character sheet's
+'t', POOL-GOLD's counterpart for splitting a purse instead of piling
+it.  Returns T and emits :COIN; says why and returns NIL when TO is
+FROM, AMOUNT is not positive, or FROM holds less than AMOUNT.  A
+fallen hero both gives and receives, as with POOL-GOLD."
+  (cond ((eq from to)
+         (say game "~A already holds that gold." (hero-name from))
+         nil)
+        ((not (plusp amount)) nil)
+        ((< (hero-gold from) amount)
+         (say game "~A does not have ~D gold." (hero-name from) amount)
+         nil)
+        (t
+         (decf (hero-gold from) amount)
+         (incf (hero-gold to) amount)
+         (say game "~A hands ~D gold to ~A." (hero-name from) amount
+              (hero-name to))
+         (emit game :coin amount)
+         t)))
+
+;;; The trade interaction (the SHOP-VIEW pattern): the sheet's 't'
+;;; opens it, a digit picks who receives, then the sum is typed —
+;;; digits append, Backspace deletes, Return trades, Esc steps back a
+;;; page at a time (the save menu's text-entry manners, on numbers).
+
+(defstruct (trade-view (:constructor %make-trade-view))
+  hero                ; the giver — the sheet's hero
+  to                  ; the chosen recipient, or NIL while picking
+  (amount ""))        ; the sum being typed, a digit string
+
+(defun make-trade-view (hero)
+  (%make-trade-view :hero hero))
+
+(defconstant +trade-amount-limit+ 6
+  "Digits the trade page accepts — six covers any purse the game
+mints, and the amount row stays a row.")
+
+(defun trade-lines (game view)
+  "The trade-gold page as menu lines — the front-ends draw these
+verbatim (the SHOP-LINES pattern): first the party as numbered rows
+(who receives, the giver marked), then the amount being typed.  The
+entry page names its own keys — typing is not the common navigation
+the help screen covers (the save menu's rule)."
+  (let ((hero (trade-view-hero view))
+        (to (trade-view-to view)))
+    (append
+     (list "*** Trade Gold ***" ""
+           (format nil "~A holds ~D gp." (hero-name hero)
+                   (hero-gold hero))
+           "")
+     (if to
+         (list (format nil "How much for ~A?  ~A_"
+                       (hero-name to) (trade-view-amount view))
+               ""
+               "Type the sum; Return trades")
+         (append
+          (list "Give gold to whom?" "")
+          (let ((i 0))
+            (mapcar (lambda (h)
+                      (incf i)
+                      (menu-numbered
+                       i (format nil "~D) ~A  (~D gp)~A" i (hero-name h)
+                                 (hero-gold h)
+                                 (if (eq h hero) " (giver)" ""))))
+                    (game-party game))))))))
+
+(defun trade-act (game view char)
+  "Apply key CHAR to the trade-gold page.  On the pick page a digit
+chooses who receives (the giver refuses politely) and Esc closes; on
+the amount page digits build the sum, Backspace deletes, Return trades
+(TRADE-GOLD says why when it cannot, and the sum starts over) and Esc
+steps back to the pick page.  Returns :DONE when the trade lands,
+:CANCELLED when Esc leaves the pick page, else NIL."
+  (let ((hero (trade-view-hero view))
+        (to (trade-view-to view))
+        (digit (and (characterp char) (digit-char-p char))))
+    (cond
+      ((null to)
+       (cond ((and digit (<= 1 digit (length (game-party game))))
+              (let ((h (nth (1- digit) (game-party game))))
+                (if (eq h hero)
+                    (say game "~A already holds that gold."
+                         (hero-name hero))
+                    (setf (trade-view-to view) h)))
+              nil)
+             ((eql char #\Escape) :cancelled)
+             (t nil)))
+      ((or (eql char #\Return) (eql char #\Newline)
+           (eql char (code-char 13)))
+       (let ((amount (if (plusp (length (trade-view-amount view)))
+                         (parse-integer (trade-view-amount view))
+                         0)))
+         (cond ((zerop amount)
+                ;; nothing (or only zeros) typed — nothing changes
+                ;; hands, back to the pick page
+                (setf (trade-view-to view) nil
+                      (trade-view-amount view) "")
+                nil)
+               ((trade-gold game hero to amount) :done)
+               (t
+                ;; the purse fell short — the say line said so, the
+                ;; sum starts over for another try
+                (setf (trade-view-amount view) "")
+                nil))))
+      ((eql char #\Escape)
+       (setf (trade-view-to view) nil
+             (trade-view-amount view) "")
+       nil)
+      ((or (eql char #\Backspace) (eql char (code-char 8)))
+       (when (plusp (length (trade-view-amount view)))
+         (setf (trade-view-amount view)
+               (subseq (trade-view-amount view) 0
+                       (1- (length (trade-view-amount view))))))
+       nil)
+      ((and digit (< (length (trade-view-amount view))
+                     +trade-amount-limit+))
+       (setf (trade-view-amount view)
+             (concatenate 'string (trade-view-amount view)
+                          (string char)))
+       nil)
+      (t nil))))
 
 (defun alive-heroes (game)
   "The living party members, in party order."

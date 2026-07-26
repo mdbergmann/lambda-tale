@@ -1936,6 +1936,7 @@ map/help/sheet pages close on a click outside a target — see
          (sheet-top 0)      ; sheet scroll offset (u/d)
          (ordering nil)     ; sheet: picking the hero's new slot (o)
          (equipv nil)       ; EQUIP-VIEW while the pack page is open
+         (tradev nil)       ; TRADE-VIEW while the trade page is open
          (help-prior-mode :play) ; mode to return to when help closes
          (shopv nil)        ; SHOP-VIEW while inside a location
          (castv nil)        ; CAST-VIEW while the cast menu is open
@@ -1967,6 +1968,7 @@ map/help/sheet pages close on a click outside a target — see
                (setf usev nil)
                (setf singv nil)
                (setf equipv nil)
+               (setf tradev nil)
                (setf savem nil)
                (setf ordersv nil)
                ;; pace the combat transcript: linger on each message a
@@ -2112,6 +2114,7 @@ map/help/sheet pages close on a click outside a target — see
                             (setf sheet-hero i
                                   sheet-top 0
                                   equipv nil
+                                  tradev nil
                                   ordering nil
                                   mode :sheet)
                             (redraw)))
@@ -2119,6 +2122,7 @@ map/help/sheet pages close on a click outside a target — see
                           ;; the sheet lives in the panes (takeover +
                           ;; portrait) — no chrome to repair
                           (setf equipv nil)
+                          (setf tradev nil)
                           (setf ordering nil)
                           (setf mode :play)
                           (redraw))
@@ -2132,7 +2136,7 @@ map/help/sheet pages close on a click outside a target — see
                           (fresh-play help-prior-mode))
                         (menus-idle-p ()
                           ;; no menu model is eating the keys
-                          (not (or savem castv usev singv equipv
+                          (not (or savem castv usev singv equipv tradev
                                    (game-location game))))
                         (idle-clock ()
                           ;; one heartbeat of the living-world clock: drip
@@ -2279,12 +2283,14 @@ map/help/sheet pages close on a click outside a target — see
                              ;; the rule), else the log.
                              (cond ((eq mode :sheet)
                                     (%amiga-draw-takeover
-                                     rp (if equipv
-                                            (equip-lines game equipv)
-                                            (hero-sheet-lines game
-                                                              sheet-hero
-                                                              sheet-top
-                                                              ordering))
+                                     rp (cond (equipv
+                                               (equip-lines game equipv))
+                                              (tradev
+                                               (trade-lines game tradev))
+                                              (t
+                                               (hero-sheet-lines
+                                                game sheet-hero
+                                                sheet-top ordering)))
                                      log l log-lines))
                                    (ordersv
                                     ;; combat: the round orders, with
@@ -2481,6 +2487,23 @@ map/help/sheet pages close on a click outside a target — see
                                                  (setf equipv nil))))
                                             (redraw))
                                           nil)
+                                         (tradev
+                                          ;; the trade page: the shared
+                                          ;; model eats the keys (a
+                                          ;; digit picks who receives,
+                                          ;; digits then type the sum,
+                                          ;; Return trades, Esc backs
+                                          ;; out a page at a time)
+                                          (let ((key (if (eq c :esc)
+                                                         #\Escape
+                                                         c)))
+                                            (when (characterp key)
+                                              (case (trade-act game tradev
+                                                               key)
+                                                ((:done :cancelled)
+                                                 (setf tradev nil))))
+                                            (redraw))
+                                          nil)
                                          (ordering
                                           ;; the marching-order pick: a
                                           ;; digit (key or roster click)
@@ -2532,6 +2555,20 @@ map/help/sheet pages close on a click outside a target — see
                                                             game))))
                                             (when hero
                                               (pool-gold game hero)
+                                              (redraw)))
+                                          nil)
+                                         ((eql lc #\t)
+                                          ;; trade gold away from the
+                                          ;; sheet hero (pointless with
+                                          ;; one member)
+                                          (let ((hero (nth sheet-hero
+                                                           (game-party
+                                                            game))))
+                                            (when (and hero
+                                                       (rest (game-party
+                                                              game)))
+                                              (setf tradev
+                                                    (make-trade-view hero))
                                               (redraw)))
                                           nil)
                                          ((eql lc #\o)

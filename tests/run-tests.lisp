@@ -2076,8 +2076,9 @@ height" d)
   (check "sheet page ends with the sheet's own keys, one option per row"
          (list (menu-option #\e "Equip pack")
                (menu-option #\g "Gold pool")
+               (menu-option #\t "Trade gold")
                (menu-option #\o "Order party"))
-         (last lines 3))
+         (last lines 4))
   ;; ORDERING true is the marching-order pick: the hints give way to
   ;; the where-to prompt
   (check "ordering sheet asks where to move the hero"
@@ -2295,6 +2296,107 @@ height" d)
   (damage-hero g (first heroes) 999)
   (check "a downed hero's purse pools too" 5
          (pool-gold g (third heroes))))
+
+;; Trade gold: one purse hands a sum to another — the character
+;; sheet's 't', POOL-GOLD's counterpart for splitting a purse instead
+;; of piling it.
+(let* ((m (parse-map *art* :name "test"))
+       (heroes (with-rng () (list (make-hero "A" :tester)
+                                  (make-hero "B" :tester))))
+       (g (new-game m :party heroes))
+       (msgs (watch-messages g))
+       (a (first heroes))
+       (b (second heroes)))
+  (setf (hero-gold a) 40
+        (hero-gold b) 3)
+  (check-true "trade-gold moves the sum" (trade-gold g a b 15))
+  (check "the giver paid" 25 (hero-gold a))
+  (check "the receiver holds it" 18 (hero-gold b))
+  (check-true "the hand-over is announced"
+              (find-if (lambda (s) (search "hands 15 gold" s))
+                       (funcall msgs)))
+  (check "a short purse refuses" nil (trade-gold g a b 99))
+  (check-true "and says why"
+              (find-if (lambda (s) (search "does not have 99" s))
+                       (funcall msgs)))
+  (check "refusals move nothing" '(25 18)
+         (list (hero-gold a) (hero-gold b)))
+  (check "trading with oneself is refused" nil (trade-gold g a a 5))
+  (check "a zero sum is refused" nil (trade-gold g a b 0))
+  (check "a negative sum is refused" nil (trade-gold g a b -5))
+  ;; the fallen both give and receive, as with pooled gold
+  (damage-hero g b 999)
+  (check-true "a downed hero still receives" (trade-gold g a b 5))
+  (check-true "and still gives" (trade-gold g b a 5)))
+
+;; The trade page (the sheet's 't' — TRADE-LINES/TRADE-ACT): a digit
+;; picks who receives, then the sum is typed — digits, Backspace,
+;; Return — and Esc backs out a page at a time.
+(let* ((m (parse-map *art* :name "test"))
+       (heroes (with-rng () (list (make-hero "A" :tester)
+                                  (make-hero "B" :tester))))
+       (g (new-game m :party heroes))
+       (msgs (watch-messages g))
+       (v (make-trade-view (first heroes))))
+  (setf (hero-gold (first heroes)) 30)
+  (check-true "the pick page asks who receives"
+              (member "Give gold to whom?" (menu-texts (trade-lines g v))
+                      :test #'equal))
+  (check-true "the giver's row is marked"
+              (find-if (lambda (s) (search "(giver)" s))
+                       (menu-texts (trade-lines g v))))
+  (check "a recipient row carries its digit" #\2
+         (menu-line-key
+          (find-if (lambda (line)
+                     (search "2) B" (menu-line-text line)))
+                   (trade-lines g v))))
+  (check "picking the giver goes nowhere" nil (trade-act g v #\1))
+  (check "the view stays on the pick page" nil (trade-view-to v))
+  (check-true "and says the gold stays put"
+              (find-if (lambda (s) (search "already holds" s))
+                       (funcall msgs)))
+  (check "a digit picks the recipient" nil (trade-act g v #\2))
+  (check "the amount page opens on them" "B"
+         (hero-name (trade-view-to v)))
+  (check "Esc steps back to the pick page" nil (trade-act g v #\Escape))
+  (check "the recipient is unpicked" nil (trade-view-to v))
+  ;; pick again; type 125, rub the 5 out, Return: 12 gold moves
+  (trade-act g v #\2)
+  (trade-act g v #\1)
+  (trade-act g v #\2)
+  (trade-act g v #\5)
+  (check "digits build the sum" "125" (trade-view-amount v))
+  (check "Backspace deletes" "12"
+         (progn (trade-act g v #\Backspace) (trade-view-amount v)))
+  (check-true "the amount page shows the sum being typed"
+              (find-if (lambda (s) (search "12_" s))
+                       (menu-texts (trade-lines g v))))
+  (check "Return trades" :done (trade-act g v #\Return))
+  (check "the sum arrived" 12 (hero-gold (second heroes)))
+  (check "the giver paid" 18 (hero-gold (first heroes))))
+
+;; the trade page's edges: an unpayable sum starts the entry over, an
+;; empty Return steps back, the sum cannot outgrow its row
+(let* ((m (parse-map *art* :name "test"))
+       (heroes (with-rng () (list (make-hero "A" :tester)
+                                  (make-hero "B" :tester))))
+       (g (new-game m :party heroes))
+       (v (make-trade-view (first heroes))))
+  (setf (hero-gold (first heroes)) 5)
+  (trade-act g v #\2)
+  (trade-act g v #\9)
+  (trade-act g v #\9)
+  (check "an unpayable sum keeps the page open" nil
+         (trade-act g v #\Return))
+  (check "and the entry starts over" "" (trade-view-amount v))
+  (check "a bare Return steps back to the pick page" nil
+         (trade-act g v #\Return))
+  (check "the recipient is unpicked again" nil (trade-view-to v))
+  (trade-act g v #\2)
+  (dotimes (i 9) (trade-act g v #\7))
+  (check "the sum stops at six digits" "777777" (trade-view-amount v))
+  (trade-act g v #\Escape)
+  (check "Esc then closes the page" :cancelled (trade-act g v #\Escape)))
 
 ;; The host roster pane carries the Bard's Tale columns the Amiga
 ;; table shows: effective armor class and spell points beside HP and
@@ -2831,6 +2933,159 @@ height" d)
   (check "the trapdoor landed below" "the snug" (map-title (game-map g)))
   (check "the location is left behind" nil (game-location g)))
 (delete-file "tests/tmp-down.map")
+
+;; Temples: healers for hire — so many gold per missing hit point,
+;; a flat fee on top to raise the fallen; the healed hero pays from
+;; their own purse.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ava"))            ; 8 max hp
+       (b (%combat-hero "Bo"))
+       (g (new-game m :party (list a b)))
+       (msgs (watch-messages g)))
+  (setf (hero-gold a) 100
+        (hero-gold b) 3)
+  (damage-hero g a 5)                      ; 3/8 — five wounds
+  (enter-location g '("The Test Chapel" :temple :price 3 :raise 40))
+  (check "the rates are the location's" '(3 40)
+         (list (temple-price (game-location g))
+               (temple-raise-fee (game-location g))))
+  (check "the cost is the rate over the wounds" 15
+         (temple-cost (game-location g) a))
+  (check "an unhurt hero costs nothing" 0
+         (temple-cost (game-location g) b))
+  (check "location-lines serves the temple menu"
+         (menu-texts (temple-lines g))
+         (menu-texts (location-lines g nil)))
+  (check-true "the menu shows the rates"
+              (find-if (lambda (s)
+                         (search "Healing 3 gold a wound; 40 to raise" s))
+                       (menu-texts (temple-lines g))))
+  (check-true "a hurt hero's row shows hp, purse and cost"
+              (find-if (lambda (s)
+                         (search "1) Ava  HP 3/8  (100 gp)  costs 15" s))
+                       (menu-texts (temple-lines g))))
+  (check "a hero row carries its digit" #\1
+         (menu-line-key
+          (find-if (lambda (line)
+                     (search "Ava" (menu-line-text line)))
+                   (temple-lines g))))
+  (check-true "a digit heals through the menu"
+              (progn (temple-act g #\1) (= (hero-hp a) 8)))
+  (check "the priests were paid" 85 (hero-gold a))
+  (check-true "the mending is announced"
+              (find-if (lambda (s) (search "mend Ava's wounds" s))
+                       (funcall msgs)))
+  (check "an unhurt hero is turned away" nil (temple-heal g a))
+  (check-true "needs-no-healing message"
+              (find-if (lambda (s) (search "needs no healing" s))
+                       (funcall msgs)))
+  ;; the raise: Bo falls — eight wounds at 3, plus the 40 fee
+  (damage-hero g b 999)
+  (check "raising adds the flat fee" 64
+         (temple-cost (game-location g) b))
+  (check-true "the fallen hero's row says down"
+              (find-if (lambda (s)
+                         (search "2) Bo  HP 0/8 (down)  (3 gp)  costs 64" s))
+                       (menu-texts (temple-lines g))))
+  (check "a short purse is refused" nil (temple-heal g b))
+  (check-true "cannot-pay message"
+              (find-if (lambda (s)
+                         (search "cannot pay the priests' 64 gold" s))
+                       (funcall msgs)))
+  (check "refusals keep the gold" 3 (hero-gold b))
+  (setf (hero-gold b) 64)
+  (check-true "the temple raises the fallen through the menu"
+              (progn (temple-act g #\2) (hero-alive-p b)))
+  (check "back on their feet, whole" 8 (hero-hp b))
+  (check "the fee is gone" 0 (hero-gold b))
+  (check-true "the raising is announced"
+              (find-if (lambda (s) (search "Bo rises, whole again" s))
+                       (funcall msgs)))
+  (check "Esc leaves the temple" :left (temple-act g #\Escape))
+  (check "the temple is left behind" nil (game-location g)))
+
+;; the default temple rates: two gold a wound, fifty for a raising
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (enter-location g '("The Wayside Shrine" :temple))
+  (check "healing is two gold a wound by default" 2
+         (temple-price (game-location g)))
+  (check "raising is fifty by default" 50
+         (temple-raise-fee (game-location g)))
+  (check "location-act routes the temple" :left
+         (location-act g nil #\Escape)))
+
+;; The energy fount: spell points at so many gold apiece, living
+;; casters only — singers have the tavern, the fallen the temple.
+(let* ((m (parse-map *art* :name "test"))
+       (grunt (%combat-hero))              ; "Alva", no spell points
+       (wiz (%combat-hero "Wanda"))
+       (g (new-game m :party (list grunt wiz)))
+       (msgs (watch-messages g)))
+  (setf (hero-max-sp wiz) 6                ; a caster by the numbers
+        (hero-sp wiz) 1
+        (hero-gold wiz) 20
+        (hero-gold grunt) 50)
+  (enter-location g '("The Test Well" :energy :price 4))
+  (check "the rate is the location's" 4
+         (energy-price (game-location g)))
+  (check "the cost is the rate over the missing points" 20
+         (energy-cost (game-location g) wiz))
+  (check "location-lines serves the fount menu"
+         (menu-texts (energy-lines g))
+         (menu-texts (location-lines g nil)))
+  (check-true "the menu shows the rate"
+              (find-if (lambda (s) (search "4 gold apiece" s))
+                       (menu-texts (energy-lines g))))
+  (check-true "a caster's row shows sp, purse and cost"
+              (find-if (lambda (s)
+                         (search "2) Wanda  SP 1/6  (20 gp)  costs 20" s))
+                       (menu-texts (energy-lines g))))
+  (check-true "a spell-less row says so"
+              (find-if (lambda (s) (search "1) Alva  no spells  (50 gp)" s))
+                       (menu-texts (energy-lines g))))
+  (check "a spell-less hero is turned away" nil
+         (energy-restore g grunt))
+  (check-true "no-spell-points message"
+              (find-if (lambda (s)
+                         (search "has no spell points to fill" s))
+                       (funcall msgs)))
+  (check "spurned, the grunt keeps his gold" 50 (hero-gold grunt))
+  (check-true "a digit refills through the menu"
+              (progn (energy-act g #\2) (= (hero-sp wiz) 6)))
+  (check "the fee is paid" 0 (hero-gold wiz))
+  (check-true "the surge is announced"
+              (find-if (lambda (s) (search "Power floods back into Wanda" s))
+                       (funcall msgs)))
+  (check "a full caster is turned away" nil (energy-restore g wiz))
+  (check-true "brims-already message"
+              (find-if (lambda (s) (search "brims with power" s))
+                       (funcall msgs)))
+  ;; a short purse, and the fallen
+  (setf (hero-sp wiz) 0
+        (hero-gold wiz) 3)
+  (check "a short purse is refused" nil (energy-restore g wiz))
+  (check-true "cannot-pay message"
+              (find-if (lambda (s) (search "cannot pay the 24 gold" s))
+                       (funcall msgs)))
+  (check "refusals keep the points dry" 0 (hero-sp wiz))
+  (setf (hero-gold wiz) 100)
+  (damage-hero g wiz 999)
+  (check "the fallen are beyond the waters" nil (energy-restore g wiz))
+  (check-true "and sent to the temple instead"
+              (find-if (lambda (s) (search "the temple, perhaps" s))
+                       (funcall msgs)))
+  (check "Esc leaves the fount" :left (energy-act g #\Escape))
+  (check "the fount is left behind" nil (game-location g)))
+
+;; the default rate: three gold a point
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (enter-location g '("Roscoe's Energy Emporium" :energy))
+  (check "three gold apiece by default" 3
+         (energy-price (game-location g)))
+  (check "location-act routes the fount" :left
+         (location-act g nil #\Escape)))
 
 ;;; ---------------------------------------------------------------------
 ;;; The extended effect vocabulary: spell metadata, combined effects,
@@ -3954,8 +4209,9 @@ height" d)
   ;; clickable option (digit picks and Esc live on the help screen)
   (check "pack page ends with its own keys, one option per row"
          (list (menu-option #\p "Pass an item")
-               (menu-option #\i "Inspect an item"))
-         (last (equip-lines g view) 2))
+               (menu-option #\i "Inspect an item")
+               (menu-option #\t "Throw away an item"))
+         (last (equip-lines g view) 3))
   (check "a digit equips the item" nil (equip-act g view #\1))
   (check "equipped through the page" 't-sword (equipped-of-kind h :weapon))
   (check-true "the worn item is starred"
@@ -4179,6 +4435,73 @@ height" d)
   (check "the view stays on the pack" :pack (equip-view-mode view))
   (check-true "and says why"
               (find-if (lambda (s) (search "Alva has nothing to give" s))
+                       (funcall msgs))))
+
+;; The throw-away flow ('t' on the pack page): a digit picks the
+;; item, y then destroys it (DISCARD-ITEM), n keeps it — the one pack
+;; action that destroys, hence the only one with an are-you-sure.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ava"))
+       (g (new-game m :party (list a)))
+       (msgs (watch-messages g))
+       (view (make-equip-view a)))
+  (give-item g a 't-sword)
+  (give-item g a 't-torch)
+  (equip-item g a 't-sword)
+  (check "t opens the throw-away page" nil (equip-act g view #\t))
+  (check "the view is on the toss page" :toss (equip-view-mode view))
+  (check-true "the toss page prompts at tossing"
+              (member "Throw away what?" (menu-texts (equip-lines g view))
+                      :test #'equal))
+  (check "a digit picks the item" nil (equip-act g view #\1))
+  (check "the pick waits behind the are-you-sure" 't-sword
+         (equip-view-pending view))
+  (check-true "the page asks twice"
+              (member "Throw away T Sword?"
+                      (menu-texts (equip-lines g view)) :test #'equal))
+  (check-true "the yes/no rows are clickable options"
+              (and (member (menu-option #\y "Yes, be rid of it")
+                           (equip-lines g view) :test #'equal)
+                   (member (menu-option #\n "No, keep it")
+                           (equip-lines g view) :test #'equal)))
+  (check "n keeps the item" nil (equip-act g view #\n))
+  (check "the pack is untouched" '(t-sword t-torch) (hero-items a))
+  (check "the pick is forgotten" nil (equip-view-pending view))
+  (equip-act g view #\1)
+  (check "y throws the item away" nil (equip-act g view #\y))
+  (check "the item is gone for good" '(t-torch) (hero-items a))
+  (check "it came off the hands on the way out" nil
+         (equipped-of-kind a :weapon))
+  (check-true "the toss is announced"
+              (find-if (lambda (s) (search "Ava throws T Sword away" s))
+                       (funcall msgs)))
+  (check "the page stays open for the next item" :toss
+         (equip-view-mode view))
+  ;; Esc walks back out one page at a time, never straight to the sheet
+  (check "esc leaves the toss page for the pack" nil
+         (equip-act g view #\Escape))
+  (check "back on the pack page" :pack (equip-view-mode view))
+  (check "esc then closes the page" :cancelled
+         (equip-act g view #\Escape)))
+
+;; 't' on an empty pack says so, and DISCARD-ITEM refuses what the
+;; hero does not carry (the item stays a game situation, not a crash).
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g))
+       (view (make-equip-view h)))
+  (check "t on an empty pack does not open the toss page" nil
+         (equip-act g view #\t))
+  (check "the view stays on the pack" :pack (equip-view-mode view))
+  (check-true "and says why"
+              (find-if (lambda (s)
+                         (search "Alva has nothing to throw away" s))
+                       (funcall msgs)))
+  (check "discard-item refuses what is not carried" nil
+         (discard-item g h 't-sword))
+  (check-true "and says so"
+              (find-if (lambda (s) (search "does not carry" s))
                        (funcall msgs))))
 
 ;; Usable items: DEFINE-ITEM :use validation.
@@ -5245,8 +5568,9 @@ height" d)
   (check "a short sheet keeps the sheet's own keys"
          (list (menu-option #\e "Equip pack")
                (menu-option #\g "Gold pool")
+               (menu-option #\t "Trade gold")
                (menu-option #\o "Order party"))
-         (last (hero-sheet-lines g 0) 3))
+         (last (hero-sheet-lines g 0) 4))
   (check "a short sheet does not scroll" nil
          (hero-sheet-scroll g 0 0 #\d))
   (give-item g h 't-sword)
@@ -6213,7 +6537,7 @@ brick grid" d side)
 ;; size and stay within the fixed UI pens 0-3 (black, white, grey,
 ;; amber) — a pack may only recolor pens 4+, so pictures painted with
 ;; higher pens would change color under foreign packs.
-(dolist (kind '(:shop :tavern :hut))
+(dolist (kind '(:shop :tavern :temple :energy :hut))
   (let ((img (draw-location-scene kind 60 44))
         (maxpen 0))
     (check (format nil "the ~A scene sizes to order" kind) '(60 44)

@@ -651,7 +651,10 @@ to 8 items and equip one item of each equipment kind — every worn
 piece's AC counts — combat uses the equipped gear, and shops sell
 their `:stock` and buy anything back at half price; `g` **pools the
 party's gold** onto the shopper, Bard's Tale style (the character
-sheet offers the same key, pooling onto the viewed hero).  `o` on the
+sheet offers the same key, pooling onto the viewed hero), and `t` on
+the sheet **trades gold** back out: a digit picks who receives, then
+the sum is typed — digits, Backspace, Return — so a pooled purse
+splits again without a shop in sight.  `o` on the
 sheet changes the **marching order** (`move-hero`): a digit names the
 viewed hero's new slot and the others close ranks — order matters,
 because the first three living members are the front ranks monsters
@@ -669,7 +672,10 @@ picks who receives it (each row showing the room left in their pack).
 Carrying is not using — an unfit item passes freely, so one hero can
 haul another's gear — and the fallen both give and receive, as with
 pooled gold; a full receiving pack refuses the item and leaves it
-whole with the giver.  `i` on the pack page — and on the shop's buy
+whole with the giver.  `t` on the pack page **throws an item away**
+for good: a digit picks it and a clickable yes/no stands guard — the
+one pack action that destroys, so it alone asks twice.  `i` on the
+pack page — and on the shop's buy
 page, before any gold changes hands — **inspects an item**: a digit
 opens its card — kind, damage, AC bonus, price, class restriction,
 and the campaign's `:description` text when the item carries one.  An item can also be
@@ -683,6 +689,17 @@ and no spellbook; a battle spell politely waits for a fight.  A
 `:consumed` item is spent on use, and `:image` gives the effect its
 band icon.  See the "Usable items" and "Spell-trigger items" test
 sections of `tests/run-tests.lisp` for the exact rules.
+
+Two more location kinds spend gold on recovery, Bard's Tale style.  A
+**temple** — `(location TITLE :temple :price N :raise M)` — makes a
+hero whole: `N` gold per missing hit point (default 2), plus the flat
+`M` (default 50) to **raise a fallen hero**; a digit on its menu heals
+that party member, paid from their own purse (pool first when the gold
+is scattered).  An **energy fount** — `(location TITLE :energy :price
+N)` — refills a living caster's spell points at `N` gold apiece
+(default 3), the Roscoe's of the piece; singers refill at the tavern
+instead.  The "Temples" and "The energy fount" test sections of
+`tests/run-tests.lisp` are the executable specification.
 
 A location may also name a **picture** — `(location ... :image
 "gfx/shop.iff")` — shown in the view column while its menu is up,
