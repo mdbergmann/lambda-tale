@@ -180,9 +180,11 @@ first two words of a multi-word class, else the first two letters —
          (subseq name 0 (min 2 (length name)))))))
 
 (defun hero-summary-lines (hero)
-  "The character sheet as a list of text lines — the full stat block a
-player sees when they open a roster slot.  Pure (no I/O), so both the
-Amiga sheet view and the tests render from the same source."
+  "The character sheet as a list of text lines — the stat block a
+player sees when they open a roster slot.  The pack is not in it: that
+lists on its own page (EQUIP-LINES, the sheet's 'e').  Pure (no I/O),
+so both the Amiga sheet view and the tests render from the same
+source."
   (list
    ;; "Name the [Race] Class" — the race sits before the class when the
    ;; hero has one, "Name the Class" when raceless.
@@ -206,13 +208,7 @@ Amiga sheet view and the tests render from the same source."
            (hero-str hero) (hero-dex hero) (hero-iq hero))
    (format nil "CON ~D  LCK ~D" (hero-con hero) (hero-lck hero))
    (format nil "Gold ~D gp~@[   ~A~]" (hero-gold hero)
-           (unless (hero-alive-p hero) "(down)"))
-   (format nil "Pack: ~:[nothing~;~:*~{~A~^, ~}~]"
-           (mapcar (lambda (name)
-                     (format nil "~A~:[~;*~]~A" (item-title name)
-                             (member name (hero-equipped hero))
-                             (item-fit-marker hero name)))
-                   (hero-items hero)))))
+           (unless (hero-alive-p hero) "(down)"))))
 
 (defun hero-image (hero)
   "HERO's portrait file name (the class's :IMAGE), or NIL."
@@ -227,25 +223,9 @@ current map file's directory — or NIL when the class has none."
 
 (defconstant +sheet-page-size+ 8
   "Body rows the character-sheet page shows at once; a longer stat
-block (a full pack lists one row per item) scrolls with u/d — see
-MENU-WINDOW.")
-
-(defun %hero-sheet-body (hero)
-  "The sheet page's scrollable body: the HERO-SUMMARY-LINES stat block
-with the pack expanded to one row per item (equipped items starred,
-class-unfit items marked), so a full pack scrolls instead of
-overflowing the page."
-  (append
-   (butlast (hero-summary-lines hero))  ; all but the joined pack line
-   (let ((items (hero-items hero)))
-     (if items
-         (cons "Pack:"
-               (mapcar (lambda (name)
-                         (format nil "  ~A~:[~;*~]~A" (item-title name)
-                                 (member name (hero-equipped hero))
-                                 (item-fit-marker hero name)))
-                       items))
-         (list "Pack: nothing")))))
+block scrolls with u/d — see MENU-WINDOW.  The pack lists on its own
+page (EQUIP-LINES), so today's block fits; the window guards the
+sheet against a future longer one.")
 
 (defun hero-sheet-lines (game index &optional (top 0) ordering)
   "The character-sheet page for roster slot INDEX as text lines: a
@@ -257,7 +237,7 @@ true is the marching-order pick ('o'): the hints give way to the
 where-to prompt, a digit there moves the hero (MOVE-HERO) and Esc
 cancels."
   (let* ((hero (nth index (game-party game)))
-         (body (when hero (%hero-sheet-body hero))))
+         (body (when hero (hero-summary-lines hero))))
     (append
      (list (format nil "*** Character ~D of ~D ***"
                    (1+ index) (length (game-party game)))
@@ -269,15 +249,19 @@ cancels."
                               line)
                             +sheet-page-size+))
      ;; the sheet's own letter keys stay on the page (first letter
-     ;; picks); the digit pick, u/d scrolling and Esc are common
-     ;; knowledge — the help screen carries those
+     ;; picks), a blank line between them so the short page breathes;
+     ;; the digit pick, u/d scrolling and Esc are common knowledge —
+     ;; the help screen carries those
      (if (and hero ordering)
          (list ""
                (format nil "Move ~A where?" (hero-name hero)))
          (list ""
                (menu-option #\e "Equip pack")
+               ""
                (menu-option #\g "Gold pool")
+               ""
                (menu-option #\t "Trade gold")
+               ""
                (menu-option #\o "Order party"))))))
 
 (defun hero-sheet-scroll (game index top char)
@@ -285,7 +269,7 @@ cancels."
 MENU-SCROLL), or NIL when CHAR does not scroll or slot INDEX is empty."
   (let ((hero (nth index (game-party game))))
     (when hero
-      (menu-scroll top char (length (%hero-sheet-body hero))
+      (menu-scroll top char (length (hero-summary-lines hero))
                    +sheet-page-size+))))
 
 (defun party-full-p (game)

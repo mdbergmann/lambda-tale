@@ -2067,14 +2067,17 @@ height" d)
                       :max-hp 11 :hp 9 :str 15 :dex 12 :iq 9 :con 14
                       :lck 10 :ac 8 :gold 250))
        (lines (hero-summary-lines h)))
-  (check "sheet has seven lines" 7 (length lines))
+  (check "sheet has six lines" 6 (length lines))
   (check "sheet name/class line" "El Cid the War Mage" (first lines))
   (check "sheet level/xp line" "Level 3    XP 1200" (second lines))
   (check "sheet hp/ac line" "HP 9/11    AC 8" (third lines))
   (check "sheet primary stats line" "STR 15  DEX 12  IQ 9" (fourth lines))
   (check "sheet secondary stats line" "CON 14  LCK 10" (fifth lines))
   (check "sheet gold line, standing" "Gold 250 gp" (sixth lines))
-  (check "sheet pack line, empty pack" "Pack: nothing" (seventh lines)))
+  ;; the pack is not on the sheet — it lists on its own page
+  ;; (EQUIP-LINES, the sheet's 'e')
+  (check "the sheet carries no pack line" nil
+         (find-if (lambda (s) (search "Pack" s)) lines)))
 ;; a downed hero is flagged on the gold line
 (check "sheet marks a downed hero" "Gold 0 gp   (down)"
        (sixth (hero-summary-lines
@@ -2093,14 +2096,17 @@ height" d)
   (check "sheet page embeds the summary block" "B the Tester"
          (third lines))
   ;; the sheet names only its own keys, bracket-free, each row a
-  ;; clickable option; the digit pick, scrolling and Esc live on the
-  ;; help screen
-  (check "sheet page ends with the sheet's own keys, one option per row"
+  ;; clickable option with a blank line between them; the digit pick,
+  ;; scrolling and Esc live on the help screen
+  (check "sheet page ends with the sheet's own keys, aired one per row"
          (list (menu-option #\e "Equip pack")
+               ""
                (menu-option #\g "Gold pool")
+               ""
                (menu-option #\t "Trade gold")
+               ""
                (menu-option #\o "Order party"))
-         (last lines 4))
+         (last lines 7))
   ;; ORDERING true is the marching-order pick: the hints give way to
   ;; the where-to prompt
   (check "ordering sheet asks where to move the hero"
@@ -3248,10 +3254,14 @@ height" d)
               (find-if (lambda (s)
                          (search "Healing 3 gold a wound; 40 to raise" s))
                        (menu-texts (temple-lines g))))
-  (check-true "a hurt hero's row shows hp, purse and cost"
-              (find-if (lambda (s)
-                         (search "1) Ava  HP 3/8  (100 gp)  costs 15" s))
+  ;; the roster pane already shows health and purse — a temple row
+  ;; carries only who and what the priests ask
+  (check-true "a hurt hero's row shows the cost alone"
+              (find-if (lambda (s) (search "1) Ava  costs 15" s))
                        (menu-texts (temple-lines g))))
+  (check "an unhurt hero earns no row" nil
+         (find-if (lambda (s) (search "Bo" s))
+                  (menu-texts (temple-lines g))))
   (check "a hero row carries its digit" #\1
          (menu-line-key
           (find-if (lambda (line)
@@ -3271,9 +3281,9 @@ height" d)
   (damage-hero g b 999)
   (check "raising adds the flat fee" 64
          (temple-cost (game-location g) b))
-  (check-true "the fallen hero's row says down"
+  (check-true "the fallen hero's row says down, numbered by roster slot"
               (find-if (lambda (s)
-                         (search "2) Bo  HP 0/8 (down)  (3 gp)  costs 64" s))
+                         (search "2) Bo (down)  costs 64" s))
                        (menu-texts (temple-lines g))))
   (check "a short purse is refused" nil (temple-heal g b))
   (check-true "cannot-pay message"
@@ -3289,6 +3299,10 @@ height" d)
   (check-true "the raising is announced"
               (find-if (lambda (s) (search "Bo rises, whole again" s))
                        (funcall msgs)))
+  (check-true "a hale party gets the no-one-needs line"
+              (find-if (lambda (s)
+                         (search "No one here needs the priests" s))
+                       (menu-texts (temple-lines g))))
   (check "Esc leaves the temple" :left (temple-act g #\Escape))
   (check "the temple is left behind" nil (game-location g)))
 
@@ -4336,10 +4350,11 @@ height" d)
          (not (not (hero-carrying-p h 't-mail))))
   (check "ac back without the armor" 7 (hero-effective-ac h))
   (check "unequip when not equipped" nil (unequip-item g h 't-mail))
-  ;; the character sheet's pack line marks equipped items with *
-  (check "sheet pack line marks equipped"
-         "Pack: T Sword, T Axe*, T Mail, T Buckler*, T Torch"
-         (seventh (hero-summary-lines h))))
+  ;; the equipped stars live on the pack page, not the sheet — the
+  ;; sheet's stat block stays pack-free
+  (check "the sheet stays pack-free with a full pack" nil
+         (find-if (lambda (s) (search "Pack" s))
+                  (hero-summary-lines h))))
 
 ;; Two-handed weapons: both hands or a shield hand, never both (the
 ;; D&D rule).  The flag is a weapon trait — other kinds refuse it.
@@ -4429,15 +4444,15 @@ height" d)
                        (funcall msgs)))
   (check "item-usable-p for the wrong class" nil (item-usable-p h 't-mail))
   (check-true "item-usable-p unrestricted" (item-usable-p h 't-torch))
-  ;; the (unfit) marker: the sheet, gear and shop rows show a class
+  ;; the (unfit) marker: the pack, gear and shop rows show a class
   ;; mismatch before the player tries
   (check "item-fit-marker for the wrong class" " (unfit)"
          (item-fit-marker h 't-mail))
   (check "item-fit-marker for a fitting item" ""
          (item-fit-marker h 't-torch))
-  (check "sheet pack line marks the unfit item"
-         "Pack: T Mail (unfit)"
-         (seventh (hero-summary-lines h))))
+  (check-true "the pack page marks the unfit item"
+              (find-if (lambda (s) (search "T Mail (unfit)" s))
+                       (menu-texts (equip-lines g (make-equip-view h))))))
 
 ;; The class registry lists the campaign's classes.
 (let ((classes (hero-classes)))
@@ -5950,43 +5965,32 @@ height" d)
 (let* ((m (parse-map *art* :name "test"))
        (h (%combat-hero))
        (g (new-game m :party (list h))))
-  (check-true "an empty pack still says so"
-              (member "Pack: nothing" (menu-texts (hero-sheet-lines g 0))
-                      :test #'equal))
-  (check "a short sheet keeps the sheet's own keys"
+  ;; the pack left the sheet for its own page ('e' — EQUIP-LINES),
+  ;; so even a full pack no longer grows or scrolls the stat block
+  (check "the sheet carries no pack row" nil
+         (find-if (lambda (s) (search "Pack" s))
+                  (menu-texts (hero-sheet-lines g 0))))
+  (check "the sheet keeps its own keys, aired one per row"
          (list (menu-option #\e "Equip pack")
+               ""
                (menu-option #\g "Gold pool")
+               ""
                (menu-option #\t "Trade gold")
+               ""
                (menu-option #\o "Order party"))
-         (last (hero-sheet-lines g 0) 4))
-  (check "a short sheet does not scroll" nil
+         (last (hero-sheet-lines g 0) 7))
+  (check "the sheet does not scroll" nil
          (hero-sheet-scroll g 0 0 #\d))
   (give-item g h 't-sword)
   (equip-item g h 't-sword)
   (dotimes (i 7) (give-item g h 't-torch))
   (let ((texts (menu-texts (hero-sheet-lines g 0))))
-    (check-true "a full pack scrolls the sheet"
-                (member "v more below" texts :test #'equal))
-    ;; scrolling is common knowledge — no [u/d] hint row; the help
-    ;; screen carries it
-    (check "the sheet carries no scroll hint" nil
-           (member "[u/d] scroll" texts :test #'equal)))
-  (let ((top (hero-sheet-scroll g 0 0 #\d)))
-    (check "the sheet scrolls by its window" 6 top)
-    (let ((texts (menu-texts (hero-sheet-lines g 0 top))))
-      (check-true "the scrolled sheet reaches the pack rows"
-                  (member "  T Sword*" texts :test #'equal))
-      (check-true "the scrolled sheet shows both markers"
-                  (and (member "^ more above" texts :test #'equal)
-                       (member "v more below" texts :test #'equal))))
-    (setf top (hero-sheet-scroll g 0 top #\d))
-    (check "the sheet clamps at its tail" 9 top)
-    (check-true "the tail window shows the last pack row"
-                (member "  T Torch"
-                        (menu-texts (hero-sheet-lines g 0 top))
-                        :test #'equal))
-    (check "u returns toward the head" 3
-           (hero-sheet-scroll g 0 top #\u)))
+    (check "a full pack no longer scrolls the sheet" nil
+           (member "v more below" texts :test #'equal))
+    (check "a full pack stays off the sheet" nil
+           (find-if (lambda (s) (search "T Torch" s)) texts)))
+  (check "a full pack leaves the sheet unscrollable" nil
+         (hero-sheet-scroll g 0 0 #\d))
   (check "an empty roster slot does not scroll" nil
          (hero-sheet-scroll g 4 0 #\d)))
 

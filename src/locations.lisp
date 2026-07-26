@@ -535,24 +535,29 @@ knows)."
 
 (defun temple-lines (game)
   "The temple menu as menu lines: the rates, then one numbered row per
-party member — hit points, purse, and what the priests would ask."
+party member the priests can help — the roster pane already shows
+everyone's health and purse, so a hale hero earns no row.  The number
+is the hero's roster slot (the digit TEMPLE-ACT expects), so a row is
+skipped, never renumbered."
   (let ((loc (game-location game)))
     (append
      (list (format nil "*** ~A ***" (location-title loc)) ""
            (format nil "Healing ~D gold a wound; ~D to raise the fallen."
                    (temple-price loc) (temple-raise-fee loc))
            "")
-     (let ((i 0))
-       (mapcar (lambda (h)
-                 (incf i)
-                 (menu-numbered
-                  i (format nil "~D) ~A  HP ~D/~D~:[~; (down)~]  ~
-                                 (~D gp)~@[  costs ~D~]"
-                            i (hero-name h) (hero-hp h) (hero-max-hp h)
-                            (not (hero-alive-p h)) (hero-gold h)
-                            (let ((c (temple-cost loc h)))
-                              (when (plusp c) c)))))
-               (game-party game))))))
+     (let ((i 0)
+           (rows '()))
+       (dolist (h (game-party game))
+         (incf i)
+         (when (plusp (temple-cost loc h))
+           (push (menu-numbered
+                  i (format nil "~D) ~A~:[~; (down)~]  costs ~D"
+                            i (hero-name h) (not (hero-alive-p h))
+                            (temple-cost loc h)))
+                 rows)))
+       (if rows
+           (nreverse rows)
+           (list "No one here needs the priests."))))))
 
 (defun temple-act (game char)
   "Apply key CHAR to the temple menu: a digit heals that hero (the
