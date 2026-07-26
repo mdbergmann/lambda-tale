@@ -90,6 +90,7 @@
    #:hero-caster-p #:hero-str #:hero-dex #:hero-iq
    #:hero-con #:hero-lck #:hero-ac #:hero-damage #:hero-gold
    #:hero-alive-p #:alive-heroes #:party-alive-p #:front-ranks
+   #:hero-in-reach-p
    #:hero-extra-attacks
    #:hero-class-title #:hero-class-abbrev #:hero-summary-lines
    #:hero-image #:hero-image-path #:hero-sheet-lines #:hero-sheet-scroll
@@ -105,7 +106,8 @@
    #:+inventory-limit+ #:hero-items #:hero-equipped #:hero-carrying-p
    #:give-item #:drop-item #:pass-item #:discard-item
    #:equip-item #:unequip-item #:equipped-of-kind
-   #:toggle-equip #:hero-attack-dice #:hero-effective-ac
+   #:toggle-equip #:hero-attack-dice #:hero-missile-dice
+   #:hero-effective-ac
    ;; the pack page ('e' on the character sheet — equip, 'p' to hand
    ;; an item to another party member, 't' to throw one away)
    #:make-equip-view #:equip-view-hero #:equip-view-top
@@ -148,7 +150,7 @@
    #:monster-type-level #:monster-type-ac #:monster-type-xp
    #:monster-type-image
    #:monster-kind #:monster-hp #:monster-alive-p
-   #:start-combat #:combat-round #:attempt-flee
+   #:start-combat #:combat-round #:attempt-flee #:hero-can-attack-p
    #:combat-monsters #:alive-monsters #:combat-groups #:combat-banner
    #:combat-enemy-image #:combat-image-path
    #:combat-round-no

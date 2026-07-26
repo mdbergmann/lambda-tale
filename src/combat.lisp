@@ -6,8 +6,17 @@
 ;;; swings at a random front-rank hero.  The whole transcript travels as
 ;;; :MESSAGE events; :COMBAT-START and :COMBAT-END frame the fight.
 ;;;
+;;; Reach cuts both ways (HERO-IN-REACH-P): the front ranks are the
+;;; heroes the monsters can hit AND the only heroes who can trade
+;;; melee blows back.  A back-rank hero attacks only over the enemy's
+;;; heads — with an equipped bow-and-arrow pair (HERO-MISSILE-DICE,
+;;; the arrows carrying the dice); bare of one, the attack action is
+;;; simply out of reach for it, and the orders page says so instead
+;;; of recording it.
+;;;
 ;;; To-hit: d20 + bonus hits when it reaches 20 - AC (descending AC,
-;;; unarmored 10 = hit on 10+).  Defending is +4 AC for the round.
+;;; unarmored 10 = hit on 10+) — melee rides on STR, a shot on DEX.
+;;; Defending is +4 AC for the round.
 
 (in-package :tale)
 
@@ -147,13 +156,15 @@ scrolls by, while misses stay lowercase and quiet."
           (say game "~A SLAYS the ~A!"
                attacker-name (monster-type-name type))))))
 
-(defun %hero-attack (game hero monster)
-  "One melee strike.  Active effects weigh in: :FOES-AC makes the
-monster easier to hit, :DAMAGE-BONUS strengthens the blow.  A class
-with :CRIT-CHANCE (the hunter's art) may fell the monster outright on
-a hit — the chance grows one point per hero level."
+(defun %hero-strike (game hero monster to-hit-bonus dice damage-bonus)
+  "One strike — melee blow and arrow shot share the resolution.
+Active effects weigh in: :FOES-AC makes the monster easier to hit,
+:DAMAGE-BONUS strengthens the hit.  A class with :CRIT-CHANCE (the
+hunter's art) may fell the monster outright on a hit — the chance
+grows one point per hero level, and the hunter's eye guides blow and
+arrow alike."
   (let ((type (monster-kind monster)))
-    (if (%attack-hits-p (+ (hero-level hero) (stat-bonus (hero-str hero)))
+    (if (%attack-hits-p (+ (hero-level hero) to-hit-bonus)
                         (+ (monster-type-ac type) (effects-foes-ac game)))
         (let ((crit (hero-class-property (hero-class hero) :crit-chance)))
           (if (and crit (< (roll 100) (+ crit (hero-level hero))))
@@ -162,13 +173,33 @@ a hit — the chance grows one point per hero level."
                 (%strike-monster game (hero-name hero) monster
                                  (monster-hp monster)))
               (%strike-monster game (hero-name hero) monster
-                               (max 1 (+ (roll-dice (hero-attack-dice hero))
-                                         (stat-bonus (hero-str hero))
+                               (max 1 (+ (roll-dice dice)
+                                         damage-bonus
                                          (effects-damage-bonus game))))))
         (progn
           (emit game :miss hero monster)
           (say game "~A misses the ~A."
                (hero-name hero) (monster-type-name type))))))
+
+(defun %hero-attack (game hero monster)
+  "One melee strike: STR guides the arm and weighs into the damage."
+  (%hero-strike game hero monster (stat-bonus (hero-str hero))
+                (hero-attack-dice hero) (stat-bonus (hero-str hero))))
+
+(defun %hero-shoot (game hero monster)
+  "One arrow over the front ranks' heads: DEX aims the shot (the
+archer's stat), the equipped arrows alone carry the damage — no STR
+behind a bowstring."
+  (%hero-strike game hero monster (stat-bonus (hero-dex hero))
+                (hero-missile-dice hero) 0))
+
+(defun hero-can-attack-p (game hero)
+  "Can HERO take the attack action this round — standing in melee
+reach (HERO-IN-REACH-P), or shooting over it (HERO-MISSILE-DICE)?
+The orders page asks before offering A; COMBAT-ROUND asks again and
+lets an out-of-reach attack pass as a wasted action."
+  (or (hero-in-reach-p game hero)
+      (and (hero-missile-dice hero) t)))
 
 (defun %monster-attack (game combat monster)
   (let* ((targets (front-ranks game))
@@ -260,8 +291,12 @@ cast a spell (see CAST-SPELL; a failed cast wastes the round),
 \(:sing SONG) to strike up a song (see SING-SONG; likewise), or
 \(:use ITEM [TARGET]) to use an item (see USE-ITEM — how a Wizhelm
 fires its spell in battle; likewise).  Heroes strike the first living
-monster; then the surviving monsters strike back.  The round costs
-one clock tick.  Returns :victory, :defeat or :ongoing."
+monster — front-rank heroes in melee, the back ranks by bow and
+arrow (HERO-MISSILE-DICE); a back-rank :attack without one is out of
+reach and wastes the action (the orders page refuses it up front,
+but a scripted round may still ask) — then the surviving monsters
+strike back.  The round costs one clock tick.  Returns :victory,
+:defeat or :ongoing."
   (let ((combat (game-combat game)))
     (unless combat
       (error "combat-round: no combat is in progress"))
@@ -277,14 +312,23 @@ one clock tick.  Returns :victory, :defeat or :ongoing."
       (dolist (p pairs)
         (let ((a (cdr p)))
           (cond ((eq a :attack)
-                 ;; a warrior's training (:EXTRA-ATTACK-LEVELS) and a
-                 ;; martial effect (:EXTRA-ATTACKS) grant more strikes;
-                 ;; each re-aims at the front survivor
-                 (dotimes (i (+ 1 (hero-extra-attacks (car p))
-                                (effects-extra-attacks game)))
-                   (let ((target (first (alive-monsters combat))))
-                     (when target
-                       (%hero-attack game (car p) target)))))
+                 (let* ((hero (car p))
+                        (strike (cond ((hero-in-reach-p game hero)
+                                       #'%hero-attack)
+                                      ((hero-missile-dice hero)
+                                       #'%hero-shoot))))
+                   (if (null strike)
+                       (say game "~A cannot reach the enemy."
+                            (hero-name hero))
+                       ;; a warrior's training (:EXTRA-ATTACK-LEVELS)
+                       ;; and a martial effect (:EXTRA-ATTACKS) grant
+                       ;; more strikes; each re-aims at the front
+                       ;; survivor
+                       (dotimes (i (+ 1 (hero-extra-attacks hero)
+                                      (effects-extra-attacks game)))
+                         (let ((target (first (alive-monsters combat))))
+                           (when target
+                             (funcall strike game hero target)))))))
                 ((and (consp a) (eq (first a) :cast))
                  (cast-spell game (car p) (second a) (third a)))
                 ((and (consp a) (eq (first a) :sing))
@@ -482,7 +526,11 @@ NIL."
       ((null hero) nil)                 ; nobody left to ask
       (t
        (case (char-downcase char)
-         (#\a (%orders-record game view :attack))
+         (#\a (if (hero-can-attack-p game hero)
+                  (%orders-record game view :attack)
+                  (say game "~A cannot reach the enemy."
+                       (hero-name hero)))
+              nil)
          (#\d (%orders-record game view :defend))
          (#\c (if (and (hero-caster-p hero) (spells-for-hero hero))
                   (setf (combat-orders-sub view)

@@ -306,6 +306,18 @@ hero's bare (class) damage."
         (or (item-type-damage (find-item-type weapon)) (hero-damage hero))
         (hero-damage hero))))
 
+(defun hero-missile-dice (hero)
+  "The dice HERO shoots with: the equipped arrows' damage — an
+equipped bow beside them strings the pair — or NIL when the hero
+carries no working bow-and-arrow pair.  This is what lets a back-rank
+hero attack at all (see HERO-IN-REACH-P); the arrows carry the dice,
+the bow may stand in when they name none."
+  (let ((bow (equipped-of-kind hero :bow))
+        (arrows (equipped-of-kind hero :arrow)))
+    (when (and bow arrows)
+      (or (item-type-damage (find-item-type arrows))
+          (item-type-damage (find-item-type bow))))))
+
 (defun hero-effective-ac (hero &optional game)
   "HERO's armor class with equipment: descending AC minus the AC bonus
 of every equipped item — and, when GAME is given, minus the party-wide

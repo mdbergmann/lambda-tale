@@ -657,8 +657,12 @@ the sum is typed — digits, Backspace, Return — so a pooled purse
 splits again without a shop in sight.  `o` on the
 sheet changes the **marching order** (`move-hero`): a digit names the
 viewed hero's new slot and the others close ranks — order matters,
-because the first three living members are the front ranks monsters
-can reach.  A weapon
+because the first three living members are the front ranks, and reach
+cuts both ways: they are the heroes monsters can hit and the only
+ones who can trade melee blows back.  A hero behind them attacks only
+with an equipped **bow and arrows** (the arrows carry the damage
+dice, the shot aims by DEX instead of STR); bare of the pair, the
+attack action is out of reach and the orders page says so.  A weapon
 defined `:two-handed` fills both hands, D&D-style: it will not go on
 beside a shield, nor a shield beside it, and the pack and shop pages
 mark it `(2H)`.  Equipment is managed

@@ -2561,6 +2561,116 @@ height" d)
 (check-error "attempt-flee without combat"
   (attempt-flee (new-game (parse-map *art*))))
 
+;; Reach cuts both ways: the front ranks are the heroes monsters can
+;; hit AND the only heroes who can trade melee blows back; a hero
+;; behind them attacks only with a strung bow-and-arrow pair.
+(define-item 'test-bow :kind :bow)
+(define-item 'test-arrows :kind :arrow :damage "1d4")
+(define-item 'test-selfbow :kind :bow :damage "1d3")
+(define-item 'test-blunts :kind :arrow)
+
+(let* ((m (parse-map *art* :name "test"))
+       (heroes (list (%combat-hero "A") (%combat-hero "B")
+                     (%combat-hero "C") (%combat-hero "D")))
+       (g (new-game m :party heroes)))
+  (check "the front ranks stand in reach" '(t t t)
+         (mapcar (lambda (h) (hero-in-reach-p g h)) (subseq heroes 0 3)))
+  (check "the fourth hero stands behind them" nil
+         (hero-in-reach-p g (fourth heroes)))
+  (damage-hero g (first heroes) 999)
+  (check-true "a fallen front hero pulls the fourth into reach"
+              (hero-in-reach-p g (fourth heroes))))
+
+;; HERO-MISSILE-DICE wants the whole pair equipped; the arrows carry
+;; the dice, the bow stands in when they name none.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h))))
+  (check "no bow, no missile dice" nil (hero-missile-dice h))
+  (dolist (name '(test-bow test-arrows test-selfbow test-blunts))
+    (give-item g h name))
+  (equip-item g h 'test-bow)
+  (check "a bow without arrows shoots nothing" nil (hero-missile-dice h))
+  (equip-item g h 'test-arrows)
+  (check "bow and arrows make the pair" "1d4" (hero-missile-dice h))
+  (unequip-item g h 'test-bow)
+  (check "arrows without a bow shoot nothing" nil (hero-missile-dice h))
+  (equip-item g h 'test-selfbow)
+  (check "the arrows' dice outrank the bow's" "1d4" (hero-missile-dice h))
+  (equip-item g h 'test-blunts)         ; same kind: replaces the arrows
+  (check "dice-less arrows fall back to the bow's" "1d3"
+         (hero-missile-dice h))
+  (equip-item g h 'test-bow)            ; no dice anywhere in the pair
+  (check "a dice-less pair shoots nothing" nil (hero-missile-dice h)))
+
+;; The reach rule in the round: a bare back-rank :attack is out of
+;; reach and wastes the action; strung, the same hero shoots over the
+;; front ranks' heads — DEX aims the shot and the arrows alone carry
+;; the damage, no STR behind a bowstring.
+(let* ((m (parse-map *art* :name "test"))
+       (heroes (list (%combat-hero "A") (%combat-hero "B")
+                     (%combat-hero "C") (%combat-hero "D")))
+       (d (fourth heroes))
+       (g (new-game m :party heroes))
+       (msgs (watch-messages g)))
+  (start-combat g '(("test rat" 1)))    ; 3 hp, ac 10
+  ;; d20=20 would slay outright — proof the out-of-reach D never rolls
+  ;; it: the 19 lands on the rat's target pick (19 mod 3 -> B), whose
+  ;; defence (ac 4) turns the d20=6 away.  D's action is spent saying so.
+  (check "a bare back-rank attack wastes the action" :ongoing
+         (with-rng (19 5) (combat-round g '(:defend :defend :defend))))
+  (check-true "and says why"
+              (find-if (lambda (s) (search "D cannot reach the enemy" s))
+                       (funcall msgs)))
+  (check "the rat stands untouched" 3
+         (monster-hp (first (combat-monsters (game-combat g)))))
+  ;; string D's bow: DEX 16 (+3) aims, STR 4 (-3) must not weigh in —
+  ;; d20=6 hits ac 10 only through the DEX bonus (1+5+1+3 = 10), and
+  ;; the 1d4=4 slays the 3-hp rat only left un-dragged-down by STR.
+  (give-item g d 'test-bow)
+  (give-item g d 'test-arrows)
+  (equip-item g d 'test-bow)
+  (equip-item g d 'test-arrows)
+  (setf (hero-str d) 4 (hero-dex d) 16)
+  (check "the strung back rank shoots the round home" :victory
+         (with-rng (5 3) (combat-round g '(:defend :defend :defend))))
+  (check-true "the arrow slays in the transcript"
+              (find-if (lambda (s) (search "D SLAYS the test rat" s))
+                       (funcall msgs))))
+
+;; The orders page polices reach up front: A for a bare back-rank
+;; hero says so and keeps asking; strung, the same hero's A records.
+(let* ((m (parse-map *art* :name "test"))
+       (heroes (list (%combat-hero "A") (%combat-hero "B")
+                     (%combat-hero "C") (%combat-hero "D")))
+       (d (fourth heroes))
+       (g (new-game m :party heroes))
+       (msgs (watch-messages g))
+       (view (make-combat-orders)))
+  (start-combat g '(("test rat" 1)))
+  (dotimes (i 3) (combat-orders-act g view #\a))
+  (check "the back-rank hero is at hand" "D"
+         (hero-name (combat-orders-hero g view)))
+  (check "a refused attack returns nil" nil (combat-orders-act g view #\a))
+  (check "the refusal keeps asking the same hero" "D"
+         (hero-name (combat-orders-hero g view)))
+  (check-true "and says why"
+              (find-if (lambda (s) (search "D cannot reach the enemy" s))
+                       (funcall msgs)))
+  (check "defending still stands open" nil (combat-orders-act g view #\d))
+  (check-true "the four picks reach the review"
+              (combat-orders-review view))
+  ;; redo with a strung bow: the same hero's A now records
+  (combat-orders-act g view #\n)
+  (give-item g d 'test-bow)
+  (give-item g d 'test-arrows)
+  (equip-item g d 'test-bow)
+  (equip-item g d 'test-arrows)
+  (dotimes (i 4) (combat-orders-act g view #\a))
+  (check "a strung back-rank attack records"
+         '(:fight (:attack :attack :attack :attack))
+         (combat-orders-act g view #\y)))
+
 ;; The encounter special starts combat and skips the remaining ops.
 (let* ((m (parse-map *art* :name "test"))
        (g (new-game m :party (list (%combat-hero))))
@@ -3720,8 +3830,9 @@ height" d)
                            (<= (length (remove "" lines :test #'equal))
                                rows)))))
       (fits "hero page")
+      ;; attack is a front-rank pick; the back ranks defend (reach)
       (dotimes (i +party-limit+)
-        (combat-orders-act g view #\a))
+        (combat-orders-act g view (if (< i 3) #\a #\d)))
       (check-true "a full party's picks reach the review"
                   (combat-orders-review view))
       (fits "review page"))))

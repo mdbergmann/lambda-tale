@@ -480,6 +480,13 @@ steps back to the pick page.  Returns :DONE when the trade lands,
   (let ((alive (alive-heroes game)))
     (if (> (length alive) n) (subseq alive 0 n) alive)))
 
+(defun hero-in-reach-p (game hero)
+  "True when HERO stands in the front ranks — close enough to trade
+melee blows with the enemy.  Reach cuts both ways: monsters swing
+only at these heroes, and only these heroes can swing back (the back
+ranks need a missile — see HERO-MISSILE-DICE)."
+  (and (member hero (front-ranks game)) t))
+
 (defun damage-hero (game hero amount)
   "Deal AMOUNT damage to HERO.  Emits :HERO-HURT when they take it and
 stand, :HERO-DIED when this kills them (never both — the death cry
