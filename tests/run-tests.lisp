@@ -5240,6 +5240,57 @@ height" d)
   (check "still facing away from the door" :west
          (dir-keyword (game-facing g))))
 
+;; Opening hours: (location ... :closed BAND-OR-BANDS) keeps the door
+;; shut through the named day-band(s) — the party is told, and an
+;; entering step is bounced back onto the street, left facing the shut
+;; door at no clock cost beyond the step already taken.  The location
+;; op stays top-level map data, so the street facade still shows.
+(with-open-file (s "tests/tmp-hours.map" :direction :output
+                   :if-exists :supersede)
+  (write-string "+-+-+
+|@D |
++-+-+
+
+(zone :kind :city :title \"Hours\")
+(special (1 0)
+  (location \"The Day Shoppe\" :shop :closed :night))
+" s))
+(let* ((m (load-map-file "tests/tmp-hours.map"))
+       (g (new-game m :party (list (%combat-hero))))
+       (msgs (watch-messages g))
+       (closed '()))
+  (on-event g :location-closed
+            (lambda (game loc) (declare (ignore game))
+              (push (location-title loc) closed)))
+  (turn-right g)                        ; a new game starts at 08:00
+  (check "the shoppe opens by day" :door (move-party g))
+  (check-true "and admits the party" (game-location g))
+  (leave-location g)                    ; back to (0,0), facing west
+  (funcall msgs)
+  (setf (game-time g) 1210)             ; 20:10 — night
+  (check "the door still swings at night" :door (move-party g :back))
+  (check "but the shoppe is not entered" nil (game-location g))
+  (check "the party is bounced back onto the street" '(0 0)
+         (list (game-x g) (game-y g)))
+  (check "left facing the shut door" :east (dir-keyword (game-facing g)))
+  (check "and told" '("The Day Shoppe is closed.") (funcall msgs))
+  (check ":location-closed emitted" '("The Day Shoppe") closed)
+  (check "the bounce costs no time beyond the step taken" 1211
+         (game-time g))
+  ;; a scripted entry (no step) refuses in place; the :closed arg
+  ;; also takes a list of bands
+  (check "a scripted entry refuses in place" nil
+         (enter-location g '("The Night Cave" :hut
+                             :closed (:evening :night))))
+  (check "the party stays put" '(0 0) (list (game-x g) (game-y g)))
+  (funcall msgs)
+  (setf (game-time g) (+ 1440 480))     ; day 2, 08:00
+  (check "morning opens the door again" :door (move-party g))
+  (check-true "and the shoppe admits the party once more"
+              (game-location g))
+  (leave-location g))
+(delete-file "tests/tmp-hours.map")
+
 ;; Location specs are validated loudly.
 (let ((g (new-game (parse-map *art* :name "test"))))
   (check-error "location title must be a string"
@@ -5247,7 +5298,9 @@ height" d)
   (check-error "location kind must be a keyword"
     (enter-location g '("X" shop)))
   (check-error "shop stock items must exist"
-    (enter-location g '("X" :shop :stock (t-nada)))))
+    (enter-location g '("X" :shop :stock (t-nada))))
+  (check-error ":closed bands must be day-bands"
+    (enter-location g '("X" :shop :closed :midnight))))
 
 ;; Buying and selling.
 (let* ((m (load-map-file "tests/tmp-town.map"))

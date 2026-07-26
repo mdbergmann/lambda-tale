@@ -75,6 +75,9 @@ campaign data, never as code that knows about "the" town.
   stock, Bard's Tale style; it buys anything back at half price.
   Freshly bought equipment auto-equips when the slot is free and the
   class allows it.
+- Any location may keep **hours**: `:closed :night` (a day-band, or a
+  list of bands) keeps the door shut through them — the party is told
+  and an entering step bounces back onto the street, facing the door.
 - The shop interaction is modeled **platform-free** in the engine
   (`shop-view` / `shop-lines` / `shop-act`): both front-ends feed keys
   into the same model and draw the same text lines, so the whole flow

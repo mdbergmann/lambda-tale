@@ -12,6 +12,14 @@
 ;;; points at so many gold apiece).  Unknown kinds still enter/leave
 ;;; cleanly — campaigns script them via the :ENTER-LOCATION event.
 ;;;
+;;; Any kind may keep hours: :CLOSED names the day-band — :NIGHT, or a
+;;; list like (:EVENING :NIGHT), see TIME-OF-DAY — during which the
+;;; door will not open.  An entering step is told and bounced back
+;;; onto the street facing the shut door (see ENTER-LOCATION); the
+;;; location op stays top-level map data, so the street facade still
+;;; shows (a closed shop keeps its face, unlike one hidden behind an
+;;; AT-DAY op, which CELL-LOCATION-OP cannot know).
+;;;
 ;;; The interaction itself is modeled here too, platform-free: a
 ;;; SHOP-VIEW holds the UI state (which hero is shopping, buy or sell
 ;;; page), SHOP-LINES renders the menu as text lines and SHOP-ACT maps
@@ -29,6 +37,18 @@
 
 (defun location-arg (location key)
   (getf (location-args location) key))
+
+(defun %closed-bands (location)
+  "LOCATION's :CLOSED day-bands as a list — the arg accepts one band
+keyword or a list of them; NIL when the location keeps no hours."
+  (let ((closed (location-arg location :closed)))
+    (if (listp closed) closed (list closed))))
+
+(defun location-closed-p (location game)
+  "True when LOCATION keeps hours and GAME's clock falls in them: the
+:CLOSED arg names the day-band or bands (see TIME-OF-DAY) during
+which the door will not open, e.g. :NIGHT or (:EVENING :NIGHT)."
+  (member (game-time-of-day game) (%closed-bands location)))
 
 (defun location-image (location)
   "LOCATION's picture file name — the :IMAGE arg of the location op —
@@ -82,10 +102,33 @@ one cell)."
             (when image
               (%resolve-map-path (dungeon-map-name map) image))))))))
 
+(defun %step-out (game out facing advance)
+  "Step the party through its cell's OUT side onto the neighbouring
+cell when that wall is passable, left facing FACING — the exit step
+shared by LEAVE-LOCATION (facing away from the door, clock ticking)
+and a closed door's bounce (facing the shut door, free: ADVANCE NIL
+skips the clock).  Never re-triggers the destination cell's special —
+the party just came from there."
+  (when (wall-passable-p (cell-wall (game-map game)
+                                    (game-x game) (game-y game) out))
+    (multiple-value-bind (nx ny)
+        (neighbor (game-map game) (game-x game) (game-y game) out)
+      (when nx
+        (setf (game-x game) nx
+              (game-y game) ny
+              (game-facing game) facing)
+        (when advance (advance-time game))
+        (observe game)
+        (emit game :enter-cell nx ny)))))
+
 (defun enter-location (game spec)
   "Enter the location described by SPEC = (TITLE KIND ARG...) — the
 LOCATION special op calls this.  Sets the game's modal location state
-and emits :ENTER-LOCATION."
+and emits :ENTER-LOCATION.  A location closed at this hour (see
+LOCATION-CLOSED-P) is not entered: the party is told, an entering
+step is bounced back onto the street before the shut door — facing
+it, at no clock cost beyond the step already taken — :LOCATION-CLOSED
+fires and NIL comes back."
   (destructuring-bind (title kind &rest args) spec
     (unless (stringp title)
       (error "location: title ~S must be a string" title))
@@ -100,6 +143,17 @@ and emits :ENTER-LOCATION."
       (when (eq kind :shop)
         (dolist (name (location-arg loc :stock))
           (find-item-type name)))   ; catch bad stock at entry, loudly
+      (dolist (band (%closed-bands loc))
+        (unless (assoc band *time-band-starts*)
+          (error "location ~S: unknown day-band ~S in :closed"
+                 title band)))     ; bad hours caught just as loudly
+      (when (location-closed-p loc game)
+        (say game "~A is closed." title)
+        (let ((entry (location-entry-dir loc)))
+          (when entry
+            (%step-out game (dir-opposite entry) entry nil)))
+        (emit game :location-closed loc)
+        (return-from enter-location nil))
       (setf (game-location game) loc)
       ;; no log line — the location's own page names it; routine
       ;; comings and goings would only silt up the log
@@ -123,18 +177,7 @@ the party just came from there.  A location entered without a step
       (let ((entry (location-entry-dir loc)))
         (when entry
           (let ((out (dir-opposite entry)))
-            (when (wall-passable-p (cell-wall (game-map game)
-                                              (game-x game) (game-y game)
-                                              out))
-              (multiple-value-bind (nx ny)
-                  (neighbor (game-map game) (game-x game) (game-y game) out)
-                (when nx
-                  (setf (game-x game) nx
-                        (game-y game) ny
-                        (game-facing game) out)
-                  (advance-time game)
-                  (observe game)
-                  (emit game :enter-cell nx ny)))))))
+            (%step-out game out out t))))
       (emit game :leave-location loc))
     loc))
 

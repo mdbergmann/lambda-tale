@@ -701,6 +701,14 @@ N)` — refills a living caster's spell points at `N` gold apiece
 instead.  The "Temples" and "The energy fount" test sections of
 `tests/run-tests.lisp` are the executable specification.
 
+Any location may keep **hours** — `(location ... :closed :night)`, a
+day-band or a list of them — and its door will not open while the
+clock stands in one: the party is told, an entering step is bounced
+back onto the street facing the shut door, and `:location-closed`
+fires for campaign scripts.  The op stays top-level map data, so the
+closed shop keeps its street facade.  See the "Opening hours" test
+section.
+
 A location may also name a **picture** — `(location ... :image
 "gfx/shop.iff")` — shown in the view column while its menu is up,
 plus an optional street-facing **facade** — `:facade
