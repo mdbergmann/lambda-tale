@@ -673,8 +673,9 @@ beside a shield, nor a shield beside it, and the pack and shop pages
 mark it `(2H)`.  Equipment is managed
 from the character sheet: `i` opens the hero's **pack page** (Inventory), where a
 digit puts a pack item on or takes it off again; items a hero's class
-cannot use are marked `(unfit)` there, on the sheet and in the shop —
-the shop still sells them (another hero may carry them), the marker
+cannot use are marked `(u)` there, on the sheet and in the shop (the
+item card spells the full `(unfit)` out) — the shop still sells them
+(another hero may carry them), the marker
 just warns before the gold is gone.  `p` on that page **hands an item
 to another party member**: a digit picks what to give, then a digit
 picks who receives it (each row showing the room left in their pack).

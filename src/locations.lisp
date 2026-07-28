@@ -287,8 +287,12 @@ the inspect page — the same stock, a digit showing that item's card
                                          (item-price name)))))
              ;; the page-specific keys stay (first letter picks, and
              ;; the option row clicks as its key); the digit pick and
-             ;; Esc are common knowledge — the help screen's business
-             (when (eq (shop-view-mode view) :buy)
+             ;; Esc are common knowledge — the help screen's business.
+             ;; They ride the first window only: a scrolled window
+             ;; gives its rows to the stock (the keys keep working,
+             ;; and u brings their rows back)
+             (when (and (eq (shop-view-mode view) :buy)
+                        (zerop (shop-view-top view)))
                (list ""
                      (menu-option #\s "Sell")
                      (menu-option #\i "Inspect")
@@ -307,9 +311,10 @@ the inspect page — the same stock, a digit showing that item's card
                                          (item-hand-marker name)
                                          (item-fit-marker hero name)
                                          (item-sell-price name)))))
-             (list ""
-                   (menu-option #\b "Buy")
-                   (menu-option #\p "Pool gold")))))))))
+             (when (zerop (shop-view-top view))
+               (list ""
+                     (menu-option #\b "Buy")
+                     (menu-option #\p "Pool gold"))))))))))
 
 (defun shop-act (game view char)
   "Apply key CHAR to the shop interaction.  Digits pick within the

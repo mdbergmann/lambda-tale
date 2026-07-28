@@ -146,10 +146,12 @@ effect's band icon."
         (and (member (hero-class hero) classes) t))))
 
 (defun item-fit-marker (hero name)
-  "\" (unfit)\" when HERO's class cannot use item NAME, else \"\" —
-the sheet, pack and shop pages append it to the item's row so a
-class mismatch shows before the player tries (or buys)."
-  (if (item-usable-p hero name) "" " (unfit)"))
+  "\" (u)\" when HERO's class cannot use item NAME, else \"\" — the
+sheet, pack and shop pages append it to the item's row so a class
+mismatch shows before the player tries (or buys).  Kept to three
+characters so a marked row does not wrap the narrow menu pages; the
+item card spells the full (unfit) out."
+  (if (item-usable-p hero name) "" " (u)"))
 
 (defun item-hand-marker (name)
   "\" (2H)\" when item NAME fills both hands, else \"\" — the pack and
@@ -332,7 +334,7 @@ of every equipped item — and, when GAME is given, minus the party-wide
 ;;; ---------------------------------------------------------------------
 ;;; The pack page (opened from the character sheet with 'i' — the
 ;;; SHOP-VIEW pattern): the hero's pack as a numbered list, a digit
-;;; toggles that item on/off, unfit items carry the (unfit) marker.
+;;; toggles that item on/off, unfit items carry the (u) marker.
 ;;; 'p' hands an item to another party member and 'i' inspects one
 ;;; (the item card), and like SHOP-VIEW's :BUY/:SELL both flows are
 ;;; modes of the same view rather than pages of their own — the
@@ -370,12 +372,14 @@ beneath, when it carries one."
        (list (format nil "AC bonus: ~D" (item-type-ac type))))
      (list (format nil "Price: ~D gold" (item-type-price type)))
      (when (item-type-classes type)
+       ;; the card has the room the list rows lack: the full word
+       ;; here, the terse (u) of ITEM-FIT-MARKER on the rows
        (list (format nil "Classes: ~{~A~^, ~}~A"
                      (mapcar (lambda (c)
                                (string-capitalize
                                 (substitute #\Space #\- (string c))))
                              (item-type-classes type))
-                     (item-fit-marker hero name))))
+                     (if (item-usable-p hero name) "" " (unfit)"))))
      (when (item-type-use type)
        (list (if (item-type-consumed type)
                  "Usable, consumed on use"
@@ -387,7 +391,7 @@ beneath, when it carries one."
   "The pack page as a list of menu lines — the front-ends draw these
 verbatim (the SHOP-LINES pattern).  Five pages share the model, as in
 SHOP-LINES: the pack itself (equipped items starred, items the hero's
-class cannot use marked (unfit), the AC/attack header showing the
+class cannot use marked (u), the AC/attack header showing the
 effect of every toggle), the give page (the same list, a digit
 choosing what to hand over), the recipient page (the party, each
 with the room left in their pack), the throw-away page (the same
@@ -445,10 +449,15 @@ the item picked on the inspect page)."
                            (menu-option #\y "Yes, be rid of it")
                            (menu-option #\n "No, keep it"))
                      (list "" "Throw away what?")))
-                (t (list ""
-                         (menu-option #\p "Pass an item")
-                         (menu-option #\i "Inspect an item")
-                         (menu-option #\t "Throw away an item"))))))))))
+                ;; the letter keys ride the first window only, the
+                ;; shop-footer rule: a scrolled window gives its rows
+                ;; to the pack (the keys keep working, u brings the
+                ;; rows back)
+                (t (when (zerop (equip-view-top view))
+                     (list ""
+                           (menu-option #\p "Pass an item")
+                           (menu-option #\i "Inspect an item")
+                           (menu-option #\t "Throw away an item")))))))))))
 
 (defun equip-act (game view char)
   "Apply key CHAR to the pack page.  On the pack itself a digit toggles

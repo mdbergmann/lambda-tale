@@ -1947,7 +1947,7 @@ Keys: W forward, S back-step, A/D turn, M map mode (M/Esc leaves it,
 F toggles the debug full view there), H or ? the help page (the key
 reference — H/Esc leaves), 1-7 open a party member's character sheet
 (1-7 switch heroes there, E opens the hero's pack page — digits
-toggle an item on/off, class-unfit items are marked (unfit), P hands
+toggle an item on/off, class-unfit items are marked (u), P hands
 an item to another party member (1-9 the item, then 1-7 who receives
 it) — and Esc leaves), C cast a spell (pick
 caster/spell/target by number, Esc backs out), Q/Esc quit; in combat
@@ -2393,11 +2393,11 @@ map/help/sheet pages close on a click outside a target — see
                                                 (not (game-combat game))
                                                 (not over))))))
                         (%step (relative)
-                          ;; Log the notable step results; plain steps
-                          ;; stay quiet so the log tracks events, not
-                          ;; every footfall.
+                          ;; Only a refused step speaks: the view (and
+                          ;; the door cue) already show a door passage,
+                          ;; and plain steps stay quiet so the log
+                          ;; tracks events, not every footfall.
                           (case (move-party game relative)
-                            (:door (say game "You pass through a door."))
                             (:blocked (say game "You bump into a wall."))))
                         (pace ()
                           ;; one combat-transcript beat: show the round's

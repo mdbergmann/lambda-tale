@@ -20,7 +20,7 @@
 
 (defconstant +engine-version-major+ 0)
 (defconstant +engine-version-minor+ 8)
-(defconstant +engine-version-patch+ 2)
+(defconstant +engine-version-patch+ 3)
 
 (defparameter *engine-name* "Lambda's Tale"
   "Display name of the engine itself.")

@@ -38,10 +38,12 @@
   (format t "~C[2J~C[H" (code-char 27) (code-char 27)))
 
 (defun %step-message (result)
-  "Log line for a step result, or NIL for a plain quiet step."
+  "Log line for a step result, or NIL for a quiet one — plain steps
+and door passages say nothing (the view and the door cue carry
+those); only a refused step speaks."
   (ecase result
     (:moved nil)
-    (:door "You pass through a door.")
+    (:door nil)
     (:blocked "You bump into a wall.")))
 
 (defun %party-pane (game)

@@ -4462,14 +4462,14 @@ height" d)
                        (funcall msgs)))
   (check "item-usable-p for the wrong class" nil (item-usable-p h 't-mail))
   (check-true "item-usable-p unrestricted" (item-usable-p h 't-torch))
-  ;; the (unfit) marker: the pack, gear and shop rows show a class
-  ;; mismatch before the player tries
-  (check "item-fit-marker for the wrong class" " (unfit)"
+  ;; the (u) marker: the pack, gear and shop rows show a class
+  ;; mismatch before the player tries — terse so the row never wraps
+  (check "item-fit-marker for the wrong class" " (u)"
          (item-fit-marker h 't-mail))
   (check "item-fit-marker for a fitting item" ""
          (item-fit-marker h 't-torch))
   (check-true "the pack page marks the unfit item"
-              (find-if (lambda (s) (search "T Mail (unfit)" s))
+              (find-if (lambda (s) (search "T Mail (u)" s))
                        (menu-texts (equip-lines g (make-equip-view h))))))
 
 ;; The class registry lists the campaign's classes.
@@ -4525,7 +4525,7 @@ height" d)
                      (search "T Sword" (menu-line-text line)))
                    (equip-lines g view))))
   (check-true "pack page marks the unfit item"
-              (find-if (lambda (s) (search "2) T Mail (unfit)" s))
+              (find-if (lambda (s) (search "2) T Mail (u)" s))
                        (menu-texts (equip-lines g view))))
   ;; the pack page names only its own keys, bracket-free, each row a
   ;; clickable option (digit picks and Esc live on the help screen)
@@ -4627,7 +4627,10 @@ height" d)
   (check "the view holds the clamped offset" 1 (equip-view-top view))
   (check-true "scrolled pack: row 1 is the second item"
               (find-if (lambda (s) (search "1) Teq 2" s))
-                       (menu-texts (equip-lines g view)))))
+                       (menu-texts (equip-lines g view))))
+  (check "the scrolled pack window sheds the letter keys" nil
+         (member (menu-option #\i "Inspect an item")
+                 (equip-lines g view) :test #'equal)))
 
 ;; PASS-ITEM: handing an item to another party member.  The item is
 ;; unequipped on the way and is never destroyed — a full receiving pack
@@ -5820,7 +5823,7 @@ height" d)
   (let ((texts (menu-texts (shop-lines g view))))
     (check-true "buy page marks unfit stock"
                 (find-if (lambda (s)
-                           (search "2) T Mail (unfit)  20 gp" s))
+                           (search "2) T Mail (u)  20 gp" s))
                          texts))
     (check-true "buy page leaves fitting stock unmarked"
                 (find-if (lambda (s) (search "1) T Sword  10 gp" s))
@@ -5831,7 +5834,7 @@ height" d)
   (shop-act g view #\s)
   (check-true "sell page marks the unfit item"
               (find-if (lambda (s)
-                         (search "1) T Mail (unfit)  10 gp" s))
+                         (search "1) T Mail (u)  10 gp" s))
                        (menu-texts (shop-lines g view))))
   (leave-location g))
 
@@ -5912,6 +5915,9 @@ height" d)
            (find-if (lambda (s) (search "Tscr 8" s)) texts))
     (check "deep stock: the geometry reaches the scrollbar"
            '(0 7 9) *menu-scroll*))
+  (check-true "the head window carries the footer keys"
+              (member (menu-option #\p "Pool gold")
+                      (shop-lines g view) :test #'equal))
   (check "d scrolls the stock" nil (shop-act g view #\d))
   (check "the view holds the clamped offset" 2 (shop-view-top view))
   (let ((texts (menu-texts (shop-lines g view))))
@@ -5919,6 +5925,11 @@ height" d)
                 (find-if (lambda (s) (search "1) Tscr 3" s)) texts))
     (check "scrolled stock: the geometry follows"
            '(2 9 9) *menu-scroll*))
+  ;; the footer keys ride the first window only — a scrolled window
+  ;; gives its rows to the stock, and the keys themselves keep working
+  (check "the scrolled window sheds the footer keys" nil
+         (member (menu-option #\p "Pool gold")
+                 (shop-lines g view) :test #'equal))
   (shop-act g view #\2)                 ; buys the fourth item, tscr-4
   (check "a digit buys within the window" '(tscr-4) (hero-items h))
   (check "the windowed buy paid the right price" 96 (hero-gold h))
@@ -5926,6 +5937,9 @@ height" d)
          (progn (shop-act g view #\8) (rest (hero-items h))))
   (check "u scrolls back to the head" nil (shop-act g view #\u))
   (check "the offset is back at the head" 0 (shop-view-top view))
+  (check-true "the head window brings the footer keys back"
+              (member (menu-option #\p "Pool gold")
+                      (shop-lines g view) :test #'equal))
   ;; the sell page scrolls the pack the same way
   (dotimes (i 7) (give-item g h 'tscr-1))
   (shop-act g view #\s)
@@ -5934,6 +5948,9 @@ height" d)
          '(0 7 8) (progn (shop-lines g view) *menu-scroll*))
   (shop-act g view #\d)
   (check "the pack window clamps to its tail" 1 (shop-view-top view))
+  (check "the scrolled sell window sheds its footer too" nil
+         (member (menu-option #\b "Buy")
+                 (shop-lines g view) :test #'equal))
   (shop-act g view #\1)                 ; sells pack item 2 (tscr-1)
   (check "a digit sells within the window" 7 (length (hero-items h)))
   (check "escape resets the scroll offset" 0
