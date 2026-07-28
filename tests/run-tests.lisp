@@ -3772,8 +3772,11 @@ height" d)
   (check-true "the ally answers -- for now in words"
               (find-if (lambda (s) (search "test wolf answers the call" s))
                        (funcall msgs)))
-  (check-true "the teleport casts" (cast-spell g mage 'test-blink))
-  (check-true "space stays shut -- for now"
+  ;; :teleport t is the legacy flavor form — a spell whose NAMED
+  ;; destination (safety-spell's guild) awaits its subsystem; only an
+  ;; integer :teleport folds space for real (see the teleport section).
+  (check-true "the flavor teleport casts" (cast-spell g mage 'test-blink))
+  (check-true ":teleport t stays flavor (the named-destination form)"
               (find-if (lambda (s) (search "the way stays shut" s))
                        (funcall msgs)))
   (start-combat g '(("test rat" 1)))
@@ -4005,6 +4008,145 @@ height" d)
                        (funcall msgs)))
   (check "no phantom kills" nil
          (find-if (lambda (s) (search "destroyed" s)) (funcall msgs))))
+
+;;; ---------------------------------------------------------------------
+;;; Teleport: an integer :TELEPORT folds space for real
+
+(check-error ":teleport wants t or a positive range"
+  (define-spell 'test-bogus :teleport 0))
+(check-error ":teleport rejects a dice string"
+  (define-spell 'test-bogus :teleport "1d4"))
+(define-spell 'test-fold :cost 1 :classes '(:t-mage) :teleport 3)
+(check "an offset teleport asks for a heading" :offset
+       (spell-target-kind 'test-fold))
+(check "the flavor form still aims at nobody" :none
+       (spell-target-kind 'test-blink))
+
+;; The full key-drive: pick the caster, scroll to the spell, answer the
+;; heading and the count -- the platform-free CAST-VIEW both front-ends
+;; drive verbatim.
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (msgs (watch-messages g))
+       (view (make-cast-view)))
+  (setf (cell-special m 2 0) '((message "a cold draught")))
+  (check "the caster digit picks the mage" nil (cast-act g view #\1))
+  (check "the mage holds the wand" mage (cast-view-hero view))
+  ;; scroll the window to test-fold and pick it (MENU-WINDOW clamps the
+  ;; offset near the end of the list, so aim the digit at the row)
+  (let* ((spells (spells-for-hero mage))
+         (pos (position 'test-fold spells))
+         (start (max 0 (min pos (- (length spells) +menu-page-size+))))
+         (digit (digit-char (1+ (- pos start)))))
+    (setf (cast-view-top view) start)
+    (check "the spell pick asks on instead of casting" nil
+           (cast-act g view digit)))
+  (check "the fold is chosen" 'test-fold (cast-view-spell view))
+  (check "the heading page waits" nil (cast-view-dir view))
+  (cast-act g view #\e)
+  (check "e picks east" :east (cast-view-dir view))
+  (cast-act g view #\2)
+  (check "the count echoes" "2" (cast-view-distance view))
+  (check "Return casts the fold" :done (cast-act g view #\Return))
+  (check "the fold moved the party two squares" '(2 0)
+         (list (game-x g) (game-y g)))
+  (check "the facing is kept" +north+ (game-facing g))
+  (check "the fold pays its sp" (1- (hero-max-sp mage)) (hero-sp mage))
+  (check-true "the world lurches"
+              (find-if (lambda (s) (search "world lurches" s))
+                       (funcall msgs)))
+  (check-true "the destination special fires"
+              (find-if (lambda (s) (search "cold draught" s))
+                       (funcall msgs))))
+
+;; The count entry keeps trade-view manners: Backspace edits, Esc steps
+;; back a page, Return on nothing goes nowhere.
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (view (make-cast-view :hero mage)))
+  (setf (cast-view-spell view) 'test-fold)
+  (cast-act g view #\e)
+  (cast-act g view #\1)
+  (cast-act g view #\2)
+  (check "two digits cap the count" "12"
+         (progn (cast-act g view #\3) (cast-view-distance view)))
+  (cast-act g view #\Backspace)
+  (check "Backspace edits the count" "1" (cast-view-distance view))
+  (cast-act g view #\Backspace)
+  (check "Return on nothing goes nowhere" nil
+         (cast-act g view #\Return))
+  (check "no sp was paid" (hero-max-sp mage) (hero-sp mage))
+  (cast-act g view #\Escape)
+  (check "Esc steps back to the heading" nil (cast-view-dir view))
+  (cast-act g view #\Escape)
+  (check "Esc again returns to the spell list" nil
+         (cast-view-spell view)))
+
+;; Beyond the spell's range the cast refuses and keeps the sp.
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (msgs (watch-messages g))
+       (view (make-cast-view :hero mage)))
+  (setf (cast-view-spell view) 'test-fold)
+  (cast-act g view #\e)
+  (cast-act g view #\9)
+  (check "over the range the fold refuses" nil
+         (cast-act g view #\Return))
+  (check-true "the refusal says why"
+              (find-if (lambda (s) (search "cannot fold space that far" s))
+                       (funcall msgs)))
+  (check "the sp is kept" (hero-max-sp mage) (hero-sp mage))
+  (check "the entry resets for another try" ""
+         (cast-view-distance view)))
+
+;; Off the plain map's edge the way stays shut -- the spell is spent.
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (msgs (watch-messages g)))
+  (check-true "the doomed fold casts"
+              (cast-spell g mage 'test-fold '(:north 1)))
+  (check "the party stands where it stood" '(0 0)
+         (list (game-x g) (game-y g)))
+  (check "the failed fold is paid for" (1- (hero-max-sp mage))
+         (hero-sp mage))
+  (check-true "the edge refuses"
+              (find-if (lambda (s) (search "the way stays shut" s))
+                       (funcall msgs))))
+
+;; A wrapping zone folds around the seam.
+(let* ((m (parse-map *wrap-art* :name "test" :wrap t))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage))))
+  (check-true "the seam fold casts"
+              (cast-spell g mage 'test-fold '(:west 1)))
+  (check "west of (0,0) wraps to the far column" '(1 0)
+         (list (game-x g) (game-y g))))
+
+;; A real fold refuses to cast in combat; the flavor form may.
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage))))
+  (check-true "the fold is castable in the open"
+              (spell-castable-p g mage 'test-fold))
+  (start-combat g '(("test rat" 1)))
+  (check "mid-fight there is no walking away" nil
+         (spell-castable-p g mage 'test-fold))
+  (check-true "the flavor form is not barred"
+              (spell-castable-p g mage 'test-blink)))
+
+;; An item-style cast (no prompt, no target) speaks the flavor line.
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (msgs (watch-messages g)))
+  (check-true "the promptless fold casts" (cast-spell g mage 'test-fold))
+  (check-true "and speaks the flavor line"
+              (find-if (lambda (s) (search "the way stays shut" s))
+                       (funcall msgs))))
 
 ;; :BUFF-DAMAGE strengthens every blow.
 (define-spell 'test-arms :cost 1 :classes '(:t-mage)

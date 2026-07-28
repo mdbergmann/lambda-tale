@@ -1013,11 +1013,17 @@ installs five enchantments in one casting:
   group), `:damage-all`, `:slay N` (percent chance to fell the front
   monster) — all combat-only — plus `:heal` and `:heal-party` (dice or
   `:full`), `:resurrect` (the fallen rise at 1 hp), `:scry` (speaks
-  the party's position) and `:disarm-traps N` (destroys the traps up
-  to N squares ahead, for good).  `:cure`, `:summon`, `:teleport` and
-  the foe-handling keys carry canonical data and speak their line
-  today; their subsystems (ailments, allies, teleports) are still to
-  come.
+  the party's position), `:disarm-traps N` (destroys the traps up
+  to N squares ahead, for good) and `:teleport N` — a real fold in
+  space: the cast menu asks for a heading (N/E/S/W) and a count up to
+  N, wrapping zones fold around the seam, a plain map's edge refuses
+  (the spell is spent), and the destination cell's special fires on
+  arrival.  An integer teleport refuses to cast in combat; `:teleport
+  t` stays a flavor line for spells whose named destination awaits
+  its subsystem, and an item's `(:cast ...)` trigger (no prompt)
+  speaks the same line.  `:cure`, `:summon` and the foe-handling keys
+  carry canonical data and speak their line today; their subsystems
+  (ailments, allies) are still to come.
 - **Timed keys** merge into one effect record with a `:duration` in
   game minutes (or `:indefinite`): `:buff-ac`, `:light`,
   `:night-vision` and `:reveal` (all three defeat darkness),

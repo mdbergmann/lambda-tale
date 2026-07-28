@@ -142,14 +142,17 @@ rule items follow too)."
                  *spell-names*))
 
 (defun spell-castable-p (game hero name)
-  "Can HERO cast NAME right now?  Known, affordable, and — for a
-spell that needs a fight (the damage family and the foe-handling
-keys) — in combat."
+  "Can HERO cast NAME right now?  Known, affordable, for a spell that
+needs a fight (the damage family and the foe-handling keys) in
+combat — and for a real (integer) teleport NOT in combat: mid-fight
+there is no walking away through folded space."
   (let ((type (find-spell-type name)))
     (and (spell-known-p hero name)
          (>= (hero-sp hero) (spell-type-cost type))
          (or (not (effect-spec-combat-only-p (spell-type-effect type)))
-             (and (game-combat game) t)))))
+             (and (game-combat game) t))
+         (not (and (game-combat game)
+                   (integerp (getf (spell-type-effect type) :teleport)))))))
 
 (defun %revive-hero (game hero)
   "Raise the fallen HERO to one hit point (the resurrection effect)."
@@ -168,9 +171,10 @@ roll, or everything missing for :FULL."
   "Resolve EFFECT's instant keys for the caster HERO (TARGET is the
 chosen hero for the single-target kinds, defaulting to the caster).
 The combat-only kinds may assume a fight with living monsters — the
-cast refusals guarantee it.  The keys whose subsystem is still to
-come (:cure, :summon, :teleport, ...) speak their flavor line so the
-canonical spell already casts."
+cast refusals guarantee it.  An integer :teleport folds space for
+real when TARGET carries the prompt's (DIR DISTANCE); the keys whose
+subsystem is still to come (:cure, :summon, ...) speak their flavor
+line so the canonical spell already casts."
   (let ((combat (game-combat game))
         (target (or target hero)))
     ;; the mending family first — a healer's round helps before it harms
@@ -230,8 +234,31 @@ canonical spell already casts."
     (when (getf effect :summon)
       (say game "A ~A answers the call -- and fades away again."
            (getf effect :summon)))
-    (when (getf effect :teleport)
-      (say game "Space folds and shimmers, but the way stays shut."))))
+    (let ((fold (getf effect :teleport)))
+      (when fold
+        (if (and (integerp fold) (consp target))
+            (%teleport-offset game (first target) (second target))
+            ;; :teleport t (a named destination awaits its subsystem),
+            ;; or an item's (:cast SPELL) trigger, which has no prompt.
+            (say game "Space folds and shimmers, but the way stays shut."))))))
+
+(defun %teleport-offset (game dir distance)
+  "Fold space DISTANCE squares toward DIR: step the map's own NEIGHBOR
+so wrapping zones fold around the seam, refuse at a plain map's edge —
+the spell is spent either way, Bard's Tale manners — and arrive with
+TELEPORT-PARTY, which chains the destination cell's special (a trap
+there springs, saving throws and all).  The facing is kept."
+  (let ((map (game-map game))
+        (x (game-x game))
+        (y (game-y game)))
+    (dotimes (i distance)
+      (multiple-value-bind (nx ny) (neighbor map x y dir)
+        (unless nx
+          (say game "Space folds and shimmers, but the way stays shut.")
+          (return-from %teleport-offset))
+        (setf x nx y ny)))
+    (say game "Space folds -- the world lurches!")
+    (teleport-party game x y)))
 
 (defun %disarm-traps-ahead (game reach)
   "The :DISARM-TRAPS effect: destroy — for good, the flag rides in the
@@ -317,6 +344,8 @@ instant keys and installs the timed keys as one effect record, emits
   in-combat           ; T: committing fights one COMBAT-ROUND;
                       ; :ORDERS: committing returns the pick as a
                       ; round action (the combat-orders flow)
+  dir                 ; an :OFFSET spell's chosen heading, or NIL
+  distance            ; the count being typed (a digit string), or NIL
   (top 0))            ; scroll offset into the spell list
 
 (defun make-cast-view (&key in-combat hero)
@@ -382,6 +411,20 @@ key (see MENU-NUMBERED)."
                        (>= (hero-sp hero)
                            (spell-type-cost
                             (find-spell-type name)))))))))
+       ((eq (spell-target-kind spell) :offset)
+        (if (null (cast-view-dir view))  ; the heading first, then the count
+            (list (format nil "~A -- which way?" (spell-title spell))
+                  ""
+                  (menu-option #\n "North")
+                  (menu-option #\e "East")
+                  (menu-option #\s "South")
+                  (menu-option #\w "West"))
+            (let ((range (getf (spell-type-effect (find-spell-type spell))
+                               :teleport)))
+              (list (format nil "How many squares (1-~D)?  ~A_"
+                            range (cast-view-distance view))
+                    ""
+                    "Type the count; Return casts"))))
        (t                              ; a healing spell picks its target
         (append
          (list (format nil "~A on whom?" (spell-title spell)) "")
@@ -419,10 +462,13 @@ else NIL."
                                             (cast-view-top view) digit)))
                 (when name
                   (if (spell-castable-p game hero name)
-                      (if (eq (spell-target-kind name) :hero)
-                          (progn (setf (cast-view-spell view) name) nil)
-                          (progn (setf (cast-view-spell view) name)
-                                 (%cast-commit game view nil)))
+                      (case (spell-target-kind name)
+                        ((:hero :offset)  ; both ask one more question
+                         (setf (cast-view-spell view) name)
+                         nil)
+                        (t
+                         (setf (cast-view-spell view) name)
+                         (%cast-commit game view nil)))
                       (progn
                         (say game "~A cannot cast ~A now."
                              (hero-name hero) (spell-title name))
@@ -436,6 +482,50 @@ else NIL."
                                       (length (spells-for-hero hero)))))
                 (when top (setf (cast-view-top view) top)))
               nil)))
+      ;; the offset prompt: heading, then count (the TRADE-VIEW manners)
+      ((eq (spell-target-kind spell) :offset)
+       (if (null (cast-view-dir view))
+           (case char
+             (#\n (setf (cast-view-dir view) :north
+                        (cast-view-distance view) "") nil)
+             (#\e (setf (cast-view-dir view) :east
+                        (cast-view-distance view) "") nil)
+             (#\s (setf (cast-view-dir view) :south
+                        (cast-view-distance view) "") nil)
+             (#\w (setf (cast-view-dir view) :west
+                        (cast-view-distance view) "") nil)
+             (#\Escape (setf (cast-view-spell view) nil) nil)
+             (t nil))
+           (let ((entry (cast-view-distance view)))
+             (cond
+               ((eql char #\Return)
+                (let ((n (if (string= entry "") 0 (parse-integer entry)))
+                      (range (getf (spell-type-effect
+                                    (find-spell-type spell))
+                                   :teleport)))
+                  (cond ((zerop n) nil)  ; nothing asked, nothing done
+                        ((> n range)
+                         (say game "~A cannot fold space that far."
+                              (hero-name hero))
+                         (setf (cast-view-distance view) "")
+                         nil)
+                        (t (%cast-commit
+                            game view
+                            (list (cast-view-dir view) n))))))
+               ((eql char #\Escape)
+                (setf (cast-view-dir view) nil
+                      (cast-view-distance view) nil)
+                nil)
+               ((eql char #\Backspace)
+                (when (plusp (length entry))
+                  (setf (cast-view-distance view)
+                        (subseq entry 0 (1- (length entry)))))
+                nil)
+               ((and digit (< (length entry) 2))
+                (setf (cast-view-distance view)
+                      (format nil "~A~D" entry digit))
+                nil)
+               (t nil)))))
       ;; picking the heal target
       (t
        (cond ((and digit (<= 1 digit (length (game-party game))))

@@ -255,9 +255,9 @@ carries its own icons — or NIL when the effect has none."
 
 ;;; The instant-effect vocabulary — resolved at cast/use time, no
 ;;; effect record.  (SPEC-KEY VALUE-KIND COMBAT-ONLY-P).  The keys
-;;; marked flavor-only await their subsystem (summoned allies, party
-;;; teleports, foe morale); they cast, pay and speak, so campaign data
-;;; can already carry the canonical spell.
+;;; marked flavor-only await their subsystem (summoned allies, foe
+;;; morale); they cast, pay and speak, so campaign data can already
+;;; carry the canonical spell.
 
 (defparameter *instant-effect-keys*
   '((:damage           dice    t)   ; strikes the first living monster
@@ -274,7 +274,9 @@ carries its own icons — or NIL when the effect has none."
     (:cure             list    nil) ; flavor: cures ailments (to come)
     (:scry             flag    nil) ; speaks the party's position
     (:disarm-traps     integer nil) ; traps ahead made safe (reach in squares)
-    (:teleport         flag    nil) ; flavor: party teleport (to come)
+    (:teleport         teleport nil) ; N: offset teleport, max N squares;
+                                    ;   T: flavor only (a named destination
+                                    ;   awaits its subsystem)
     (:summon           string  nil)) ; flavor: a summoned ally (to come)
   "The instant-effect vocabulary: (SPEC-KEY VALUE-KIND COMBAT-ONLY-P).")
 
@@ -290,7 +292,9 @@ carries its own icons — or NIL when the effect has none."
                  (and (or (integerp value) (stringp value))
                       (ignore-errors (parse-dice value) t))))
     (list    (and (consp value) (every #'keywordp value)))
-    (string  (stringp value))))
+    (string  (stringp value))
+    (teleport (or (eq value t)
+                  (and (integerp value) (plusp value))))))
 
 (defun check-effect-spec (context name spec &key timed-only)
   "Validate SPEC, a plist over the effect vocabulary (*TIMED-EFFECT-
@@ -351,14 +355,18 @@ damage family, :SLAY and the foe-handling keys)."
 
 (defun effect-spec-target-kind (spec)
   "What SPEC needs aimed at: :HERO when it heals, cures or raises one
-chosen hero; else :NONE (damage strikes the melee target, buffs and
-light cover the party, :heal-party needs no choosing).  Spells and
-usable items share this rule."
-  (if (and (not (getf spec :heal-party))
-           (or (getf spec :heal) (getf spec :resurrect)
-               (getf spec :cure)))
-      :hero
-      :none))
+chosen hero; :OFFSET when it teleports a real distance (an integer
+:TELEPORT — the cast menu asks for a heading and a count; an item's
+\(:cast SPELL) trigger has no prompt and speaks the flavor line);
+else :NONE (damage strikes the melee target, buffs and light cover
+the party, :heal-party needs no choosing).  Spells and usable items
+share this rule."
+  (cond ((and (not (getf spec :heal-party))
+              (or (getf spec :heal) (getf spec :resurrect)
+                  (getf spec :cure)))
+         :hero)
+        ((integerp (getf spec :teleport)) :offset)
+        (t :none)))
 
 (defun %effects-sum (game key)
   (let ((n 0))

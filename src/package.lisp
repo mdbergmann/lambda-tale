@@ -135,6 +135,7 @@
    #:spell-code #:spell-range #:spell-duration-text #:spell-target-kind
    #:spell-known-p #:spell-castable-p #:spells-for-hero #:cast-spell
    #:make-cast-view #:cast-view-hero #:cast-view-spell #:cast-view-top
+   #:cast-view-dir #:cast-view-distance
    #:cast-lines #:cast-act #:*sp-regen-minutes*
    ;; bard songs
    #:define-song #:find-song-type #:song-title #:song-known-p
