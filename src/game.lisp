@@ -15,6 +15,10 @@
   combat              ; active COMBAT or NIL
   effects             ; active EFFECT records (shield, light, ...), see below
   location            ; active LOCATION (shop, ...) or NIL, see locations.lisp
+  ;; Idle game-minutes accrued toward the next wandering-monster roll
+  ;; under the living-world clock (see MAYBE-IDLE-ENCOUNTER); not saved
+  ;; — a loaded game starts a fresh vigil.
+  (idle-encounter-clock 0)
   ;; The world: every zone the party has visited this session, keyed by
   ;; map file path -> (MAP . KNOWLEDGE).  TRAVEL-PARTY switches zones,
   ;; keeping each zone's map and automap knowledge alive.

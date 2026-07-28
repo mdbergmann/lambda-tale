@@ -21,6 +21,7 @@
    #:dungeon-map-dark #:map-title
    #:dungeon-map-encounters #:dungeon-map-encounter-chance
    #:dungeon-map-night-encounters #:dungeon-map-night-encounter-chance
+   #:dungeon-map-idle-encounter-minutes
    #:cell-wall #:cell-feature #:cell-special #:wall-passable-p #:neighbor
    ;; knowledge
    #:make-map-knowledge #:know-cell #:know-wall
@@ -97,7 +98,8 @@
    #:hero-class-title #:hero-class-abbrev #:hero-summary-lines
    #:hero-image #:hero-image-path #:hero-sheet-lines #:hero-sheet-scroll
    #:+party-limit+ #:party-full-p #:join-party #:move-hero
-   #:damage-hero #:heal-hero #:stat-bonus #:award-xp #:xp-for-level
+   #:damage-hero #:heal-hero #:stat-bonus #:stat-gift
+   #:award-xp #:xp-for-level
    #:pool-gold #:trade-gold
    ;; trading gold ('t' on the character sheet)
    #:make-trade-view #:trade-view-hero #:trade-view-to
@@ -154,6 +156,8 @@
    #:monster-kind #:monster-hp #:monster-alive-p
    #:start-combat #:combat-round #:attempt-flee #:hero-can-attack-p
    #:*encounter-rate* #:maybe-wandering-encounter
+   #:*idle-encounter-minutes* #:maybe-idle-encounter
+   #:game-idle-encounter-clock
    #:combat-monsters #:alive-monsters #:combat-groups #:combat-banner
    #:combat-enemy-image #:combat-image-path
    #:combat-round-no

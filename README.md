@@ -823,7 +823,7 @@ See the map-cache tests in `tests/run-tests.lisp` for the contract.
 
 The game has a clock (shown in the map view's footer): every step, turn and
 combat round costs a minute, a fresh game starts at day 1, 08:00, and
-daylight runs 06:00–20:00 — `:sunrise`/`:sunset` events fire at the
+daylight runs 06:00–22:00 — `:sunrise`/`:sunset` events fire at the
 boundaries and the `at-night`/`at-day` special ops make map encounters
 time-dependent.
 
@@ -937,14 +937,37 @@ independent of tick jitter and no sub-minute time is lost) is host
 tested in the "living-world idle clock" section of
 `tests/run-tests.lisp`.
 
+**The living world hunts, too.**  Idle time feeds the wandering-monster
+vigil: every full **`*idle-encounter-minutes*`** (default 30) of idle
+game time draws one roll of the zone's wandering check — the same
+chance and table a step pays per minute, spread far more thinly, since
+a loitering party draws less attention than a marching one.  The
+remainder carries across heartbeats (`maybe-idle-encounter`), the
+usual guards apply (no fight starts inside a fight or a location, and
+`*encounter-rate*` scales or disables globally), and `NIL` turns idle
+encounters off while steps keep rolling as ever.  A zone may keep its
+own vigil: `(zone ... :idle-encounter-minutes M)` overrides the global
+dial, and an explicit `NIL` there makes that zone's loitering safe —
+a friendly world can let its streets ambush walkers yet leave campers
+alone, or drop `:encounters` entirely and know no wandering monsters
+at all.
+
 ## Party and combat
 
 Heroes have Bard's Tale-ish stats (str/dex/iq/con/lck, descending AC,
-hit dice per class) and level up on xp thresholds.  A class may carry
+hit dice per class) and level up on xp thresholds.  A level-up rolls
+the class hit dice again (plus the CON bonus) and gives every ability
+a Bard's Tale chance to rise by one — a d18 per stat, the score rises
+when the draw lands at or above it, so gains thin out toward the cap
+of 18.  High CON pays into hit points and high DEX into the effective
+armor class (never the reverse: low scores cost nothing, the Bard's
+Tale kindness — see `stat-gift`).  A class may carry
 a fighting art: `define-hero-class ... :extra-attack-levels 4` grants
 an extra strike per four levels beyond the first (the warrior's way),
 `:crit-chance N` a percent chance — growing one point per level — that
-a landed blow fells the foe outright (the hunter's), and
+a landed blow fells the foe outright (the hunter's),
+`:ac-per-level N` one point of natural armor per N levels beyond the
+first, floored at -10 (the monk's), and
 `:description` a lore line for the campaign to show.  The roster holds
 up to 7 members (`join-party`): six regular heroes plus one guest slot
 for a summoned monster or story NPC.  Combat is

@@ -321,10 +321,12 @@ the bow may stand in when they name none."
           (item-type-damage (find-item-type bow))))))
 
 (defun hero-effective-ac (hero &optional game)
-  "HERO's armor class with equipment: descending AC minus the AC bonus
-of every equipped item — and, when GAME is given, minus the party-wide
-:AC effect bonuses (a spell shield lowers it further)."
-  (let ((ac (hero-ac hero)))
+  "HERO's armor class in play: descending AC minus the DEX gift (a
+nimble hero is harder to hit; a clumsy one pays nothing, Bard's Tale
+style — see STAT-GIFT) and the AC bonus of every equipped item — and,
+when GAME is given, minus the party-wide :AC effect bonuses (a spell
+shield lowers it further)."
+  (let ((ac (- (hero-ac hero) (stat-gift (hero-dex hero)))))
     (dolist (name (hero-equipped hero))
       (decf ac (item-type-ac (find-item-type name))))
     (when game

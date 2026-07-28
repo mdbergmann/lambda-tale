@@ -207,6 +207,39 @@ NIL when no monsters showed up."
             (start-combat game (list (list (first entry)
                                            (second entry))))))))))
 
+(defparameter *idle-encounter-minutes* 30
+  "Idle game-minutes per wandering-monster roll: while the party
+stands still under the living-world clock, every full half-hour of
+game time accrued draws one roll of the zone's wandering check — the
+same chance a step pays per minute, but far more thinly spread, since
+a loitering party draws less attention than a marching one.  NIL (or
+a non-positive value) turns idle encounters off; steps roll as ever.
+A zone may override this dial with (ZONE :IDLE-ENCOUNTER-MINUTES M) —
+its own period, or an explicit NIL for a friendly zone where
+loitering is safe (see MAYBE-IDLE-ENCOUNTER).")
+
+(defun maybe-idle-encounter (game minutes)
+  "Credit MINUTES of idle game time toward the wandering vigil and
+roll the zone's check once per full period accrued — the zone's own
+\(ZONE :IDLE-ENCOUNTER-MINUTES M), or *IDLE-ENCOUNTER-MINUTES* where
+the zone names none; a zone's explicit NIL keeps its loiterers safe —
+the remainder carrying forward on GAME.  Chance, table and guards are
+MAYBE-WANDERING-ENCOUNTER's; the first fight wins and later periods
+in the same credit drain without a draw.  The front-end's idle
+heartbeat calls this right after its ADVANCE-TIME — a step's own
+roll stays MOVE-PARTY's.  Returns the new COMBAT, or NIL while the
+streets stay quiet."
+  (let* ((zone (dungeon-map-idle-encounter-minutes (game-map game)))
+         (period (if (eq zone :default) *idle-encounter-minutes* zone)))
+    (when (and period (plusp period))
+      (incf (game-idle-encounter-clock game) minutes)
+      (let ((combat nil))
+        (loop while (>= (game-idle-encounter-clock game) period)
+              do (decf (game-idle-encounter-clock game) period)
+                 (setf combat (or combat
+                                  (maybe-wandering-encounter game))))
+        combat))))
+
 ;;; ---------------------------------------------------------------------
 ;;; Attack resolution
 

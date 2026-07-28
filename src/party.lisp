@@ -29,7 +29,8 @@
 
 (defun define-hero-class (name &key (hp-dice "1d8") (damage "1d4") (ac 10)
                                     caster singer image description
-                                    extra-attack-levels crit-chance)
+                                    extra-attack-levels crit-chance
+                                    ac-per-level)
   "Register hero class NAME (a keyword) with its hit dice, attack dice
 and starting armor class; CASTER T marks a spell-casting class (spell
 points from level and IQ, see %HERO-MAX-SP), SINGER T a song-playing
@@ -40,8 +41,10 @@ DESCRIPTION is the class's lore line (display data).
 EXTRA-ATTACK-LEVELS N grants one extra strike per N levels beyond the
 first (the warrior's art, see HERO-EXTRA-ATTACKS); CRIT-CHANCE N is
 the percent chance a landed blow fells the foe outright, growing one
-point per level (the hunter's art, see combat.lisp).
-Campaign data calls this."
+point per level (the hunter's art, see combat.lisp); AC-PER-LEVEL N
+improves the class's natural armor by one every N levels beyond the
+first (the monk's art, see LEVEL-UP — floored at -10, Bard's Tale's
+best).  Campaign data calls this."
   (when (and extra-attack-levels
              (not (and (integerp extra-attack-levels)
                        (plusp extra-attack-levels))))
@@ -51,12 +54,17 @@ Campaign data calls this."
              (not (and (integerp crit-chance) (< 0 crit-chance 101))))
     (error "define-hero-class ~S: :crit-chance ~S must be a percent ~
             (1-100)" name crit-chance))
+  (when (and ac-per-level
+             (not (and (integerp ac-per-level) (plusp ac-per-level))))
+    (error "define-hero-class ~S: :ac-per-level ~S must be a ~
+            positive integer" name ac-per-level))
   (setf (gethash name *hero-classes*)
         (list :hp-dice hp-dice :damage damage :ac ac
               :caster caster :singer singer :image image
               :description description
               :extra-attack-levels extra-attack-levels
-              :crit-chance crit-chance))
+              :crit-chance crit-chance
+              :ac-per-level ac-per-level))
   name)
 
 (defun hero-extra-attacks (hero)
@@ -86,11 +94,12 @@ none of its own)."
     (getf plist key)))
 
 (defun make-hero (name class &key race (gold 0))
-  "Create a level-1 hero of CLASS: hp from the class hit dice, abilities
-rolled 3d6 in the order str, dex, iq, con, lck, then adjusted by RACE's
-ability modifiers when a race is given (see DEFINE-RACE).  A RACE that
-does not permit CLASS is an error.  GOLD is the starting purse (campaign
-data decides; dice strings welcome)."
+  "Create a level-1 hero of CLASS: hp from the class hit dice plus the
+CON bonus (minimum 1 — a sickly hero still lives), abilities rolled 3d6
+in the order str, dex, iq, con, lck, then adjusted by RACE's ability
+modifiers when a race is given (see DEFINE-RACE).  A RACE that does not
+permit CLASS is an error.  GOLD is the starting purse (campaign data
+decides; dice strings welcome)."
   ;; A race that cannot take this class is a design error caught early,
   ;; before any dice roll, with a message that lists the legal classes.
   (when (and race (not (race-allows-class-p race class)))
@@ -113,6 +122,10 @@ data decides; dice strings welcome)."
             iq  (clamp-stat (+ iq  (race-iq r)))
             con (clamp-stat (+ con (race-con r)))
             lck (clamp-stat (+ lck (race-lck r)))))
+    ;; CON pays into hp from level 1 on — applied after the racial
+    ;; adjustment (a dwarf's hardiness counts) and after the rolls, so
+    ;; the scripted roll order above stays intact.
+    (incf hp (stat-gift con))
     (let ((sp (%hero-max-sp class 1 iq)))
       (%make-hero :name name :class class :race race
                   :max-hp hp :hp hp
@@ -126,6 +139,13 @@ data decides; dice strings welcome)."
 (defun stat-bonus (stat)
   "Bonus for an ability score: +1 per 2 points above 10, negative below."
   (floor (- stat 10) 2))
+
+(defun stat-gift (stat)
+  "Bard's Tale's kindness: STAT-BONUS when the score earns one, never
+a penalty — 0 below 11.  Hit points (CON) and armor class (DEX) use
+this, so a poor score costs nothing; the attack maths (STR to-hit and
+damage, DEX missiles) keep the full signed STAT-BONUS."
+  (max 0 (stat-bonus stat)))
 
 (defun %hero-max-sp (class level iq)
   "Spell points for a CLASS/LEVEL/IQ hero: 2 per level plus the IQ
@@ -503,20 +523,47 @@ Returns remaining hp."
   "Total experience required to reach LEVEL."
   (* 50 level (1- level)))
 
+(defun %maybe-raise-stats (game hero)
+  "Bard's Tale stat growth on a level-up: every ability, in str dex iq
+con lck order, draws a d18 and rises by 1 when the draw lands at or
+above the current score — the higher the score, the rarer the gain,
+and a score of 18 (the cap) can never rise.  Always five draws, so
+scripted tests spend a fixed number of rolls per level."
+  (macrolet ((try (place label)
+               `(when (>= (roll 18) ,place)
+                  (incf ,place)
+                  (say game "~A's ~A rises to ~D!"
+                       (hero-name hero) ,label ,place))))
+    (try (hero-str hero) "STR")
+    (try (hero-dex hero) "DEX")
+    (try (hero-iq hero)  "IQ")
+    (try (hero-con hero) "CON")
+    (try (hero-lck hero) "LCK")))
+
 (defun level-up (game hero)
   (incf (hero-level hero))
-  (let ((gain (max 1 (roll-dice (hero-class-property (hero-class hero)
-                                                     :hp-dice)))))
+  (say game "~A rises to level ~D!" (hero-name hero) (hero-level hero))
+  ;; hp rolls first — the new level's dice plus the CON bonus, before
+  ;; the stat gains, so a rising CON pays out from the next level on
+  ;; (and the scripted tests' first roll stays the hit die)
+  (let ((gain (max 1 (+ (roll-dice (hero-class-property (hero-class hero)
+                                                        :hp-dice))
+                        (stat-gift (hero-con hero))))))
     (incf (hero-max-hp hero) gain)
     (incf (hero-hp hero) gain))
+  (%maybe-raise-stats game hero)
+  ;; class AC training: one point of natural armor every :AC-PER-LEVEL
+  ;; levels beyond the first (the monk), floored at Bard's Tale's -10
+  (let ((per (hero-class-property (hero-class hero) :ac-per-level)))
+    (when (and per (zerop (mod (1- (hero-level hero)) per)))
+      (setf (hero-ac hero) (max -10 (1- (hero-ac hero))))))
   ;; casters grow spell points like hit points: the new maximum arrives
-  ;; as fresh, ready-to-burn sp
+  ;; as fresh, ready-to-burn sp (and reads a freshly risen IQ)
   (let ((new-sp (%hero-max-sp (hero-class hero) (hero-level hero)
                               (hero-iq hero))))
     (incf (hero-sp hero) (max 0 (- new-sp (hero-max-sp hero))))
     (setf (hero-max-sp hero) new-sp))
-  (emit game :level-up hero)
-  (say game "~A rises to level ~D!" (hero-name hero) (hero-level hero)))
+  (emit game :level-up hero))
 
 (defun award-xp (game hero amount)
   "Grant HERO experience, leveling up as thresholds are crossed."

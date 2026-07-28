@@ -1481,11 +1481,11 @@ height" d)
   (check "clock line formats day and zero-padded time"
          "Day 2, 13:05" (clock-line g)))
 
-;; Daylight boundaries: [06:00, 20:00).
+;; Daylight boundaries: [06:00, 22:00).
 (check-true "05:59 is night" (not (daylight-p 359)))
 (check-true "06:00 is day" (daylight-p 360))
-(check-true "19:59 is day" (daylight-p 1199))
-(check-true "20:00 is night" (not (daylight-p 1200)))
+(check-true "21:59 is day" (daylight-p 1319))
+(check-true "22:00 is night" (not (daylight-p 1320)))
 (check-true "daylight wraps across days"
             (daylight-p (+ +minutes-per-day+ 360)))
 
@@ -1499,8 +1499,9 @@ height" d)
 (check "14:00 is afternoon"    :afternoon (time-of-day 840))
 (check "17:59 is afternoon"    :afternoon (time-of-day 1079))
 (check "18:00 is evening"      :evening   (time-of-day 1080))
-(check "19:59 is evening"      :evening   (time-of-day 1199))
-(check "20:00 is night"        :night     (time-of-day 1200))
+(check "20:30 is evening"      :evening   (time-of-day 1230))
+(check "21:59 is evening"      :evening   (time-of-day 1319))
+(check "22:00 is night"        :night     (time-of-day 1320))
 (check "23:59 is night"        :night     (time-of-day 1439))
 (check "bands wrap across days" :morning  (time-of-day (+ +minutes-per-day+ 360)))
 (check-true "the daylight bands are exactly the daylight window"
@@ -1527,9 +1528,9 @@ height" d)
   (check "crossing 10:00 emits :time-band noon" '(:noon) bands)
   (advance-time g)                      ; 10:01, still noon
   (check "no band turn, no event" '(:noon) bands)
-  (setf (game-time g) 1199)             ; 19:59, evening
-  (advance-time g)                      ; -> 20:00, night
-  (check "crossing 20:00 emits :time-band night" '(:night :noon) bands))
+  (setf (game-time g) 1319)             ; 21:59, evening
+  (advance-time g)                      ; -> 22:00, night
+  (check "crossing 22:00 emits :time-band night" '(:night :noon) bands))
 
 ;;; ---------------------------------------------------------------------
 ;;; Day-time sky and ground colour (see palette.lisp).
@@ -1682,7 +1683,7 @@ height" d)
                 (600 . "The sun climbs high.")
                 (840 . "The afternoon wears on.")
                 (1080 . "Dusk gathers.")
-                (1200 . "Night falls.")))
+                (1320 . "Night falls.")))
   (let* ((m (parse-map *art* :name "test"))
          (g (new-game m))
          (msgs (watch-messages g)))
@@ -1702,9 +1703,9 @@ height" d)
                         (push :sunset events)))
   (on-event g :sunrise (lambda (game) (declare (ignore game))
                          (push :sunrise events)))
-  (setf (game-time g) 1199)
+  (setf (game-time g) 1319)
   (advance-time g)
-  (check "crossing 20:00 emits :sunset" '(:sunset) events)
+  (check "crossing 22:00 emits :sunset" '(:sunset) events)
   (check-true "night falls in the log"
               (member "Night falls." (funcall msgs) :test #'equal))
   (setf (game-time g) (+ +minutes-per-day+ 359))
@@ -1739,7 +1740,7 @@ height" d)
        (g (new-game m)))
   (check "daylight: full view depth" +view-depth+ (game-view-depth g))
   (check-true "daylight outdoors is not dark" (not (game-dark-p g)))
-  (setf (game-time g) 1200)            ; 20:00 — night
+  (setf (game-time g) 1320)            ; 22:00 — night
   (check-true "night outdoors is dark" (game-dark-p g))
   ;; outdoors at night there is moonlight: a few cells, not the blind
   ;; one of a lightless dungeon, and never more than the daytime depth
@@ -1766,7 +1767,7 @@ height" d)
 ;; C+1, so cell 1 tells moonlight from a pitch-black night and cell 3
 ;; tells moonlight (depth 3) from a light (the full +view-depth+ 4).
 (flet ((born-at-night (moon)
-         (let ((*new-game-minutes* 1200)     ; 20:00
+         (let ((*new-game-minutes* 1320)     ; 22:00
                (*moonlight-depth* moon))
            (new-game (parse-map "+-+-+-+-+-+-+-+
 |@            |
@@ -1922,7 +1923,7 @@ height" d)
   (move-party g :forward)
   (check "at-day runs by day" '("The lane lies quiet.") (funcall msgs))
   (move-party g :back)                 ; back-step keeps facing east
-  (setf (game-time g) 1249)            ; the step lands well into night
+  (setf (game-time g) 1369)            ; the step lands well into night
   (move-party g :forward)
   (check-true "at-night runs by night"
               (member "Eyes glitter in the dark." (funcall msgs)
@@ -2467,6 +2468,66 @@ height" d)
   (with-rng (4 4) (award-xp g h 500))   ; 600 xp: levels 3 and 4
   (check "multiple level-ups in one award" 4 (hero-level h)))
 
+;; Bard's Tale stat growth: each level-up draws a d18 per stat in
+;; str dex iq con lck order after the hit die — the score rises when
+;; the draw lands at or above it, so gains thin out toward the 18 cap.
+(let* ((m (parse-map *art* :name "test"))
+       (h (with-rng (5) (make-hero "B" :tester)))   ; all abilities 3
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  ;; hit die 4, then str 17 (rises), dex 0 (stays), iq 3 (rises),
+  ;; con 2 (stays), lck 17 (rises)
+  (with-rng (4 17 0 3 2 17) (award-xp g h 100))
+  (check "str rose on the level-up" 4 (hero-str h))
+  (check "dex stayed" 3 (hero-dex h))
+  (check "iq rose" 4 (hero-iq h))
+  (check "con stayed" 3 (hero-con h))
+  (check "lck rose" 4 (hero-lck h))
+  (check-true "the gain is announced"
+              (member "B's STR rises to 4!" (funcall msgs) :test #'equal))
+  ;; the cap: a d18 draws 0-17, so a score of 18 can never rise
+  (setf (hero-str h) 18)
+  (with-rng (0 17 0 0 0 0) (award-xp g h 200))     ; to level 3
+  (check "a score of 18 never rises" 18 (hero-str h)))
+
+;; STAT-GIFT is the Bard's Tale kindness: high scores reward hit
+;; points and armor, low scores never punish them.
+(check "stat-gift is the bonus for a high score" 2 (stat-gift 14))
+(check "stat-gift never punishes a low one" 0 (stat-gift 3))
+
+;; CON pays into hp at creation and on every level-up.
+(let* ((m (parse-map *art* :name "test"))
+       ;; hit die 6, abilities str/dex/iq 3, con 18, lck 3
+       (h (with-rng (5 0 0 0 0 0 0 0 0 0 5 5 5) (make-hero "C" :tester)))
+       (g (new-game m :party (list h))))
+  (check "con 18" 18 (hero-con h))
+  (check "creation hp carry the con gift" 12 (hero-max-hp h))
+  (with-rng (4) (award-xp g h 100))
+  (check "the level's hp gain carries it too" 23 (hero-max-hp h)))
+
+;; DEX pays into the effective armor class.
+(let ((h (with-rng (5 0 0 0 5 5 5) (make-hero "D" :tester))))
+  (check "dex 18" 18 (hero-dex h))
+  (check "the dex gift lowers the effective ac" 4 (hero-effective-ac h)))
+
+;; :AC-PER-LEVEL — the monk's art: natural armor tightens by one every
+;; N levels beyond the first, floored at Bard's Tale's -10.
+(check-error "ac-per-level must be a positive integer"
+  (define-hero-class :t-bogus-monk :ac-per-level 0))
+(define-hero-class :t-monk :hp-dice "1d8+2" :damage "1d8" :ac 7
+                           :ac-per-level 1)
+(let* ((m (parse-map *art* :name "test"))
+       (h (with-rng (5) (make-hero "M" :t-monk)))
+       (g (new-game m :party (list h))))
+  (check "the monk starts at the class ac" 7 (hero-ac h))
+  (with-rng () (award-xp g h 100))
+  (check "each level tightens the monk's guard" 6 (hero-ac h))
+  (with-rng () (award-xp g h 500))      ; levels 3 and 4
+  (check "every level, not every other" 4 (hero-ac h))
+  (setf (hero-ac h) -10)
+  (with-rng () (award-xp g h 400))      ; level 5
+  (check "natural armor floors at -10" -10 (hero-ac h)))
+
 ;;; ---------------------------------------------------------------------
 ;;; Combat
 
@@ -2581,7 +2642,7 @@ height" d)
   (multiple-value-bind (chance table) (%zone-encounter-check m 480)
     (check "day check uses the base chance" 10 chance)
     (check "day check uses the base table" '(("test rat" 2)) table))
-  (multiple-value-bind (chance table) (%zone-encounter-check m 1300)
+  (multiple-value-bind (chance table) (%zone-encounter-check m 1380)
     (check "night check uses the night chance" 30 chance)
     (check "night check uses the night table" '(("test ogre" 2)) table)))
 (let ((m (parse-map *art* :name "test")))
@@ -2656,7 +2717,7 @@ height" d)
   (setf (game-combat g) nil))
 
 ;; A step draws the roll, and the step's own minute decides the table:
-;; at 19:59 one step lands on 20:00 — the sunset-crossing step already
+;; at 21:59 one step lands on 22:00 — the sunset-crossing step already
 ;; rolls against the night pair (25 is over the day 10, under the
 ;; night 30).
 (let* ((m (parse-map *art* :name "test"))
@@ -2666,11 +2727,82 @@ height" d)
                             :night-encounters (("test ogre" 2))
                             :night-encounter-chance 30)
                    "test")
-  (setf (game-time g) 1199
+  (setf (game-time g) 1319
         (game-facing g) +east+)
   (with-rng (25) (move-party g))
   (check "the sunset-crossing step rolls the night table"
          '(("test ogre" . 2)) (%group-names g)))
+
+;; The living world hunts the idle too: MAYBE-IDLE-ENCOUNTER accrues
+;; the heartbeat's minutes on the game and rolls the zone's wandering
+;; check once per full *IDLE-ENCOUNTER-MINUTES*, the remainder
+;; carrying forward.  A running fight drains periods without a draw,
+;; and a NIL dial turns the vigil off entirely.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (%apply-map-form m '(zone :encounters (("test rat" 2))
+                            :encounter-chance 10)
+                   "test")
+  (check "a fresh game keeps no vigil" 0 (game-idle-encounter-clock g))
+  (let ((*rng* (lambda (n) (error "rolled ~D" n))))
+    (check "under the period no die is cast" nil
+           (maybe-idle-encounter g 29)))
+  (check "the minutes accrued" 29 (game-idle-encounter-clock g))
+  ;; one more minute completes the half-hour: one roll, over the
+  ;; chance — the streets stay quiet and the accrual is spent
+  (check "a quiet half-hour passes" nil
+         (with-rng (99) (maybe-idle-encounter g 1)))
+  (check "the accrual was spent" 0 (game-idle-encounter-clock g))
+  ;; 45 more: one period fires under the chance, 15 minutes carry
+  (check-true "the vigil springs the fight"
+              (with-rng (5) (maybe-idle-encounter g 45)))
+  (check-true "combat is on" (game-combat g))
+  (check "the remainder carries forward" 15
+         (game-idle-encounter-clock g))
+  ;; mid-fight the periods drain silently — no random number drawn
+  (let ((*rng* (lambda (n) (error "rolled ~D" n))))
+    (check "a running fight silences the vigil" nil
+           (maybe-idle-encounter g 75)))
+  (check "yet its periods drained" 0 (game-idle-encounter-clock g))
+  (setf (game-combat g) nil)
+  (let ((*idle-encounter-minutes* nil)
+        (*rng* (lambda (n) (error "rolled ~D" n))))
+    (check "a NIL dial turns the vigil off" nil
+           (maybe-idle-encounter g 500)))
+  (check "and nothing accrues while it is off" 0
+         (game-idle-encounter-clock g)))
+
+;; A zone may keep its own idle vigil — or none: :IDLE-ENCOUNTER-MINUTES
+;; overrides the global dial, an explicit NIL makes loitering safe, and
+;; a zone that names neither follows *IDLE-ENCOUNTER-MINUTES*.
+(check "a zone names no idle period by default" :default
+       (dungeon-map-idle-encounter-minutes (parse-map *art* :name "test")))
+(check-error ":idle-encounter-minutes rejects garbage"
+  (%apply-map-form (parse-map *art* :name "test")
+                   '(zone :idle-encounter-minutes :often) "test"))
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (%apply-map-form m '(zone :encounters (("test rat" 2))
+                            :encounter-chance 10
+                            :idle-encounter-minutes 10)
+                   "test")
+  (check "the zone's own period parses" 10
+         (dungeon-map-idle-encounter-minutes m))
+  ;; the zone's short vigil beats the global 30: ten minutes suffice
+  (check-true "the zone's own period rules"
+              (with-rng (5) (maybe-idle-encounter g 10))))
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (%apply-map-form m '(zone :encounters (("test rat" 2))
+                            :encounter-chance 10
+                            :idle-encounter-minutes nil)
+                   "test")
+  (check "an explicit NIL parses" nil
+         (dungeon-map-idle-encounter-minutes m))
+  (let ((*rng* (lambda (n) (error "rolled ~D" n))))
+    (check "a friendly zone never hunts its loiterers" nil
+           (maybe-idle-encounter g 500)))
+  (check "and accrues nothing" 0 (game-idle-encounter-clock g)))
 
 ;; A cell's scripted (ENCOUNTER ...) preempts the wandering roll — no
 ;; random number is drawn behind a fight the story already started.
@@ -4192,7 +4324,7 @@ height" d)
   (setf (game-time g) 480)              ; day 1, 08:00 — daylight
   (dotimes (i 8) (turn-right g))        ; 8 minutes pass outdoors
   (check "eight daylight minutes regain two sp" 2 (hero-sp mage))
-  (setf (game-time g) 1240)             ; night
+  (setf (game-time g) 1340)             ; night
   (dotimes (i 8) (turn-right g))
   (check "night regains nothing" 2 (hero-sp mage))
   (setf (hero-sp mage) (hero-max-sp mage))
@@ -5637,7 +5769,7 @@ height" d)
   (check-true "and admits the party" (game-location g))
   (leave-location g)                    ; back to (0,0), facing west
   (funcall msgs)
-  (setf (game-time g) 1210)             ; 20:10 — night
+  (setf (game-time g) 1330)             ; 22:10 — night
   (check "the door still swings at night" :door (move-party g :back))
   (check "but the shoppe is not entered" nil (game-location g))
   (check "the party is bounced back onto the street" '(0 0)
@@ -5645,7 +5777,7 @@ height" d)
   (check "left facing the shut door" :east (dir-keyword (game-facing g)))
   (check "and told" '("The Day Shoppe is closed.") (funcall msgs))
   (check ":location-closed emitted" '("The Day Shoppe") closed)
-  (check "the bounce costs no time beyond the step taken" 1211
+  (check "the bounce costs no time beyond the step taken" 1331
          (game-time g))
   ;; a scripted entry (no step) refuses in place; the :closed arg
   ;; also takes a list of bands

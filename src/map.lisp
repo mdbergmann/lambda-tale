@@ -87,8 +87,13 @@
                       ;   step of a wandering encounter, or NIL
   night-encounters    ; (ZONE :NIGHT-ENCOUNTERS ...) the table after
                       ;   dark, or NIL to use ENCOUNTERS at all hours
-  night-encounter-chance) ; (ZONE :NIGHT-ENCOUNTER-CHANCE P), or NIL to
+  night-encounter-chance ; (ZONE :NIGHT-ENCOUNTER-CHANCE P), or NIL to
                       ;   use ENCOUNTER-CHANCE at all hours
+  (idle-encounter-minutes ; (ZONE :IDLE-ENCOUNTER-MINUTES N-OR-NIL) —
+   :default))         ;   the zone's own idle-vigil period, NIL for a
+                      ;   zone where loitering is safe, or :DEFAULT
+                      ;   (key absent) to follow the engine's global
+                      ;   *IDLE-ENCOUNTER-MINUTES* dial
 
 (defparameter *wall-decode* #(:open :wall :door)
   "Wall byte codes, index = code — the packed walls representation and
@@ -308,7 +313,9 @@ integer weight (default 1).  The names are resolved at spawn time
         ((string-equal (symbol-name (first form)) "ZONE")
          (destructuring-bind (&key kind title wrap start-facing gfx sfx dark
                                    sky ground encounters encounter-chance
-                                   night-encounters night-encounter-chance)
+                                   night-encounters night-encounter-chance
+                                   (idle-encounter-minutes
+                                    nil idle-encounter-minutes-p))
              (rest form)
            (when kind
              (unless (keywordp kind)
@@ -354,7 +361,18 @@ or a positive integer (cells of sight in the dark)" path dark))
            (when night-encounter-chance
              (setf (dungeon-map-night-encounter-chance map)
                    (%zone-encounter-chance path :night-encounter-chance
-                                           night-encounter-chance)))))
+                                           night-encounter-chance)))
+           ;; an EXPLICIT :idle-encounter-minutes counts even when NIL
+           ;; — that is the friendly zone where loitering is safe
+           (when idle-encounter-minutes-p
+             (unless (or (null idle-encounter-minutes)
+                         (and (integerp idle-encounter-minutes)
+                              (plusp idle-encounter-minutes)))
+               (error "~A: zone :idle-encounter-minutes ~S must be a ~
+positive integer (game-minutes per idle wandering roll) or NIL (no ~
+idle encounters here)" path idle-encounter-minutes))
+             (setf (dungeon-map-idle-encounter-minutes map)
+                   idle-encounter-minutes))))
         (t (error "~A: unknown map form ~S (expected (zone ...) or ~
                    (special (x y) op...))"
                   path (first form)))))
@@ -409,7 +427,8 @@ the map, read with *READ-EVAL* bound to NIL and never evaluated:
     (zone :kind KIND :title TITLE :wrap W :start-facing DIR :gfx PACK
           :sfx SOUNDS :dark D :sky C :ground C
           :encounters T :encounter-chance P
-          :night-encounters T :night-encounter-chance P)
+          :night-encounters T :night-encounter-chance P
+          :idle-encounter-minutes M)
                              zone metadata: KIND is :dungeon (default),
                              :city, ... — maps self-describe what they
                              are; PACK names the zone's tile-pack
@@ -429,7 +448,13 @@ the map, read with *READ-EVAL* bound to NIL and never evaluated:
                              with :night-encounters/:night-encounter-chance
                              taking over after dark in an outdoor zone —
                              see MAYBE-WANDERING-ENCOUNTER in combat.lisp
-                             and the *ENCOUNTER-RATE* dial
+                             and the *ENCOUNTER-RATE* dial;
+                             :idle-encounter-minutes M sets the zone's
+                             own idle-vigil period (game-minutes per
+                             idle wandering roll), an explicit NIL a
+                             zone where loitering is safe — omitted,
+                             the global *IDLE-ENCOUNTER-MINUTES* rules
+                             (see MAYBE-IDLE-ENCOUNTER)
     (special (X Y) OP...)    attach a special to cell (X,Y)
 The forms section starts at the first line beginning with '(' or ';'
 \(no valid art line starts with either).  The :wrap and :start-facing

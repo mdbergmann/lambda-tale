@@ -2228,11 +2228,16 @@ map/help/sheet pages close on a click outside a target — see
                                                    (game-effects game))))
                                      (advance-time game mins)
                                      ;; repaint only when the party would
-                                     ;; SEE it: the sky re-tints on a band
-                                     ;; turn, and a worn-off effect (or
-                                     ;; sunrise/sunset) has just logged a
-                                     ;; line
-                                     (when (or (not (eq band
+                                     ;; SEE it: the living world found the
+                                     ;; loitering party (the wandering
+                                     ;; vigil, see MAYBE-IDLE-ENCOUNTER —
+                                     ;; the redraw opens the combat page),
+                                     ;; the sky re-tints on a band turn,
+                                     ;; or a worn-off effect (or sunrise/
+                                     ;; sunset) has just logged a line
+                                     (when (or (maybe-idle-encounter
+                                                game mins)
+                                               (not (eq band
                                                         (game-time-of-day
                                                          game)))
                                                (/= effects

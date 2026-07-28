@@ -21,7 +21,7 @@
 
 (defconstant +minutes-per-day+ 1440)
 (defconstant +sunrise-minute+ 360)      ; 06:00
-(defconstant +sunset-minute+ 1200)      ; 20:00
+(defconstant +sunset-minute+ 1320)      ; 22:00
 
 (defparameter *minutes-per-action* 1
   "Clock cost in minutes of one step, turn or combat round.")
@@ -34,13 +34,13 @@
 outdoors (in a zone without :DARK) and out of combat.")
 
 (defun daylight-p (minutes)
-  "True when the clock MINUTES falls in the 06:00-20:00 daylight window."
+  "True when the clock MINUTES falls in the 06:00-22:00 daylight window."
   (let ((m (mod minutes +minutes-per-day+)))
     (and (>= m +sunrise-minute+) (< m +sunset-minute+))))
 
 ;;; ---------------------------------------------------------------------
 ;;; The five bands of the day.  They tile the clock and align exactly to
-;;; the daylight window: MORNING+NOON+AFTERNOON+EVENING is [06:00,20:00)
+;;; the daylight window: MORNING+NOON+AFTERNOON+EVENING is [06:00,22:00)
 ;;; = (DAYLIGHT-P), NIGHT is the rest.  The first-person sky and the
 ;;; ground take a different colour in each band (see PALETTE.LISP's
 ;;; SKY-COLOR-FOR / GROUND-COLOR-FOR); ADVANCE-TIME emits :TIME-BAND when
@@ -50,8 +50,8 @@ outdoors (in a zone without :DARK) and out of combat.")
   '((:morning   . 360)     ; 06:00
     (:noon      . 600)     ; 10:00
     (:afternoon . 840)     ; 14:00
-    (:evening   . 1080)    ; 18:00
-    (:night     . 1200))   ; 20:00, wrapping midnight back to :morning
+    (:evening   . 1080)    ; 18:00, the long dusk
+    (:night     . 1320))   ; 22:00, wrapping midnight back to :morning
   "Each day-band's start minute-of-day, in clock order — a band runs
 until the next one starts and :NIGHT wraps midnight.  The order here is
 the canonical band order (see *TIME-BAND-NAMES*).")
@@ -79,8 +79,8 @@ day passing.  :MORNING and :NIGHT coincide with sunrise and sunset.")
           ((< m 600) :morning)
           ((< m 840) :noon)
           ((< m 1080) :afternoon)
-          ((< m 1200) :evening)
-          (t :night))))               ; 20:00-23:59, after sunset
+          ((< m 1320) :evening)
+          (t :night))))               ; 22:00-23:59, after sunset
 
 (defun game-time-of-day (game)
   "The current day-band of GAME (see TIME-OF-DAY)."
