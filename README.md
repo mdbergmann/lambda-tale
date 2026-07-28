@@ -117,7 +117,7 @@ specs/               design constraints (UI layout, map scale, screens)
 Both front-ends draw the Bard's Tale split screen (see
 [specs/ui-and-engine.md](specs/ui-and-engine.md)): the first-person
 view with the location plaque under it on the left, the scrolling
-message log on the right (in the engine's bold 7x7 microfont on
+message log on the right (in the engine's condensed bold microfont on
 the Amiga) with a slim strip of active-effect icons below it, laid
 out in effect order — an effect granting a compass shows the live
 rose in its slot — and the numbered party roster (`# CHARACTER AC
@@ -142,8 +142,10 @@ column carries the enemy's portrait
 (`define-monster ... :image FILE`), so the party sees what it is
 fighting while it picks the round; the picture belongs to the leading
 group and passes to the next one as groups fall.
-The cast/use/sing menus and the save picker draw as an overlay page
-over the view column instead, keeping the log readable beside them.
+The cast/use/sing menus draw as an overlay page over the view column
+instead, keeping the log readable beside them; the save picker spans
+the whole content width — room for full slot names, and nothing worth
+watching happens beside it.
 The key reference lives on the help page under `h`/`?`.  The full
 automap lives under `m` — black ink on the grey page, doors and the
 party amber, with a legend beside the map listing the special places
@@ -151,9 +153,11 @@ the party has found (shops, taverns and the like, each marker also
 drawn on its map cell — plain houses are scenery and carry no marker,
 or a city's front doors would bury the places that matter) and a
 footer showing the zone, position and game clock; maps can be large
-(30x30 like Bard's Tale I, up to 128x128).  The overlay page and the
-whole map page render in the microfont too, so the Amiga UI carries
-one type size throughout.  The key bindings are listed in
+(30x30 like Bard's Tale I, up to 128x128).  The overlay pages, the
+takeover and the whole map page set the same face as the log — the
+engine's 5x7-on-6px condensed bold cut, the metrics of the actual
+Bard's Tale II text — so the Amiga UI carries one type size
+throughout.  The key bindings are listed in
 the [Closure README](../closure-tale/README.md).  On the Amiga the window
 uses the same geometry as the custom screen, so both displays lay out
 identically; the custom screen's geometry comes from a **display
@@ -649,7 +653,7 @@ equipment kinds: weapon, armor, shield, helmet, gloves, bow, arrow,
 instrument, ring, wand, figurine, plus plain `:misc`), heroes carry up
 to 8 items and equip one item of each equipment kind — every worn
 piece's AC counts — combat uses the equipped gear, and shops sell
-their `:stock` and buy anything back at half price; `g` **pools the
+their `:stock` and buy anything back at half price; `p` **pools the
 party's gold** onto the shopper, Bard's Tale style (the character
 sheet offers the same key, pooling onto the viewed hero), and `t` on
 the sheet **trades gold** back out: a digit picks who receives, then
@@ -666,7 +670,7 @@ attack action is out of reach and the orders page says so.  A weapon
 defined `:two-handed` fills both hands, D&D-style: it will not go on
 beside a shield, nor a shield beside it, and the pack and shop pages
 mark it `(2H)`.  Equipment is managed
-from the character sheet: `e` opens the hero's **pack page**, where a
+from the character sheet: `i` opens the hero's **pack page** (Inventory), where a
 digit puts a pack item on or takes it off again; items a hero's class
 cannot use are marked `(unfit)` there, on the sheet and in the shop —
 the shop still sells them (another hero may carry them), the marker

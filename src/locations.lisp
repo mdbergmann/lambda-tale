@@ -262,15 +262,13 @@ the inspect page — the same stock, a digit showing that item's card
          (list (format nil "*** ~A ***" (location-title loc)) "")
          (cond
            ((null hero)
-            (append
-             (list "Who is shopping?" "")
-             (let ((i 0))
-               (mapcar (lambda (h)
-                         (incf i)
-                         (menu-numbered i (format nil "~D) ~A  (~D gp)"
-                                                  i (hero-name h)
-                                                  (hero-gold h))))
-                       (game-party game)))))
+            ;; the roster pane already lists the party, so the pick
+            ;; page is a bare prompt naming the digit range — the
+            ;; temple-lines pattern (the Amiga front-end lets the
+            ;; roster rows click as their digits here)
+            (let ((n (length (game-party game))))
+              (list (format nil "Who is shopping?  (1~@[-~D~])"
+                            (when (> n 1) n)))))
            ((member (shop-view-mode view) '(:buy :inspect))
             (append
              (list (format nil "~A ~A.  Gold: ~D gp"
@@ -294,7 +292,7 @@ the inspect page — the same stock, a digit showing that item's card
                (list ""
                      (menu-option #\s "Sell")
                      (menu-option #\i "Inspect")
-                     (menu-option #\g "Gold pool")))))
+                     (menu-option #\p "Pool gold")))))
            (t
             (append
              (list (format nil "~A sells.  Gold: ~D gp"
@@ -311,11 +309,11 @@ the inspect page — the same stock, a digit showing that item's card
                                          (item-sell-price name)))))
              (list ""
                    (menu-option #\b "Buy")
-                   (menu-option #\g "Gold pool")))))))))
+                   (menu-option #\p "Pool gold")))))))))
 
 (defun shop-act (game view char)
   "Apply key CHAR to the shop interaction.  Digits pick within the
-visible stock/pack window, u/d scroll it (see MENU-WINDOW), g pools
+visible stock/pack window, u/d scroll it (see MENU-WINDOW), p pools
 the party's gold onto the shopper (see POOL-GOLD), i on the buy page
 opens the inspect page — a digit shows that item's card, and the page
 stays open for the next card; Esc steps back card, stock, buy page
@@ -375,7 +373,7 @@ view then), else NIL."
              ((member char '(#\i #\I))
               (setf (shop-view-mode view) :inspect)
               nil)
-             ((member char '(#\g #\G))
+             ((member char '(#\p #\P))
               (pool-gold game hero)
               nil)
              (t
@@ -394,7 +392,7 @@ view then), else NIL."
               (setf (shop-view-mode view) :buy
                     (shop-view-top view) 0)
               nil)
-             ((member char '(#\g #\G))
+             ((member char '(#\p #\P))
               (pool-gold game hero)
               nil)
              (t

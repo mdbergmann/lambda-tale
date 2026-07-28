@@ -159,7 +159,7 @@ consecutive messages read as distinct paragraphs in the log."
 ;;; pointing front-end can turn a click on the line into that key press
 ;;; without parsing the text.  Plain informational lines stay strings.
 ;;; The pages name only their own keys — plain words whose first letter
-;;; is the key ("Sell", "Gold pool"), one option per row, each row a
+;;; is the key ("Sell", "Pool gold"), one option per row, each row a
 ;;; MENU-OPTION so it clicks; the common navigation (digit picks, Esc,
 ;;; u/d scrolling, +/- speed) lives on the help screen.  The older
 ;;; bracket-hint convention ("[S]ell  [Esc] back") is still understood:

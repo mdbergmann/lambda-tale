@@ -1,15 +1,21 @@
-;;; Lambda's Tale — the microfont: a bold 7x7 pixel font.
+;;; Lambda's Tale — the microfont: the engine's own pixel faces.
 ;;;
-;;; The engine brings its own face instead of an Amiga system font:
-;;; 7x7 glyphs on an 8x8 cell (one blank column and row of spacing),
-;;; printable ASCII 32-126, drawn in the bold slab-serif manner of the
-;;; classic Bard's Tale screens — two-pixel stems, serifs where the
-;;; box allows — so the page reads like a storybook rather than a
-;;; terminal.  Same cell width as topaz 8 but the engine renders it
-;;; itself: MICROFONT-LINE renders a text line into a chunky pen
-;;; buffer (row-major (unsigned-byte 8) vector) that the Amiga
-;;; front-end uploads with AMIGA.GFX:WRITE-CHUNKY — either straight
-;;; into the window or into a cached offscreen bitmap (see
+;;; The engine brings its own type instead of an Amiga system font,
+;;; printable ASCII 32-126, drawn in the bold manner of the classic
+;;; Bard's Tale screens, in two faces:
+;;;
+;;; - the display face: 7x7 glyphs on an 8x8 cell (topaz 8's width),
+;;;   slab serifs where the box allows — kept for display-size use;
+;;; - the small face: 5x7 glyphs on a 6x8 cell, the condensed bold
+;;;   cut the engine's pages actually set — the message log, the
+;;;   takeover and overlay menus and the whole map page.  The real
+;;;   Bard's Tale II text measures ~6px per character at the same
+;;;   height, which is what this face reproduces.
+;;;
+;;; MICROFONT-LINE / MICROFONT-SMALL-LINE render a text line into a
+;;; chunky pen buffer (row-major (unsigned-byte 8) vector) that the
+;;; Amiga front-end uploads with AMIGA.GFX:WRITE-CHUNKY — either
+;;; straight into the window or into a cached offscreen bitmap (see
 ;;; %LOG-LINE-BITMAP in amiga-ui.lisp).  Pure pixel math, no OS calls,
 ;;; so the host test suite covers the glyphs and the layout.
 
@@ -226,10 +232,15 @@
         (aref *microfont-glyphs* i)
         *microfont-fallback*)))
 
-;;; The small face: the original compact 5x7 glyphs (with the same
-;;; antiqua touches where they fit), kept for the automap's cell
-;;; letters — a city map draws 7px cells, which the bold face's 8px
-;;; advance cannot enter.  Same row-of-bits layout, #b10000 leftmost.
+;;; The small face: compact 5x7 glyphs on a 6px advance, drawn bold —
+;;; two-pixel stems wherever five columns allow, one-pixel strokes
+;;; only where a diagonal needs the room — in the condensed manner of
+;;; the actual Bard's Tale II screens (measured off the Amiga
+;;; original: ~6px per character at the same 7px height).  This is
+;;; the engine's page face: the message log, the takeover and overlay
+;;; menus and the whole map page set in it; the wide bold face above
+;;; remains for display-size use.  Same row-of-bits layout, #b10000
+;;; leftmost.
 
 (defconstant +microfont-small-width+ 5)
 (defconstant +microfont-small-advance+ 6)  ; glyph + 1 column spacing
@@ -239,191 +250,191 @@
    ;; space
    #(#b00000 #b00000 #b00000 #b00000 #b00000 #b00000 #b00000)
    ;; !
-   #(#b00100 #b00100 #b00100 #b00100 #b00100 #b00000 #b00100)
+   #(#b01100 #b01100 #b01100 #b01100 #b01100 #b00000 #b01100)
    ;; "
-   #(#b01010 #b01010 #b01010 #b00000 #b00000 #b00000 #b00000)
+   #(#b11011 #b11011 #b00000 #b00000 #b00000 #b00000 #b00000)
    ;; #
    #(#b01010 #b01010 #b11111 #b01010 #b11111 #b01010 #b01010)
    ;; $
    #(#b00100 #b01111 #b10100 #b01110 #b00101 #b11110 #b00100)
    ;; %
-   #(#b11000 #b11001 #b00010 #b00100 #b01000 #b10011 #b00011)
+   #(#b11001 #b11010 #b00010 #b00100 #b01000 #b01011 #b10011)
    ;; &
    #(#b01100 #b10010 #b10100 #b01000 #b10101 #b10010 #b01101)
    ;; '
-   #(#b00100 #b00100 #b01000 #b00000 #b00000 #b00000 #b00000)
+   #(#b00110 #b00110 #b01100 #b00000 #b00000 #b00000 #b00000)
    ;; (
-   #(#b00010 #b00100 #b01000 #b01000 #b01000 #b00100 #b00010)
+   #(#b00011 #b00110 #b01100 #b01100 #b01100 #b00110 #b00011)
    ;; )
-   #(#b01000 #b00100 #b00010 #b00010 #b00010 #b00100 #b01000)
+   #(#b11000 #b01100 #b00110 #b00110 #b00110 #b01100 #b11000)
    ;; *
    #(#b00000 #b00100 #b10101 #b01110 #b10101 #b00100 #b00000)
    ;; +
    #(#b00000 #b00100 #b00100 #b11111 #b00100 #b00100 #b00000)
    ;; ,
-   #(#b00000 #b00000 #b00000 #b00000 #b01100 #b00100 #b01000)
+   #(#b00000 #b00000 #b00000 #b00000 #b01100 #b01100 #b11000)
    ;; -
    #(#b00000 #b00000 #b00000 #b11111 #b00000 #b00000 #b00000)
    ;; .
    #(#b00000 #b00000 #b00000 #b00000 #b00000 #b01100 #b01100)
    ;; /
-   #(#b00000 #b00001 #b00010 #b00100 #b01000 #b10000 #b00000)
+   #(#b00001 #b00011 #b00110 #b01100 #b11000 #b10000 #b00000)
    ;; 0
-   #(#b01110 #b10001 #b10001 #b10001 #b10001 #b10001 #b01110)
+   #(#b01110 #b11011 #b11011 #b11011 #b11011 #b11011 #b01110)
    ;; 1
-   #(#b00100 #b01100 #b00100 #b00100 #b00100 #b00100 #b01110)
+   #(#b00110 #b01110 #b00110 #b00110 #b00110 #b00110 #b01111)
    ;; 2
-   #(#b01110 #b10001 #b00001 #b00010 #b00100 #b01000 #b11111)
+   #(#b01110 #b11011 #b00011 #b00110 #b01100 #b11000 #b11111)
    ;; 3
-   #(#b11111 #b00010 #b00100 #b00010 #b00001 #b10001 #b01110)
+   #(#b11110 #b00011 #b00011 #b01110 #b00011 #b00011 #b11110)
    ;; 4
-   #(#b00010 #b00110 #b01010 #b10010 #b11111 #b00010 #b00010)
+   #(#b00111 #b01111 #b11011 #b11011 #b11111 #b00011 #b00011)
    ;; 5
-   #(#b11111 #b10000 #b11110 #b00001 #b00001 #b10001 #b01110)
+   #(#b11111 #b11000 #b11110 #b00011 #b00011 #b11011 #b01110)
    ;; 6
-   #(#b00110 #b01000 #b10000 #b11110 #b10001 #b10001 #b01110)
+   #(#b01110 #b11000 #b11110 #b11011 #b11011 #b11011 #b01110)
    ;; 7
-   #(#b11111 #b00001 #b00010 #b00100 #b01000 #b01000 #b01000)
+   #(#b11111 #b00011 #b00011 #b00110 #b00110 #b01100 #b01100)
    ;; 8
-   #(#b01110 #b10001 #b10001 #b01110 #b10001 #b10001 #b01110)
+   #(#b01110 #b11011 #b11011 #b01110 #b11011 #b11011 #b01110)
    ;; 9
-   #(#b01110 #b10001 #b10001 #b01111 #b00001 #b00010 #b01100)
+   #(#b01110 #b11011 #b11011 #b01111 #b00011 #b00011 #b01110)
    ;; :
    #(#b00000 #b01100 #b01100 #b00000 #b01100 #b01100 #b00000)
    ;; ;
-   #(#b00000 #b01100 #b01100 #b00000 #b01100 #b00100 #b01000)
+   #(#b00000 #b01100 #b01100 #b00000 #b01100 #b01100 #b11000)
    ;; <
-   #(#b00010 #b00100 #b01000 #b10000 #b01000 #b00100 #b00010)
+   #(#b00011 #b00110 #b01100 #b11000 #b01100 #b00110 #b00011)
    ;; =
    #(#b00000 #b00000 #b11111 #b00000 #b11111 #b00000 #b00000)
    ;; >
-   #(#b01000 #b00100 #b00010 #b00001 #b00010 #b00100 #b01000)
+   #(#b11000 #b01100 #b00110 #b00011 #b00110 #b01100 #b11000)
    ;; ?
-   #(#b01110 #b10001 #b00001 #b00010 #b00100 #b00000 #b00100)
+   #(#b01110 #b11011 #b00011 #b00110 #b01100 #b00000 #b01100)
    ;; @
    #(#b01110 #b10001 #b00001 #b01101 #b10101 #b10101 #b01110)
    ;; A
-   #(#b00100 #b01010 #b01010 #b10001 #b11111 #b10001 #b11011)
+   #(#b01110 #b11011 #b11011 #b11111 #b11011 #b11011 #b11011)
    ;; B
-   #(#b11110 #b01001 #b01001 #b01110 #b01001 #b01001 #b11110)
+   #(#b11110 #b11011 #b11011 #b11110 #b11011 #b11011 #b11110)
    ;; C
-   #(#b01110 #b10001 #b10000 #b10000 #b10000 #b10001 #b01110)
+   #(#b01110 #b11011 #b11000 #b11000 #b11000 #b11011 #b01110)
    ;; D
-   #(#b11110 #b01001 #b01001 #b01001 #b01001 #b01001 #b11110)
+   #(#b11110 #b11011 #b11011 #b11011 #b11011 #b11011 #b11110)
    ;; E
-   #(#b11111 #b01001 #b01000 #b01110 #b01000 #b01001 #b11111)
+   #(#b11111 #b11000 #b11000 #b11110 #b11000 #b11000 #b11111)
    ;; F
-   #(#b11111 #b01001 #b01000 #b01110 #b01000 #b01000 #b11100)
+   #(#b11111 #b11000 #b11000 #b11110 #b11000 #b11000 #b11000)
    ;; G
-   #(#b01110 #b10001 #b10000 #b10111 #b10001 #b10001 #b01111)
+   #(#b01111 #b11000 #b11000 #b11011 #b11011 #b11011 #b01111)
    ;; H
-   #(#b11011 #b01010 #b01010 #b01110 #b01010 #b01010 #b11011)
+   #(#b11011 #b11011 #b11011 #b11111 #b11011 #b11011 #b11011)
    ;; I
-   #(#b01110 #b00100 #b00100 #b00100 #b00100 #b00100 #b01110)
+   #(#b11111 #b00100 #b00100 #b00100 #b00100 #b00100 #b11111)
    ;; J
-   #(#b00111 #b00010 #b00010 #b00010 #b00010 #b10010 #b01100)
+   #(#b01111 #b00011 #b00011 #b00011 #b00011 #b11011 #b01110)
    ;; K
-   #(#b11011 #b01010 #b01100 #b01100 #b01010 #b01010 #b11011)
+   #(#b11011 #b11011 #b11110 #b11100 #b11110 #b11011 #b11011)
    ;; L
-   #(#b11100 #b01000 #b01000 #b01000 #b01000 #b01001 #b11111)
+   #(#b11000 #b11000 #b11000 #b11000 #b11000 #b11000 #b11111)
    ;; M
-   #(#b11011 #b11011 #b10101 #b10101 #b10001 #b10001 #b11011)
+   #(#b10001 #b11011 #b11111 #b10101 #b10001 #b10001 #b10001)
    ;; N
-   #(#b10001 #b10001 #b11001 #b10101 #b10011 #b10001 #b10001)
+   #(#b10001 #b11001 #b11101 #b10111 #b10011 #b10001 #b10001)
    ;; O
-   #(#b01110 #b10001 #b10001 #b10001 #b10001 #b10001 #b01110)
+   #(#b01110 #b11011 #b11011 #b11011 #b11011 #b11011 #b01110)
    ;; P
-   #(#b11110 #b01001 #b01001 #b01110 #b01000 #b01000 #b11100)
+   #(#b11110 #b11011 #b11011 #b11110 #b11000 #b11000 #b11000)
    ;; Q
-   #(#b01110 #b10001 #b10001 #b10001 #b10101 #b10010 #b01101)
+   #(#b01110 #b11011 #b11011 #b11011 #b11011 #b01110 #b00011)
    ;; R
-   #(#b11110 #b01001 #b01001 #b01110 #b01010 #b01001 #b11011)
+   #(#b11110 #b11011 #b11011 #b11110 #b11011 #b11011 #b11011)
    ;; S
-   #(#b01111 #b10000 #b10000 #b01110 #b00001 #b00001 #b11110)
+   #(#b01111 #b11000 #b11000 #b01110 #b00011 #b00011 #b11110)
    ;; T
    #(#b11111 #b10101 #b00100 #b00100 #b00100 #b00100 #b01110)
    ;; U
-   #(#b11011 #b10001 #b10001 #b10001 #b10001 #b10001 #b01110)
+   #(#b11011 #b11011 #b11011 #b11011 #b11011 #b11011 #b01110)
    ;; V
-   #(#b11011 #b10001 #b10001 #b01010 #b01010 #b00100 #b00100)
+   #(#b11011 #b11011 #b11011 #b11011 #b11011 #b01110 #b00100)
    ;; W
-   #(#b10001 #b10001 #b10001 #b10101 #b10101 #b10101 #b01010)
+   #(#b10001 #b10001 #b10001 #b10101 #b11111 #b11011 #b10001)
    ;; X
-   #(#b11011 #b01010 #b00100 #b00100 #b00100 #b01010 #b11011)
+   #(#b11011 #b11011 #b01110 #b00100 #b01110 #b11011 #b11011)
    ;; Y
-   #(#b11011 #b01010 #b01010 #b00100 #b00100 #b00100 #b01110)
+   #(#b11011 #b11011 #b11011 #b01110 #b00100 #b00100 #b01110)
    ;; Z
-   #(#b11111 #b00001 #b00010 #b00100 #b01000 #b10000 #b11111)
+   #(#b11111 #b00011 #b00110 #b01100 #b11000 #b11000 #b11111)
    ;; [
-   #(#b01110 #b01000 #b01000 #b01000 #b01000 #b01000 #b01110)
+   #(#b01111 #b01100 #b01100 #b01100 #b01100 #b01100 #b01111)
    ;; backslash
-   #(#b00000 #b10000 #b01000 #b00100 #b00010 #b00001 #b00000)
+   #(#b10000 #b11000 #b01100 #b00110 #b00011 #b00001 #b00000)
    ;; ]
-   #(#b01110 #b00010 #b00010 #b00010 #b00010 #b00010 #b01110)
+   #(#b11110 #b00110 #b00110 #b00110 #b00110 #b00110 #b11110)
    ;; ^
-   #(#b00100 #b01010 #b10001 #b00000 #b00000 #b00000 #b00000)
+   #(#b00100 #b01110 #b11011 #b00000 #b00000 #b00000 #b00000)
    ;; _
    #(#b00000 #b00000 #b00000 #b00000 #b00000 #b00000 #b11111)
    ;; `
-   #(#b01000 #b00100 #b00010 #b00000 #b00000 #b00000 #b00000)
+   #(#b01100 #b00110 #b00000 #b00000 #b00000 #b00000 #b00000)
    ;; a
-   #(#b00000 #b00000 #b01110 #b00001 #b01111 #b10001 #b01111)
+   #(#b00000 #b00000 #b01110 #b00011 #b01111 #b11011 #b01111)
    ;; b
-   #(#b10000 #b10000 #b11110 #b10001 #b10001 #b10001 #b11110)
+   #(#b11000 #b11000 #b11110 #b11011 #b11011 #b11011 #b11110)
    ;; c
-   #(#b00000 #b00000 #b01110 #b10000 #b10000 #b10001 #b01110)
+   #(#b00000 #b00000 #b01111 #b11000 #b11000 #b11000 #b01111)
    ;; d
-   #(#b00001 #b00001 #b01111 #b10001 #b10001 #b10001 #b01111)
+   #(#b00011 #b00011 #b01111 #b11011 #b11011 #b11011 #b01111)
    ;; e
-   #(#b00000 #b00000 #b01110 #b10001 #b11111 #b10000 #b01110)
+   #(#b00000 #b00000 #b01110 #b11011 #b11111 #b11000 #b01111)
    ;; f
-   #(#b00110 #b01001 #b01000 #b11100 #b01000 #b01000 #b01000)
+   #(#b00111 #b01100 #b11110 #b01100 #b01100 #b01100 #b01100)
    ;; g
-   #(#b00000 #b01111 #b10001 #b10001 #b01111 #b00001 #b01110)
+   #(#b00000 #b01111 #b11011 #b11011 #b01111 #b00011 #b11110)
    ;; h
-   #(#b10000 #b10000 #b10110 #b11001 #b10001 #b10001 #b10001)
+   #(#b11000 #b11000 #b11110 #b11011 #b11011 #b11011 #b11011)
    ;; i
-   #(#b00100 #b00000 #b01100 #b00100 #b00100 #b00100 #b01110)
+   #(#b00110 #b00000 #b01110 #b00110 #b00110 #b00110 #b01111)
    ;; j
-   #(#b00010 #b00000 #b00110 #b00010 #b00010 #b10010 #b01100)
+   #(#b00011 #b00000 #b00011 #b00011 #b00011 #b11011 #b01110)
    ;; k
-   #(#b10000 #b10000 #b10010 #b10100 #b11000 #b10100 #b10010)
+   #(#b11000 #b11000 #b11011 #b11110 #b11100 #b11110 #b11011)
    ;; l
-   #(#b01100 #b00100 #b00100 #b00100 #b00100 #b00100 #b01110)
+   #(#b01110 #b00110 #b00110 #b00110 #b00110 #b00110 #b01111)
    ;; m
-   #(#b00000 #b00000 #b11010 #b10101 #b10101 #b10101 #b10101)
+   #(#b00000 #b00000 #b11011 #b11111 #b10101 #b10101 #b10101)
    ;; n
-   #(#b00000 #b00000 #b10110 #b11001 #b10001 #b10001 #b10001)
+   #(#b00000 #b00000 #b11110 #b11011 #b11011 #b11011 #b11011)
    ;; o
-   #(#b00000 #b00000 #b01110 #b10001 #b10001 #b10001 #b01110)
+   #(#b00000 #b00000 #b01110 #b11011 #b11011 #b11011 #b01110)
    ;; p
-   #(#b00000 #b00000 #b11110 #b10001 #b11110 #b10000 #b10000)
+   #(#b00000 #b00000 #b11110 #b11011 #b11011 #b11110 #b11000)
    ;; q
-   #(#b00000 #b00000 #b01111 #b10001 #b01111 #b00001 #b00001)
+   #(#b00000 #b00000 #b01111 #b11011 #b11011 #b01111 #b00011)
    ;; r
-   #(#b00000 #b00000 #b10110 #b11001 #b10000 #b10000 #b10000)
+   #(#b00000 #b00000 #b11011 #b11101 #b11000 #b11000 #b11000)
    ;; s
-   #(#b00000 #b00000 #b01110 #b10000 #b01110 #b00001 #b11110)
+   #(#b00000 #b00000 #b01111 #b11000 #b01110 #b00011 #b11110)
    ;; t
-   #(#b01000 #b01000 #b11100 #b01000 #b01000 #b01001 #b00110)
+   #(#b01100 #b01100 #b11110 #b01100 #b01100 #b01101 #b00110)
    ;; u
-   #(#b00000 #b00000 #b10001 #b10001 #b10001 #b10011 #b01101)
+   #(#b00000 #b00000 #b11011 #b11011 #b11011 #b11011 #b01111)
    ;; v
-   #(#b00000 #b00000 #b10001 #b10001 #b10001 #b01010 #b00100)
+   #(#b00000 #b00000 #b11011 #b11011 #b11011 #b01110 #b00100)
    ;; w
-   #(#b00000 #b00000 #b10001 #b10001 #b10101 #b10101 #b01010)
+   #(#b00000 #b00000 #b10101 #b10101 #b10101 #b11111 #b01010)
    ;; x
-   #(#b00000 #b00000 #b10001 #b01010 #b00100 #b01010 #b10001)
+   #(#b00000 #b00000 #b11011 #b01110 #b00100 #b01110 #b11011)
    ;; y
-   #(#b00000 #b00000 #b10001 #b10001 #b01111 #b00001 #b01110)
+   #(#b00000 #b00000 #b11011 #b11011 #b01111 #b00011 #b01110)
    ;; z
-   #(#b00000 #b00000 #b11111 #b00010 #b00100 #b01000 #b11111)
+   #(#b00000 #b00000 #b11111 #b00110 #b01100 #b11000 #b11111)
    ;; {
-   #(#b00010 #b00100 #b00100 #b01000 #b00100 #b00100 #b00010)
+   #(#b00011 #b00110 #b00110 #b01100 #b00110 #b00110 #b00011)
    ;; |
-   #(#b00100 #b00100 #b00100 #b00100 #b00100 #b00100 #b00100)
+   #(#b01100 #b01100 #b01100 #b01100 #b01100 #b01100 #b01100)
    ;; }
-   #(#b01000 #b00100 #b00100 #b00010 #b00100 #b00100 #b01000)
+   #(#b11000 #b01100 #b01100 #b00110 #b01100 #b01100 #b11000)
    ;; ~
    #(#b00000 #b00000 #b01000 #b10101 #b00010 #b00000 #b00000)))
 
@@ -439,30 +450,47 @@
         *microfont-small-fallback*)))
 
 (defun microfont-text-width (text)
-  "Pixel width of TEXT in the microfont (one 6px cell per character)."
+  "Pixel width of TEXT in the bold face (one 8px cell per character)."
   (* +microfont-advance+ (length text)))
 
-(defun microfont-line (text fg bg &key width)
-  "TEXT rendered as a chunky pen buffer: (VALUES PENS W H) where PENS
-is a row-major (unsigned-byte 8) vector of W x H pen indices — glyph
-pixels FG on a field of BG.  W is (MICROFONT-TEXT-WIDTH TEXT) or the
+(defun microfont-small-text-width (text)
+  "Pixel width of TEXT in the small face (one 6px cell per character)."
+  (* +microfont-small-advance+ (length text)))
+
+(defun %microfont-render (text fg bg width glyph-fn glyph-width advance)
+  "The line renderer both faces share: (VALUES PENS W H) where PENS is
+a row-major (unsigned-byte 8) vector of W x H pen indices — glyph
+pixels FG on a field of BG.  W is ADVANCE per character or the
 explicit WIDTH (longer text is cut, shorter padded with BG); H is
-+MICROFONT-LINE-HEIGHT+.  The Amiga front-end feeds this straight to
-AMIGA.GFX:WRITE-CHUNKY."
-  (let* ((w (max 1 (or width (microfont-text-width text))))
++MICROFONT-LINE-HEIGHT+ — both faces are seven rows on an eight-row
+cell."
+  (let* ((w (max 1 (or width (* advance (length text)))))
          (h +microfont-line-height+)
          (pens (make-array (* w h) :element-type '(unsigned-byte 8)
                                    :initial-element bg)))
     (dotimes (i (length text))
-      (let ((x0 (* i +microfont-advance+)))
+      (let ((x0 (* i advance)))
         (when (>= x0 w) (return))
-        (let ((rows (microfont-glyph (char text i))))
+        (let ((rows (funcall glyph-fn (char text i))))
           (dotimes (row +microfont-glyph-height+)
             (let ((bits (aref rows row)))
-              (dotimes (col +microfont-glyph-width+)
+              (dotimes (col glyph-width)
                 (let ((x (+ x0 col)))
                   (when (and (< x w)
-                             (logbitp (- +microfont-glyph-width+ 1 col)
-                                      bits))
+                             (logbitp (- glyph-width 1 col) bits))
                     (setf (aref pens (+ (* row w) x)) fg)))))))))
     (values pens w h)))
+
+(defun microfont-line (text fg bg &key width)
+  "TEXT rendered as a chunky pen buffer in the bold face — see
+%MICROFONT-RENDER for the values.  The Amiga front-end feeds this
+straight to AMIGA.GFX:WRITE-CHUNKY."
+  (%microfont-render text fg bg width #'microfont-glyph
+                     +microfont-glyph-width+ +microfont-advance+))
+
+(defun microfont-small-line (text fg bg &key width)
+  "TEXT rendered as a chunky pen buffer in the compact small face —
+the map page's type (its 6px advance keeps the legend and footer out
+of the map's way where the bold face's 8px would crowd it)."
+  (%microfont-render text fg bg width #'microfont-small-glyph
+                     +microfont-small-width+ +microfont-small-advance+))

@@ -2069,39 +2069,49 @@ height" d)
        (lines (hero-summary-lines h)))
   (check "sheet has six lines" 6 (length lines))
   (check "sheet name/class line" "El Cid the War Mage" (first lines))
-  (check "sheet level/xp line" "Level 3    XP 1200" (second lines))
-  (check "sheet hp/ac line" "HP 9/11    AC 8" (third lines))
-  (check "sheet primary stats line" "STR 15  DEX 12  IQ 9" (fourth lines))
-  (check "sheet secondary stats line" "CON 14  LCK 10" (fifth lines))
+  (check "sheet level/xp line" "Level 3  XP 1200" (second lines))
+  (check "sheet hp/ac line" "HP 9/11  AC 8" (third lines))
+  (check "sheet primary stats line" "STR 15 DEX 12 IQ 9" (fourth lines))
+  (check "sheet secondary stats line" "CON 14 LCK 10" (fifth lines))
   (check "sheet gold line, standing" "Gold 250 gp" (sixth lines))
   ;; the pack is not on the sheet — it lists on its own page
-  ;; (EQUIP-LINES, the sheet's 'e')
+  ;; (EQUIP-LINES, the sheet's 'i')
   (check "the sheet carries no pack line" nil
          (find-if (lambda (s) (search "Pack" s)) lines)))
 ;; a downed hero is flagged on the gold line
-(check "sheet marks a downed hero" "Gold 0 gp   (down)"
+(check "sheet marks a downed hero" "Gold 0 gp (down)"
        (sixth (hero-summary-lines
                (%make-hero :name "x" :class :war-mage :hp 0))))
+;; the block's width discipline: every line stays within 20 cells
+;; even at worst-case values — three-digit points, a negative AC, a
+;; rich dead hero — well inside the lores takeover's 27 small-face
+;; cells, so the block never wraps mid-figure
+(let ((h (%make-hero :name "Maximus" :race :dwarf :class :war-mage
+                     :level 99 :xp 999999 :max-hp 999 :hp 0
+                     :str 18 :dex 18 :iq 18 :con 18 :lck 18
+                     :ac -12 :gold 99999)))
+  (check "worst-case sheet lines fit the lores takeover column" nil
+         (find-if (lambda (s) (> (length s) 20))
+                  (hero-summary-lines h))))
 
-;; The character-sheet page (HERO-SHEET-LINES): header, the summary
-;; block, the key hints — the front-ends (the Amiga message-area
+;; The character-sheet page (HERO-SHEET-LINES): the summary block and
+;; the key hints, a blank line between — no header; the roster pane
+;; already shows who is who.  The front-ends (the Amiga message-area
 ;; takeover, the host :sheet mode) draw these verbatim.
 (let* ((m (parse-map *art* :name "test"))
        (g (new-game m :party (with-rng ()
                                (list (make-hero "A" :tester)
                                      (make-hero "B" :tester)))))
        (lines (hero-sheet-lines g 1)))
-  (check "sheet page header counts the roster" "*** Character 2 of 2 ***"
+  (check "sheet page opens straight on the summary block" "B the Tester"
          (first lines))
-  (check "sheet page embeds the summary block" "B the Tester"
-         (third lines))
   ;; the sheet names only its own keys, bracket-free, each row a
   ;; clickable option with a blank line between them; the digit pick,
   ;; scrolling and Esc live on the help screen
   (check "sheet page ends with the sheet's own keys, aired one per row"
-         (list (menu-option #\e "Equip pack")
+         (list (menu-option #\i "Inventory")
                ""
-               (menu-option #\g "Gold pool")
+               (menu-option #\p "Pool gold")
                ""
                (menu-option #\t "Trade gold")
                ""
@@ -2182,13 +2192,18 @@ height" d)
 (check "race-title hyphenates half-elf" "Half-Elf" (race-title :half-elf))
 (check "race-title capitalizes dwarf"   "Dwarf"    (race-title :dwarf))
 
-;; The character sheet names the race before the class when present, and
-;; stays "Name the Class" for a raceless hero.  (:tester is a registered
-;; class, so HERO-SUMMARY-LINES can read its caster/singer flags.)
-(check "sheet names race before class" "Grod the Dwarf Tester"
-       (first (hero-summary-lines
-               (%make-hero :name "Grod" :race :dwarf :class :tester))))
-(check "sheet omits the race when there is none" "Nym the Tester"
+;; The character sheet names the race on the name line and steps the
+;; class onto its own line — "Name the Race Class" could overrun the
+;; lores takeover column; a raceless hero stays "Name the Class" on
+;; one line.  (:tester is a registered class, so HERO-SUMMARY-LINES
+;; can read its caster/singer flags.)
+(let ((lines (hero-summary-lines
+              (%make-hero :name "Grod" :race :dwarf :class :tester))))
+  (check "sheet names the race on the name line" "Grod the Dwarf"
+         (first lines))
+  (check "the raced hero's class steps onto its own line" "Tester"
+         (second lines)))
+(check "sheet names the class when there is no race" "Nym the Tester"
        (first (hero-summary-lines
                (%make-hero :name "Nym" :class :tester))))
 
@@ -2887,10 +2902,11 @@ height" d)
   (check "caster starts at full sp" 6 (hero-sp mage))
   (check-true "a plain class hero is no caster" (not (hero-caster-p grunt)))
   (check "non-caster has no sp" 0 (hero-max-sp grunt))
-  (check-true "caster sheet shows sp"
-              (search "SP 6/6" (third (hero-summary-lines mage))))
+  (check "caster sheet shows sp on its own line" "SP 6/6"
+         (fourth (hero-summary-lines mage)))
   (check-true "non-caster sheet stays sp-free"
-              (not (search "SP" (third (hero-summary-lines grunt))))))
+              (not (find-if (lambda (s) (search "SP " s))
+                            (hero-summary-lines grunt)))))
 
 ;; Leveling grows sp like hp: the new maximum arrives ready to burn.
 (let* ((m (parse-map *art* :name "test"))
@@ -3067,8 +3083,9 @@ height" d)
   (check-true "non-singers know nothing" (not (song-known-p grunt 'test-march)))
   (check "known songs in registration order" '(test-march test-gleam)
          (songs-for-hero bard))
-  (check "the singer's sheet shows the tunes" "HP 1/1  Tunes 1/1  AC 9"
-         (third (hero-summary-lines bard))))
+  (check "the singer's sheet shows the tunes on their own line"
+         "Tunes 1/1"
+         (fourth (hero-summary-lines bard))))
 
 ;; SING-SONG: refusals say why; a song is a timed :SONG-marked effect
 ;; and a new song displaces the old (one tune at a time).
@@ -5709,14 +5726,14 @@ height" d)
   (move-party g :forward)               ; into the shop
   (check-true "pick page shows the shop name"
               (search "The Test Shoppe" (first (shop-lines g view))))
-  (check-true "pick page asks who shops"
-              (find-if (lambda (s) (search "Who is shopping?" s))
+  ;; the pick page is a bare prompt naming the digit range — the
+  ;; roster pane already lists the party (the temple-lines pattern)
+  (check-true "pick page asks who shops, naming the range"
+              (find-if (lambda (s) (search "Who is shopping?  (1)" s))
                        (menu-texts (shop-lines g view))))
-  (check "the hero row carries its pick key" #\1
-         (menu-line-key
-          (find-if (lambda (line)
-                     (search "1) " (menu-line-text line)))
-                   (shop-lines g view))))
+  (check "the pick page repeats no roster names" nil
+         (find-if (lambda (s) (search (hero-name h) s))
+                  (menu-texts (shop-lines g view))))
   (check "digit picks the hero" nil (shop-act g view #\1))
   (check-true "hero selected" (eq h (shop-view-hero view)))
   (check-true "buy page lists the stock priced"
@@ -5773,6 +5790,17 @@ height" d)
          (shop-act g view #\Escape))
   (check "location closed by the model" nil (game-location g)))
 
+;; More than one hero: the bare prompt names the whole digit range.
+(let* ((g (new-game (parse-map *art* :name "test")
+                    :party (with-rng () (list (make-hero "A" :tester)
+                                              (make-hero "B" :tester)))))
+       (view (make-shop-view)))
+  (enter-location g '("The Range" :shop :stock (t-sword)))
+  (check-true "the prompt spans the roster"
+              (find-if (lambda (s) (search "Who is shopping?  (1-2)" s))
+                       (menu-texts (shop-lines g view))))
+  (leave-location g))
+
 ;; The shop marks stock (and pack) items the shopper's class cannot
 ;; use — buying stays allowed (another hero may carry it), the marker
 ;; just warns before the gold is gone.
@@ -5800,7 +5828,7 @@ height" d)
                        (menu-texts (shop-lines g view))))
   (leave-location g))
 
-;; 'g' pools the party's gold onto the shopper — offered on both shop
+;; 'p' pools the party's gold onto the shopper — offered on both shop
 ;; pages, so a hero short of a purchase can draw on the party purse.
 (let* ((a (with-rng () (make-hero "A" :tester)))
        (b (with-rng () (make-hero "B" :tester)))
@@ -5810,17 +5838,17 @@ height" d)
   (enter-location g '("The Vault" :shop :stock (t-sword)))
   (shop-act g view #\1)                 ; A shops
   (check-true "the buy footer offers pooling"
-              (member (menu-option #\g "Gold pool")
+              (member (menu-option #\p "Pool gold")
                       (shop-lines g view) :test #'equal))
-  (check "g pools onto the shopper" nil (shop-act g view #\g))
+  (check "p pools onto the shopper" nil (shop-act g view #\p))
   (check "the shopper holds the party's gold" 45 (hero-gold a))
   (check "the partner's purse is empty" 0 (hero-gold b))
   (shop-act g view #\s)
   (check-true "the sell footer offers pooling too"
-              (member (menu-option #\g "Gold pool")
+              (member (menu-option #\p "Pool gold")
                       (shop-lines g view) :test #'equal))
   (setf (hero-gold b) 7)
-  (check "G pools from the sell page too" nil (shop-act g view #\G))
+  (check "P pools from the sell page too" nil (shop-act g view #\P))
   (check "the sell-page pool lands" 52 (hero-gold a))
   (leave-location g))
 
@@ -5965,15 +5993,15 @@ height" d)
 (let* ((m (parse-map *art* :name "test"))
        (h (%combat-hero))
        (g (new-game m :party (list h))))
-  ;; the pack left the sheet for its own page ('e' — EQUIP-LINES),
+  ;; the pack left the sheet for its own page ('i' — EQUIP-LINES),
   ;; so even a full pack no longer grows or scrolls the stat block
   (check "the sheet carries no pack row" nil
          (find-if (lambda (s) (search "Pack" s))
                   (menu-texts (hero-sheet-lines g 0))))
   (check "the sheet keeps its own keys, aired one per row"
-         (list (menu-option #\e "Equip pack")
+         (list (menu-option #\i "Inventory")
                ""
-               (menu-option #\g "Gold pool")
+               (menu-option #\p "Pool gold")
                ""
                (menu-option #\t "Trade gold")
                ""
@@ -7645,7 +7673,8 @@ never its own"
                            '(:no :name :ac :hit :hpts :spl :spts :cl))))))
 
 ;;; ---------------------------------------------------------------------
-;;; The microfont: the message log's bold 7x7 pixel font.
+;;; The microfont: the engine's own pixel faces — the 7x7 display
+;;; face, and the condensed bold 5x7 small face the pages set.
 
 (check "microfont advance is 8 pixels" 8 +microfont-advance+)
 (check "microfont line height is 8 pixels" 8 +microfont-line-height+)
@@ -7663,8 +7692,9 @@ never its own"
 (check-true "non-ASCII falls back to the box"
             (eq *microfont-fallback* (microfont-glyph (code-char 200))))
 
-;; The small face: compact 5x7 glyphs for the automap's cell letters,
-;; where the bold face's 8px advance cannot enter a 7px cell.
+;; The small face: condensed bold 5x7 glyphs on a 6px advance — the
+;; engine's page face (log, takeover, overlay menus, the whole map
+;; page), with the metrics of the actual Bard's Tale II text.
 (check "small face advance is 6 pixels" 6 +microfont-small-advance+)
 (check-true "small glyph T carries its serifs"
             (equalp #(#b11111 #b10101 #b00100 #b00100
@@ -7699,6 +7729,18 @@ never its own"
   (check "padded buffer is all background" 0
          (loop for p across pens maximize p))
   (check "padded height" 8 h))
+
+;; The small face renders through the same path at its 6px advance.
+(check "small face text width" 30 (microfont-small-text-width "hello"))
+(multiple-value-bind (pens w h) (microfont-small-line "T" 7 2)
+  (check "small rendered width of one glyph cell" 6 w)
+  (check "small rendered height is the line height" 8 h)
+  ;; row 0 of small 'T' is the 11111 top bar, then the spacing column
+  (check "small top row pixels" '(7 7 7 7 7 2)
+         (loop for x below 6 collect (aref pens x)))
+  ;; row 7 is the spacing row
+  (check "small spacing row is background" '(2 2 2 2 2 2)
+         (loop for x below 6 collect (aref pens (+ (* 7 6) x)))))
 
 ;;; ---------------------------------------------------------------------
 ;;; Amiga front-end smoke tests in a window on the Workbench screen.
@@ -7966,7 +8008,7 @@ never its own"
                 ;; microfont geometry, like the takeover below)
                 (let* ((*hotspots* '())
                        (lh +microfont-line-height+)
-                       (cw +microfont-advance+)
+                       (cw +microfont-small-advance+)
                        (px (+ (ui-layout-bx l) 4))
                        (py (+ (ui-layout-by l) 4))
                        (max-chars (floor (- (ui-layout-fp-w l) 16) cw))
@@ -7988,7 +8030,7 @@ never its own"
                        (oy (ui-layout-by l))
                        (max-chars (max 4 (floor (- (ui-layout-log-w l)
                                                    4)
-                                                +microfont-advance+)))
+                                                +microfont-small-advance+)))
                        (page-rows (max 1 (floor (- (ui-layout-page-b l)
                                                    oy 2)
                                                 +microfont-line-height+)))
@@ -8130,6 +8172,12 @@ never its own"
                (%amiga-draw-band rp g l)
                (%amiga-draw-log rp log l)
                (%amiga-party rp g l)
+               ;; the map page (all small-face type) and the wide
+               ;; save/load page draw on the custom screen too
+               (%amiga-draw-map-page rp g l nil)
+               (%amiga-draw-page rp (save-menu-lines
+                                     g (make-save-menu :save))
+                                 l nil t)
                ;; the view-column picture contract, on the game's own
                ;; screen: a real ILBM draws and centers; a missing
                ;; file defers to the caller (falls back to the

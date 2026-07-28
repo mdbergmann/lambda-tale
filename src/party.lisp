@@ -182,33 +182,35 @@ first two words of a multi-word class, else the first two letters —
 (defun hero-summary-lines (hero)
   "The character sheet as a list of text lines — the stat block a
 player sees when they open a roster slot.  The pack is not in it: that
-lists on its own page (EQUIP-LINES, the sheet's 'e').  Pure (no I/O),
-so both the Amiga sheet view and the tests render from the same
-source."
-  (list
-   ;; "Name the [Race] Class" — the race sits before the class when the
-   ;; hero has one, "Name the Class" when raceless.
-   (format nil "~A the ~@[~A ~]~A" (hero-name hero)
-           (hero-race-title hero) (hero-class-title hero))
-   (format nil "Level ~D    XP ~D" (hero-level hero) (hero-xp hero))
-   (let ((extras (concatenate
-                  'string
-                  (if (hero-caster-p hero)
-                      (format nil "  SP ~D/~D"
-                              (hero-sp hero) (hero-max-sp hero))
-                      "")
-                  (if (hero-singer-p hero)
-                      (format nil "  Tunes ~D/~D"
-                              (hero-tunes hero) (hero-max-tunes hero))
-                      ""))))
-     (format nil "HP ~D/~D~A~:[    ~;  ~]AC ~D"
-             (hero-hp hero) (hero-max-hp hero) extras
-             (plusp (length extras)) (hero-ac hero)))
-   (format nil "STR ~D  DEX ~D  IQ ~D"
-           (hero-str hero) (hero-dex hero) (hero-iq hero))
-   (format nil "CON ~D  LCK ~D" (hero-con hero) (hero-lck hero))
-   (format nil "Gold ~D gp~@[   ~A~]" (hero-gold hero)
-           (unless (hero-alive-p hero) "(down)"))))
+lists on its own page (EQUIP-LINES, the sheet's 'i').  Every line
+stays within 20 character cells at worst-case values (three-digit
+hit/spell points, a negative AC), well inside the lores message-area
+takeover's 27 small-face cells, so the block never wraps mid-figure;
+a raced hero's class steps onto its own line for the same reason.
+Pure (no I/O), so both the Amiga sheet view and the tests render from
+the same source."
+  (append
+   ;; "Name the Race" with the class under it — or "Name the Class"
+   ;; on one line when the hero is raceless
+   (if (hero-race-title hero)
+       (list (format nil "~A the ~A" (hero-name hero)
+                     (hero-race-title hero))
+             (hero-class-title hero))
+       (list (format nil "~A the ~A" (hero-name hero)
+                     (hero-class-title hero))))
+   (list (format nil "Level ~D  XP ~D" (hero-level hero) (hero-xp hero))
+         (format nil "HP ~D/~D  AC ~D"
+                 (hero-hp hero) (hero-max-hp hero) (hero-ac hero)))
+   (when (hero-caster-p hero)
+     (list (format nil "SP ~D/~D" (hero-sp hero) (hero-max-sp hero))))
+   (when (hero-singer-p hero)
+     (list (format nil "Tunes ~D/~D"
+                   (hero-tunes hero) (hero-max-tunes hero))))
+   (list (format nil "STR ~D DEX ~D IQ ~D"
+                 (hero-str hero) (hero-dex hero) (hero-iq hero))
+         (format nil "CON ~D LCK ~D" (hero-con hero) (hero-lck hero))
+         (format nil "Gold ~D gp~@[ ~A~]" (hero-gold hero)
+                 (unless (hero-alive-p hero) "(down)")))))
 
 (defun hero-image (hero)
   "HERO's portrait file name (the class's :IMAGE), or NIL."
@@ -228,20 +230,18 @@ page (EQUIP-LINES), so today's block fits; the window guards the
 sheet against a future longer one.")
 
 (defun hero-sheet-lines (game index &optional (top 0) ordering)
-  "The character-sheet page for roster slot INDEX as text lines: a
-header, the hero's stat block (windowed at scroll offset TOP when it
-overflows +SHEET-PAGE-SIZE+ rows, with clickable more-markers) and the
-sheet's own key hints — the front-ends draw these verbatim (the
-SHOP-LINES pattern) and feed u/d through HERO-SHEET-SCROLL.  ORDERING
-true is the marching-order pick ('o'): the hints give way to the
-where-to prompt, a digit there moves the hero (MOVE-HERO) and Esc
+  "The character-sheet page for roster slot INDEX as text lines: the
+hero's stat block (windowed at scroll offset TOP when it overflows
++SHEET-PAGE-SIZE+ rows, with clickable more-markers) and the sheet's
+own key hints, a blank line between the two — no header; the roster
+pane already shows who is who.  The front-ends draw these verbatim
+(the SHOP-LINES pattern) and feed u/d through HERO-SHEET-SCROLL.
+ORDERING true is the marching-order pick ('o'): the hints give way to
+the where-to prompt, a digit there moves the hero (MOVE-HERO) and Esc
 cancels."
   (let* ((hero (nth index (game-party game)))
          (body (when hero (hero-summary-lines hero))))
     (append
-     (list (format nil "*** Character ~D of ~D ***"
-                   (1+ index) (length (game-party game)))
-           "")
      (when hero
        (menu-scrolled-lines body top
                             (lambda (i line)
@@ -256,9 +256,9 @@ cancels."
          (list ""
                (format nil "Move ~A where?" (hero-name hero)))
          (list ""
-               (menu-option #\e "Equip pack")
+               (menu-option #\i "Inventory")
                ""
-               (menu-option #\g "Gold pool")
+               (menu-option #\p "Pool gold")
                ""
                (menu-option #\t "Trade gold")
                ""

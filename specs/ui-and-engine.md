@@ -84,7 +84,7 @@ campaign data, never as code that knows about "the" town.
   is testable on the host.  Keys: `1`-`7` pick the shopping hero,
   `1`-`9` buy/sell, `s`/`b` flip the page, `i` inspect stock (the
   item card, before any gold is spent), `Esc` back/leave.
-- Gold moves both ways (2026-07-26): `g` (sheet and shop pages) pools
+- Gold moves both ways (2026-07-26): `p` (sheet and shop pages) pools
   the party's gold onto one hero (`pool-gold`), and the sheet's `t`
   trades it back out — pick who receives, type the sum (digits,
   Backspace, Return — the save menu's text-entry manners), Esc backs
@@ -96,7 +96,7 @@ campaign data, never as code that knows about "the" town.
   `(TEXT . KEY)` (`menu-option`/`menu-numbered`, accessors
   `menu-line-text`/`menu-line-key` in events.lisp), plain lines stay
   strings.  Since 2026-07-25 a page names **only its own keys** as
-  plain words whose first letter is the key (`Sell`, `Gold pool`),
+  plain words whose first letter is the key (`Sell`, `Pool gold`),
   each such row a `menu-option` so it clicks, **one option per row**;
   the common navigation (digit picks, `Esc`, `u`/`d` scrolling,
   `+`/`-` speed) lives on the help screen instead of on every page.
@@ -177,10 +177,12 @@ profile, not a patch.)
   bottom, older lines scrolling up, exactly like Bard's Tale's text
   column.  Backed by the engine's `attach-message-log` ring
   (`:message` events); front-ends render as many trailing lines as
-  fit.  On the Amiga the log renders in the engine's own **7x7
-  microfont** (src/microfont.lisp — 8x8 cells, rendered once per
-  distinct line into a cached offscreen bitmap and blitted), smaller
-  than topaz 8 so the narrow column holds more text.
+  fit.  On the Amiga the log renders in the engine's own **condensed
+  bold microfont** (src/microfont.lisp — the 5x7 small face on 6x8
+  cells, rendered once per distinct line into a cached offscreen
+  bitmap and blitted; since 2026-07-26, matching the ~6px advance of
+  the actual Bard's Tale II text), well under topaz 8's 8px so the
+  narrow column holds more text.
 - **Effect strip** (below the log page, separated by a small gap, on
   the grey chrome; the profiles keep it **20px** — just clearing the
   16px icons, so the log page above gets the room): the party's
@@ -264,16 +266,17 @@ with pictures in the view column.)
 - The **cast/use/sing menus and the save picker keep the overlay
   page** over the view column (`%amiga-draw-page`) — they can open in
   combat, where the log must stay readable for the transcript.  The
-  page draws in the same **7x7 microfont** as the log and the
+  page draws in the same **condensed small face** as the log and the
   takeover, so the whole UI carries one type size and a long slot or
   spell list fits the lo-res page.  The
   full-page sheet overlay (`%amiga-draw-sheet`) stays available as a
   drawing primitive but the play flow uses the takeover.
-- The sheet content is the platform-free `hero-sheet-lines` (header,
-  the stat block with the pack expanded to one row per item, key
-  hints); the host UI shows it as its `:sheet` mode under the same
-  keys (`1`-`7` switch, `u`/`d` scroll a long stat block, `Esc`
-  back).
+- The sheet content is the platform-free `hero-sheet-lines` (the stat
+  block — every line within 20 cells at worst-case values, inside the
+  lores takeover's 27 — then a blank line and the key hints; no
+  header, the roster pane already shows who is who); the host UI shows it as
+  its `:sheet` mode under the same keys (`1`-`7` switch, `u`/`d`
+  scroll a long stat block, `Esc` back).
 
 ## Full map view (`m`)
 
@@ -296,10 +299,10 @@ with pictures in the view column.)
   compass effect burns — and the game clock on the first line, the map
   size (and the `FULL` marker) on the second.  No key hints — those
   live on the help page.
-- The whole map page is drawn in the microfont — legend and footer in
-  the bold **7x7** face, the cell glyphs in the compact **5x7 small
-  face** (`microfont-small-glyph`), whose 6px advance still enters the
-  7px cells a 30x30 city draws at lores.
+- The whole map page is drawn in the same **5x7 small face** as every
+  other page — legend, footer and cell glyphs alike
+  (`microfont-small-glyph`); its 6px advance still enters the 7px
+  cells a 30x30 city draws at lores.
 - `f` inside map mode toggles the omniscient debug view (full map
   regardless of knowledge); it exists for development, not gameplay.
 - `h`/`?` opens the **help page** (the key reference, `help-lines`)

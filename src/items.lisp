@@ -23,7 +23,7 @@
 ;;; leaves the pack on use, and :IMAGE names the effects-band icon of
 ;;; the installed effect.  The use interaction (USE-VIEW / USE-LINES /
 ;;; USE-ACT, the SHOP-VIEW pattern) lives here too, driven by both
-;;; front-ends, and so does the pack page (EQUIP-VIEW — 'e' on the
+;;; front-ends, and so does the pack page (EQUIP-VIEW — 'i' on the
 ;;; character sheet): a digit toggles a pack item on/off, class-unfit
 ;;; items are marked, 'p' hands an item to another party member
 ;;; (PASS-ITEM), and 'i' inspects one — the item card, the item's
@@ -330,7 +330,7 @@ of every equipped item — and, when GAME is given, minus the party-wide
     ac))
 
 ;;; ---------------------------------------------------------------------
-;;; The pack page (opened from the character sheet with 'e' — the
+;;; The pack page (opened from the character sheet with 'i' — the
 ;;; SHOP-VIEW pattern): the hero's pack as a numbered list, a digit
 ;;; toggles that item on/off, unfit items carry the (unfit) marker.
 ;;; 'p' hands an item to another party member and 'i' inspects one

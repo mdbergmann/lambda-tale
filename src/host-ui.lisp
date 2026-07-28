@@ -12,12 +12,12 @@
 ;;; OK?" — y fights the round, n throws them away and asks again from
 ;;; the first hero.  Each message of the round lingers
 ;;; COMBAT-MESSAGE-DELAY seconds.
-;;; On the character sheet: e=the pack page (1-9 toggle an item
+;;; On the character sheet: i=the pack page (1-9 toggle an item
 ;;;   on/off, class-unfit items are marked; p=hand an item to another
 ;;;   party member — 1-9 the item, then 1-7 who receives it)
-;;;   g=pool the party's gold onto the hero
+;;;   p=pool the party's gold onto the hero
 ;;;   o=marching order (a digit moves the hero to that slot)  Esc=back
-;;; In a location (shop): 1-9=choose  s/b=sell/buy page  g=pool gold
+;;; In a location (shop): 1-9=choose  s/b=sell/buy page  p=pool gold
 ;;;   onto the shopper  Esc=back/leave
 ;;; In the cast menu: 1-9=choose caster/spell/target  Esc=back/cancel
 ;;; Long menu lists (shop stock, packs, the character sheet) scroll
@@ -394,13 +394,13 @@ engine has no default world; the game names its starting map."
                     (cond ((and digit (<= 1 digit +party-limit+))
                            (open-sheet (1- digit)))
                           (top (setf sheet-top top) nil)
-                          ((member c '(#\e #\E))
+                          ((member c '(#\i #\I))
                            (let ((hero (nth sheet-hero
                                             (game-party game))))
                              (when hero
                                (setf equip (make-equip-view hero))))
                            nil)
-                          ((member c '(#\g #\G))
+                          ((member c '(#\p #\P))
                            (let ((hero (nth sheet-hero
                                             (game-party game))))
                              (when hero

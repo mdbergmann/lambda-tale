@@ -110,7 +110,7 @@
    #:equip-item #:unequip-item #:equipped-of-kind
    #:toggle-equip #:hero-attack-dice #:hero-missile-dice
    #:hero-effective-ac
-   ;; the pack page ('e' on the character sheet — equip, 'p' to hand
+   ;; the pack page ('i' on the character sheet — equip, 'p' to hand
    ;; an item to another party member, 't' to throw one away)
    #:make-equip-view #:equip-view-hero #:equip-view-top
    #:equip-view-mode #:equip-view-pending
@@ -176,11 +176,12 @@
    #:help-lines
    ;; keyboard input normalization (see src/keys.lisp)
    #:vanilla-key-char
-   ;; the microfont (the message log's bold 7x7 pixel font, plus the
-   ;; compact 5x7 small face for the automap's cell letters)
+   ;; the microfont (the 7x7 display face, plus the condensed bold
+   ;; 5x7 small face the engine's pages actually set)
    #:+microfont-advance+ #:+microfont-line-height+
    #:microfont-glyph #:microfont-text-width #:microfont-line
    #:+microfont-small-advance+ #:microfont-small-glyph
+   #:microfont-small-text-width #:microfont-small-line
    ;; debug log (timestamped trace file, see src/debug-log.lisp)
    #:*debug-log-path* #:debug-log-enable #:debug-log-disable
    #:debug-log-enabled-p #:dlog #:dlog-timed
