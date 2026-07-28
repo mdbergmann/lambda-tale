@@ -251,14 +251,17 @@ streets stay quiet."
   "Apply DMG to MONSTER with the hit/slay transcript — shared by melee
 and damage spells so the log reads the same either way.  The verbs are
 CAPITALS on purpose: landed damage must stand out when the transcript
-scrolls by, while misses stay lowercase and quiet."
+scrolls by, while misses stay lowercase and quiet.  A hit that leaves
+the monster standing names its remaining hit points — the party can
+read how close the kill is."
   (let ((type (monster-kind monster)))
     (decf (monster-hp monster) dmg)
     (if (monster-alive-p monster)
         (progn
           (emit game :hit monster dmg)
-          (say game "~A HITS the ~A for ~D damage."
-               attacker-name (monster-type-name type) dmg))
+          (say game "~A HITS the ~A for ~D damage (~D hp left)."
+               attacker-name (monster-type-name type) dmg
+               (monster-hp monster)))
         (progn
           (emit game :slay monster)
           (say game "~A SLAYS the ~A!"
@@ -525,21 +528,32 @@ enemy the party faces, one row per living group."
 
 (defun %orders-hero-lines (game view)
   "The page that asks ONE hero for its order: the head block, the hero
-at hand, and the actions — the one choice the page cannot proceed
-without, so they stay on it, first letter as the key (no bracket
-noise).  The navigation keys (Esc undo, +/- speed) are common
-knowledge and live on the help screen instead.  The footer is two
-short rows on purpose: the page draws in the message column (the
-Amiga takeover), 27 characters wide at lores, and a row that has to
-wrap costs a line.  Every row here fits that column whole."
-  (append
-   (%orders-head-lines game)
-   (list ""
-         (format nil "What will ~A do?"
-                 (hero-name (combat-orders-hero game view))))
-   (list ""
-         "Attack  Defend  Cast"
-         "Play  Use  Flee")))
+at hand, and the actions — one per row, first letter as the key (no
+bracket noise), and only the actions this hero can actually take: an
+:ATTACK out of reach, a Cast for the spell-less, a Play for the
+song-less or a Use from an empty pack would only draw the refusal the
+key handler keeps for scripted input.  Defend and Flee always stand.
+The navigation keys (Esc undo, +/- speed) are common knowledge and
+live on the help screen instead.  The page draws in the message
+column (the Amiga takeover), 27 characters wide at lores; every row
+here fits that column whole, and the full six-action list still fits
+the lores page height (the suite checks both)."
+  (let ((hero (combat-orders-hero game view)))
+    (append
+     (%orders-head-lines game)
+     (list ""
+           (format nil "What will ~A do?" (hero-name hero))
+           "")
+     (when (hero-can-attack-p game hero)
+       (list "Attack"))
+     (list "Defend")
+     (when (and (hero-caster-p hero) (spells-for-hero hero))
+       (list "Cast"))
+     (when (and (hero-singer-p hero) (songs-for-hero hero))
+       (list "Play"))
+     (when (usable-items hero)
+       (list "Use"))
+     (list "Flee"))))
 
 (defun %orders-review-lines (game view)
   "The review page: every hero with the order it gave, and the

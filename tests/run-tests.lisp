@@ -2983,6 +2983,11 @@ height" d)
   (dotimes (i 3) (combat-orders-act g view #\a))
   (check "the back-rank hero is at hand" "D"
          (hero-name (combat-orders-hero g view)))
+  ;; the page already dropped the Attack row for the bare back rank —
+  ;; but a scripted A still draws the spoken refusal below
+  (check "the bare back rank's page drops Attack"
+         '("Defend" "Flee")
+         (last (menu-texts (combat-orders-lines g view)) 2))
   (check "a refused attack returns nil" nil (combat-orders-act g view #\a))
   (check "the refusal keeps asking the same hero" "D"
          (hero-name (combat-orders-hero g view)))
@@ -2998,7 +3003,11 @@ height" d)
   (give-item g d 'test-arrows)
   (equip-item g d 'test-bow)
   (equip-item g d 'test-arrows)
-  (dotimes (i 4) (combat-orders-act g view #\a))
+  (dotimes (i 3) (combat-orders-act g view #\a))
+  (check "the strung back rank's page offers Attack"
+         '("Attack" "Defend" "Flee")
+         (last (menu-texts (combat-orders-lines g view)) 3))
+  (combat-orders-act g view #\a)
   (check "a strung back-rank attack records"
          '(:fight (:attack :attack :attack :attack))
          (combat-orders-act g view #\y)))
@@ -3905,8 +3914,11 @@ height" d)
   (start-combat g '(("test bat" 1)))    ; 4 hp
   ;; d20=10 hits; the crit roll 50 fails; 1d6=2 -> 3 damage, no kill
   (with-rng (10 50 2 0 0) (combat-round g '(:attack)))
+  ;; a hit that leaves the monster standing names its remaining hp
   (check-true "an ordinary blow lands without the killing eye"
-              (find-if (lambda (s) (search "HITS the test bat for 3" s))
+              (find-if (lambda (s)
+                         (search "HITS the test bat for 3 damage (1 hp left)."
+                                 s))
                        (funcall msgs)))
   (check-true "the bat fights on" (game-combat g)))
 
@@ -4053,11 +4065,13 @@ height" d)
               (find "What will Alva do?"
                     (menu-texts (combat-orders-lines g view))
                     :test #'equal))
-  ;; the page names its actions bracket-free, first letter as the key;
-  ;; the navigation keys (Esc undo, +/- speed) live on the help screen
-  (check "orders page ends with the actions"
-         '("Attack  Defend  Cast" "Play  Use  Flee")
-         (last (menu-texts (combat-orders-lines g view)) 2))
+  ;; the page names its actions bracket-free, one per row, first
+  ;; letter as the key, and only the actions the hero can take — the
+  ;; grunt neither casts, plays nor carries a thing; the navigation
+  ;; keys (Esc undo, +/- speed) live on the help screen
+  (check "orders page ends with the grunt's own actions"
+         '("Attack" "Defend" "Flee")
+         (last (menu-texts (combat-orders-lines g view)) 3))
   (check "the page asks one hero, not the roster" nil
          (find-if (lambda (s) (search "Zzgo" s))
                   (menu-texts (combat-orders-lines g view))))
@@ -4067,6 +4081,10 @@ height" d)
               (find "What will Zzgo do?"
                     (menu-texts (combat-orders-lines g view))
                     :test #'equal))
+  ;; the mage casts, so its page grows the Cast row the grunt's lacked
+  (check "the caster's page offers Cast"
+         '("Attack" "Defend" "Cast" "Flee")
+         (last (menu-texts (combat-orders-lines g view)) 4))
   (check "esc undoes the previous pick" nil
          (combat-orders-act g view #\Escape))
   (check "back to the first hero" grunt (combat-orders-hero g view))
@@ -4151,13 +4169,30 @@ height" d)
 ;; characters across and 12 microfont rows.  Every row must fit that
 ;; width whole — a wrapped row costs a line — and a FULL party's
 ;; pages, hero pages and review alike, must fit the height.
+;;
+;; A hero who is both a caster and a singer (a game may define such a
+;; class) draws the widest hero page there is: Attack, Defend, Cast,
+;; Play, Use and Flee all at once.  A class and spell of its own keep
+;; this fixture off the :T-MAGE roster the spell tests above depend
+;; on.
+(define-hero-class :t-adept :hp-dice "1d6+2" :damage "1d4" :ac 9
+                            :caster t :singer t)
+(define-spell 'test-adept-bolt :cost 1 :level 1 :classes '(:t-adept)
+  :damage "1d4")
+
+(defun %combat-adept (&optional (name "Ori"))
+  "A deterministic level-1 :t-adept: caster and singer both."
+  (with-rng (5) (make-hero name :t-adept)))
+
 (let ((cols 27)
       (rows 12))
   (let* ((m (parse-map *art* :name "test"))
-         (party (loop for i from 1 to +party-limit+
-                      collect (%combat-hero (format nil "Hero~D" i))))
+         (party (cons (%combat-adept "Hero1")
+                      (loop for i from 2 to +party-limit+
+                           collect (%combat-hero (format nil "Hero~D" i)))))
          (g (new-game m :party party))
          (view (make-combat-orders)))
+    (give-item g (first party) 'test-elixir)
     (start-combat g '(("test rat" 2) ("test ogre" 1)))
     (flet ((fits (label)
              (let ((lines (menu-texts (combat-orders-lines g view))))
