@@ -49,7 +49,7 @@
    #:effects-ac-bonus #:effects-damage-bonus #:effects-save-bonus
    #:effects-extra-attacks #:effects-foes-ac #:effects-foes-attack
    #:effects-regen-sp #:effects-combat-heal
-   #:light-active-p #:compass-active-p
+   #:light-active-p #:compass-active-p #:levitate-active-p
    #:turn-left #:turn-right #:turn-around #:move-party #:observe
    ;; game time, day and night
    #:game-time #:advance-time #:daylight-p #:clock-line
@@ -80,6 +80,7 @@
    #:menu-scroll #:menu-scrolled-lines #:*menu-scroll*
    ;; cell specials
    #:trigger-special #:run-special #:teleport-party
+   #:trap-disarmed-flag
    ;; races (ability-score modifiers + which classes a race may take)
    #:define-race #:find-race #:races #:race-name #:race-title
    #:race-classes #:race-description #:race-image #:race-allows-class-p
@@ -94,11 +95,11 @@
    #:hero-con #:hero-lck #:hero-ac #:hero-damage #:hero-gold
    #:hero-alive-p #:alive-heroes #:party-alive-p #:front-ranks
    #:hero-in-reach-p
-   #:hero-extra-attacks
+   #:hero-extra-attacks #:hero-trap-skill
    #:hero-class-title #:hero-class-abbrev #:hero-summary-lines
    #:hero-image #:hero-image-path #:hero-sheet-lines #:hero-sheet-scroll
    #:+party-limit+ #:party-full-p #:join-party #:move-hero
-   #:damage-hero #:heal-hero #:stat-bonus #:stat-gift
+   #:damage-hero #:heal-hero #:stat-bonus #:stat-gift #:saving-throw
    #:award-xp #:xp-for-level
    #:pool-gold #:trade-gold
    ;; trading gold ('t' on the character sheet)

@@ -806,8 +806,18 @@ counterparts (see "Wandering monsters").
 
 The op vocabulary — `message`, `set-flag`/`clear-flag`,
 `when-flag`/`unless-flag`, `at-night`/`at-day`, `once`, `teleport`,
-`travel`, `location`, `spin`, `damage`, `heal`, `gold`, `encounter`,
-`event` — is documented in `src/specials.lisp`.
+`travel`, `location`, `spin`, `damage`, `trap`, `heal`, `gold`,
+`encounter`, `event` — is documented in `src/specials.lisp`.
+
+**Traps.**  A `(trap DICE [TEXT] [DIFFICULTY])` op is a floor trap
+with three layers of defence: a levitating party (a `:levitate`
+effect) floats over it; else a trap-skilled hero (the rogue's art,
+`define-hero-class ... :trap-skill N`) may spot and disarm it for
+this crossing; else it springs and every living hero rolls a **saving
+throw** — d20 + level + the LCK bonus + any `:save-bonus` effects
+against the trap's difficulty (default 14) — to halve the damage
+dice.  The Trap Zap spell effect (`:disarm-traps N`) destroys traps
+up to N squares ahead for good; wrap a trap in `once` for a one-shot.
 
 The character-by-character art parse scales with map area (a 30x30
 city costs real seconds at 14MHz), so a successful parse writes a
@@ -967,7 +977,9 @@ an extra strike per four levels beyond the first (the warrior's way),
 `:crit-chance N` a percent chance — growing one point per level — that
 a landed blow fells the foe outright (the hunter's),
 `:ac-per-level N` one point of natural armor per N levels beyond the
-first, floored at -10 (the monk's), and
+first, floored at -10 (the monk's),
+`:trap-skill N` a percent chance — growing one point per level — to
+spot and disarm a springing floor trap (the rogue's), and
 `:description` a lore line for the campaign to show.  The roster holds
 up to 7 members (`join-party`): six regular heroes plus one guest slot
 for a summoned monster or story NPC.  Combat is
@@ -1000,11 +1012,12 @@ installs five enchantments in one casting:
   (the roll times the caster's level), `:damage-group` (the front
   group), `:damage-all`, `:slay N` (percent chance to fell the front
   monster) — all combat-only — plus `:heal` and `:heal-party` (dice or
-  `:full`), `:resurrect` (the fallen rise at 1 hp) and `:scry` (speaks
-  the party's position).  `:cure`, `:summon`, `:teleport`,
-  `:disarm-traps` and the foe-handling keys carry canonical data and
-  speak their line today; their subsystems (ailments, allies, traps)
-  are still to come.
+  `:full`), `:resurrect` (the fallen rise at 1 hp), `:scry` (speaks
+  the party's position) and `:disarm-traps N` (destroys the traps up
+  to N squares ahead, for good).  `:cure`, `:summon`, `:teleport` and
+  the foe-handling keys carry canonical data and speak their line
+  today; their subsystems (ailments, allies, teleports) are still to
+  come.
 - **Timed keys** merge into one effect record with a `:duration` in
   game minutes (or `:indefinite`): `:buff-ac`, `:light`,
   `:night-vision` and `:reveal` (all three defeat darkness),
@@ -1012,7 +1025,8 @@ installs five enchantments in one casting:
   `:buff-damage`, `:regen-sp` (multiplies the daylight trickle),
   `:extra-attacks`, `:combat-heal` (mends the party every round),
   `:foes-ac` and `:foes-attack` (the enemy fights worse), plus
-  `:save-bonus` and `:levitate` (stored for the coming saves/traps).
+  `:save-bonus` (weighs into every saving throw) and `:levitate`
+  (the party floats over floor traps).
   A timed spell may name an `:image`, the icon the effect strip shows.
 
 Beside the mechanics a spell keeps its lore: `:code` (the four-letter

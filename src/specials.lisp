@@ -25,6 +25,17 @@
 ;;;   (spin)                     face a random direction (silently —
 ;;;                              classic spinner squares)
 ;;;   (damage DICE [TEXT])       hurt every living hero (DICE each)
+;;;   (trap DICE [TEXT] [DIFFICULTY])  a floor trap: a levitating party
+;;;                              floats over it, a trap-skilled hero
+;;;                              (see :TRAP-SKILL) may spot and disarm
+;;;                              it for this triggering, else it
+;;;                              springs — TEXT (default "A trap
+;;;                              springs!"), then every living hero
+;;;                              saves (SAVING-THROW vs DIFFICULTY,
+;;;                              default 14) for half of DICE.  TEXT
+;;;                              and DIFFICULTY may come in either
+;;;                              order.  Trap Zap disarms it for good;
+;;;                              wrap in ONCE for a one-shot trap.
 ;;;   (heal DICE)                heal every living hero
 ;;;   (gold DICE)                treasure (goes to the leading hero)
 ;;;   (encounter (MONSTER COUNT)...)  start combat; ops after this one
@@ -113,6 +124,7 @@ to the cell the party just left."
          (let ((n (max 0 (roll-dice dice))))
            (say game "~A TAKES ~D damage." (hero-name h) n)
            (damage-hero game h n)))))
+    (trap (run-trap-op game (rest op)))
     (heal
      (dolist (h (alive-heroes game))
        (heal-hero game h (max 0 (roll-dice (second op))))))
@@ -128,6 +140,61 @@ to the cell the party just left."
               (first op) (game-x game) (game-y game)
               (dungeon-map-name (game-map game)))))
   (values))
+
+(defun trap-disarmed-flag (map x y)
+  "The story-flag key marking the trap on cell (X,Y) of MAP disarmed
+for good (Trap Zap's work) — the ONCE key pattern."
+  (list :trap-disarmed (dungeon-map-name map) x y))
+
+(defun run-trap-op (game args)
+  "The TRAP op: ARGS is (DICE [TEXT] [DIFFICULTY]), the two optionals
+in either order.  A levitating party floats over; else the best
+trap-skilled living hero may spot and disarm it (this triggering only
+— the trap stays armed for the next visit); else it springs: TEXT,
+then every living hero rolls a SAVING-THROW first and the damage DICE
+second — the fixed roll order the test suites script against — a
+save halving the blow."
+  (let ((dice (first args))
+        (text "A trap springs!")
+        (difficulty 14))
+    (unless dice
+      (error "The trap op needs damage dice: (trap DICE [TEXT] [DIFFICULTY])"))
+    (dolist (extra (rest args))
+      (etypecase extra
+        (string  (setf text extra))
+        (integer (setf difficulty extra))))
+    (let ((finder (best-trap-hero game)))
+      (cond
+        ((flag game (trap-disarmed-flag (game-map game)
+                                        (game-x game) (game-y game)))
+         ;; Trap Zap already announced the kill — a cleared corridor
+         ;; shouldn't chatter.
+         nil)
+        ((levitate-active-p game)
+         (say game "The party floats over a trap."))
+        ((and finder (< (roll 100) (hero-trap-skill finder)))
+         (say game "~A spots a trap and disarms it!" (hero-name finder)))
+        (t
+         (say game "~A" text)
+         (dolist (h (alive-heroes game))
+           (let* ((saved (saving-throw game h difficulty))
+                  (n (max 0 (roll-dice dice)))
+                  (n (if saved (floor n 2) n)))
+             (when saved
+               (say game "~A twists aside!" (hero-name h)))
+             (say game "~A TAKES ~D damage." (hero-name h) n)
+             (when (plusp n)
+               (damage-hero game h n)))))))))
+
+(defun best-trap-hero (game)
+  "The living hero with the sharpest trap sense, or NIL when no one
+has any."
+  (let ((best nil))
+    (dolist (h (alive-heroes game) best)
+      (when (and (plusp (hero-trap-skill h))
+                 (or (null best)
+                     (> (hero-trap-skill h) (hero-trap-skill best))))
+        (setf best h)))))
 
 (defun teleport-party (game x y &optional facing)
   "Relocate the party to cell (X,Y), optionally FACING a direction, and

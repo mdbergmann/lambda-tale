@@ -194,8 +194,8 @@ canonical spell already casts."
       (say game "You stand at (~D,~D) in ~A, facing ~A."
            (game-x game) (game-y game) (map-title (game-map game))
            (string-capitalize (dir-keyword (game-facing game)))))
-    (when (getf effect :disarm-traps)     ; traps are a coming subsystem
-      (say game "The way ahead is made safe."))
+    (when (getf effect :disarm-traps)
+      (%disarm-traps-ahead game (getf effect :disarm-traps)))
     ;; the damage family — each strike re-aims at the front survivor
     (flet ((front () (first (alive-monsters combat)))
            (strike (monster dmg)
@@ -232,6 +232,29 @@ canonical spell already casts."
            (getf effect :summon)))
     (when (getf effect :teleport)
       (say game "Space folds and shimmers, but the way stays shut."))))
+
+(defun %disarm-traps-ahead (game reach)
+  "The :DISARM-TRAPS effect: destroy — for good, the flag rides in the
+save — every top-level TRAP op on the REACH cells ahead of the party
+in its facing, stopping at the map's edge.  Line-of-facing magic: no
+wall check (corridors are where traps live).  A trap hidden inside
+WHEN-FLAG or ONCE stays hidden from the zap."
+  (let ((map (game-map game))
+        (x (game-x game))
+        (y (game-y game))
+        (dir (game-facing game)))
+    (dotimes (i reach)
+      (multiple-value-bind (nx ny) (neighbor map x y dir)
+        (unless nx (return))
+        (setf x nx y ny)
+        (let ((ops (cell-special map x y)))
+          (when (and (consp ops)
+                     (find 'trap ops :key (lambda (op)
+                                            (and (consp op) (first op))))
+                     (not (flag game (trap-disarmed-flag map x y))))
+            (set-flag game (trap-disarmed-flag map x y))
+            (say game "A hidden trap is destroyed!"))))))
+  (say game "The way ahead is made safe."))
 
 (defun %spell-strike-blocked-p (game type)
   "Say why and return T when spell TYPE carries a battle effect and

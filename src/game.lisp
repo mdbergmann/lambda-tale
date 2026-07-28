@@ -235,9 +235,7 @@ carries its own icons — or NIL when the effect has none."
 ;;; campaign writes, the payload key the mechanics read, and the value
 ;;; shape the validators enforce.  A spec may combine several keys —
 ;;; they merge into ONE effect record (Bard's Tale's Batchspell is five
-;;; enchantments in one casting).  :SAVE-BONUS and :LEVITATE are
-;;; stored but nothing reads them yet — saving throws and traps are a
-;;; coming subsystem; the data is already correct.
+;;; enchantments in one casting).
 
 (defparameter *timed-effect-keys*
   '((:buff-ac       :ac            integer) ; party AC bonus (descending AC)
@@ -245,9 +243,9 @@ carries its own icons — or NIL when the effect has none."
     (:night-vision  :night-vision  flag)    ; sight in darkness (cat eyes)
     (:reveal        :reveal        flag)    ; magical sight: light and more
     (:compass       :compass       flag)    ; the party knows its facing
-    (:levitate      :levitate      flag)    ; floating (traps to come)
+    (:levitate      :levitate      flag)    ; floating over floor traps
     (:buff-damage   :damage-bonus  integer) ; party melee damage bonus
-    (:save-bonus    :save-bonus    integer) ; saving throws (to come)
+    (:save-bonus    :save-bonus    integer) ; saving-throw bonus
     (:regen-sp      :regen-sp      integer) ; sp-regen multiplier
     (:extra-attacks :extra-attacks integer) ; extra strikes per round
     (:combat-heal   :combat-heal   dice)    ; heals the party each round
@@ -275,7 +273,7 @@ carries its own icons — or NIL when the effect has none."
     (:resurrect        flag    nil) ; raises the fallen to 1 hp
     (:cure             list    nil) ; flavor: cures ailments (to come)
     (:scry             flag    nil) ; speaks the party's position
-    (:disarm-traps     flag    nil) ; flavor: springs traps (to come)
+    (:disarm-traps     integer nil) ; traps ahead made safe (reach in squares)
     (:teleport         flag    nil) ; flavor: party teleport (to come)
     (:summon           string  nil)) ; flavor: a summoned ally (to come)
   "The instant-effect vocabulary: (SPEC-KEY VALUE-KIND COMBAT-ONLY-P).")
@@ -376,8 +374,8 @@ usable items share this rule."
   (%effects-sum game :damage-bonus))
 
 (defun effects-save-bonus (game)
-  "The summed saving-throw bonuses of the active effects.  Stored for
-the coming saves/traps mechanics; nothing rolls against it yet."
+  "The summed saving-throw bonuses of the active effects — every
+SAVING-THROW roll (see party.lisp) adds it."
   (%effects-sum game :save-bonus))
 
 (defun effects-extra-attacks (game)
@@ -423,6 +421,13 @@ eyes) — all three defeat darkness."
   "True when any active effect orients the party (a :COMPASS payload) —
 only then do the front-ends show the compass rose and the facing."
   (and (some (lambda (e) (getf (effect-payload e) :compass))
+             (game-effects game))
+       t))
+
+(defun levitate-active-p (game)
+  "True when any active effect floats the party (a :LEVITATE payload) —
+a floating party passes over floor traps (see the TRAP op)."
+  (and (some (lambda (e) (getf (effect-payload e) :levitate))
              (game-effects game))
        t))
 

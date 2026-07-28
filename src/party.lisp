@@ -30,7 +30,7 @@
 (defun define-hero-class (name &key (hp-dice "1d8") (damage "1d4") (ac 10)
                                     caster singer image description
                                     extra-attack-levels crit-chance
-                                    ac-per-level)
+                                    ac-per-level trap-skill)
   "Register hero class NAME (a keyword) with its hit dice, attack dice
 and starting armor class; CASTER T marks a spell-casting class (spell
 points from level and IQ, see %HERO-MAX-SP), SINGER T a song-playing
@@ -44,7 +44,9 @@ the percent chance a landed blow fells the foe outright, growing one
 point per level (the hunter's art, see combat.lisp); AC-PER-LEVEL N
 improves the class's natural armor by one every N levels beyond the
 first (the monk's art, see LEVEL-UP — floored at -10, Bard's Tale's
-best).  Campaign data calls this."
+best); TRAP-SKILL N is the percent chance to spot and disarm a
+springing floor trap, growing one point per level (the rogue's art,
+see the TRAP op in specials.lisp).  Campaign data calls this."
   (when (and extra-attack-levels
              (not (and (integerp extra-attack-levels)
                        (plusp extra-attack-levels))))
@@ -58,13 +60,18 @@ best).  Campaign data calls this."
              (not (and (integerp ac-per-level) (plusp ac-per-level))))
     (error "define-hero-class ~S: :ac-per-level ~S must be a ~
             positive integer" name ac-per-level))
+  (when (and trap-skill
+             (not (and (integerp trap-skill) (< 0 trap-skill 101))))
+    (error "define-hero-class ~S: :trap-skill ~S must be a percent ~
+            (1-100)" name trap-skill))
   (setf (gethash name *hero-classes*)
         (list :hp-dice hp-dice :damage damage :ac ac
               :caster caster :singer singer :image image
               :description description
               :extra-attack-levels extra-attack-levels
               :crit-chance crit-chance
-              :ac-per-level ac-per-level))
+              :ac-per-level ac-per-level
+              :trap-skill trap-skill))
   name)
 
 (defun hero-extra-attacks (hero)
@@ -74,6 +81,15 @@ with 4 strikes twice), zero for everyone else."
   (let ((per (hero-class-property (hero-class hero) :extra-attack-levels)))
     (if per
         (floor (1- (hero-level hero)) per)
+        0)))
+
+(defun hero-trap-skill (hero)
+  "HERO's chance (percent) to spot and disarm a springing floor trap:
+the class's :TRAP-SKILL grown one point per level, capped at 99 —
+even the surest hand slips.  0 for the untrained."
+  (let ((base (hero-class-property (hero-class hero) :trap-skill)))
+    (if base
+        (min 99 (+ base (hero-level hero)))
         0)))
 
 (defun hero-classes ()
@@ -146,6 +162,17 @@ a penalty — 0 below 11.  Hit points (CON) and armor class (DEX) use
 this, so a poor score costs nothing; the attack maths (STR to-hit and
 damage, DEX missiles) keep the full signed STAT-BONUS."
   (max 0 (stat-bonus stat)))
+
+(defun saving-throw (game hero difficulty &key (bonus 0))
+  "HERO rolls to shrug off a harm: d20 + level + the LCK bonus + the
+party's active :SAVE-BONUS effects + BONUS, against DIFFICULTY.  True
+on DIFFICULTY or better.  Luck carries the save (the full signed
+STAT-BONUS — the one score with no other job), veterans shrug what
+fells the fresh, and Anti-Magic's :save-bonus finally weighs in.
+BONUS is the hook for a later spell resistance or an item's gift."
+  (>= (+ 1 (roll 20) (hero-level hero) (stat-bonus (hero-lck hero))
+         (effects-save-bonus game) bonus)
+      difficulty))
 
 (defun %hero-max-sp (class level iq)
   "Spell points for a CLASS/LEVEL/IQ hero: 2 per level plus the IQ

@@ -3783,6 +3783,229 @@ height" d)
               (find-if (lambda (s) (search "hurled away" s))
                        (funcall msgs))))
 
+;;; ---------------------------------------------------------------------
+;;; Saving throws and floor traps
+
+;; SAVING-THROW: d20 + level + LCK bonus + :save-bonus effects + :bonus
+;; against the difficulty.  %combat-hero has LCK 3 (bonus -4), level 1:
+;; the total is roll - 2, so difficulty 14 needs a 16.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h))))
+  (check-true "a high roll clears the bar"
+              (with-rng (16) (saving-throw g h 14)))
+  (check "a point short fails" nil
+         (with-rng (15) (saving-throw g h 14)))
+  (add-effect g "test blessing" :duration 10 :payload '(:save-bonus 4))
+  (check-true ":save-bonus effects weigh in"
+              (with-rng (12) (saving-throw g h 14)))
+  (remove-effect g "test blessing")
+  (check "without the blessing the same roll fails" nil
+         (with-rng (12) (saving-throw g h 14)))
+  (check-true "the :bonus argument counts"
+              (with-rng (14) (saving-throw g h 14 :bonus 2)))
+  (check "without it the same roll fails" nil
+         (with-rng (14) (saving-throw g h 14))))
+
+;; :TRAP-SKILL, the rogue's art: a percent, grown one point per level.
+(check-error "trap-skill must be a percent"
+  (define-hero-class :t-bogus-rogue :trap-skill 0))
+(check-error "trap-skill tops out at 100"
+  (define-hero-class :t-bogus-rogue :trap-skill 101))
+(define-hero-class :t-rogue :hp-dice "1d8" :damage "1d4" :ac 9
+                            :trap-skill 50)
+(let ((rogue (with-rng (5) (make-hero "Sly" :t-rogue))))
+  (check "trap skill grows one point per level" 51
+         (hero-trap-skill rogue))
+  (setf (hero-level rogue) 10)
+  (check "a tenth-level rogue's hand is surer" 60
+         (hero-trap-skill rogue))
+  (setf (hero-level rogue) 99)
+  (check "even the surest hand slips (the 99 cap)" 99
+         (hero-trap-skill rogue))
+  (check "the untrained have no trap sense" 0
+         (hero-trap-skill (%combat-hero))))
+
+;; The TRAP op springs on the unwary: text, then per living hero a
+;; saving throw (the d20 first) and the damage dice (second) -- the
+;; fixed roll order scripted here and in the game suites.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((trap "1d4" "Spikes lance up!")))
+  (turn-right g)
+  (with-rng (0 3)                       ; save fails, die rolls 4
+    (move-party g :forward))
+  (check "the spring speaks its text" "Spikes lance up!"
+         (first (funcall msgs)))
+  (check "the unsaved take the full dice" '("Alva TAKES 4 damage.")
+         (rest (funcall msgs)))
+  (check "the wound is real" 4 (hero-hp h)))
+
+;; A lucky save halves the blow.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((trap "1d4" "Spikes!")))
+  (turn-right g)
+  (with-rng (19 3)                      ; save clears, die rolls 4
+    (move-party g :forward))
+  (check-true "the saved twist aside"
+              (find-if (lambda (s) (search "twists aside" s))
+                       (funcall msgs)))
+  (check "the blow is halved" 6 (hero-hp h)))
+
+;; A save on a low roll can cost nothing at all.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h))))
+  (setf (cell-special m 1 0) '((trap "1d4")))
+  (turn-right g)
+  (with-rng (19 0)                      ; save clears, die rolls 1 -> 0
+    (move-party g :forward))
+  (check "a halved scratch costs nothing" 8 (hero-hp h)))
+
+;; A levitating party floats over -- no rolls at all.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((trap "4d8" "Doom!")))
+  (add-effect g "test lift" :duration 60 :payload '(:levitate t))
+  (turn-right g)
+  (move-party g :forward)
+  (check "the float is announced" '("The party floats over a trap.")
+         (funcall msgs))
+  (check "nobody is hurt" 8 (hero-hp h)))
+
+;; The rogue's hand beats the trap -- and must beat it again next time:
+;; the trap re-arms behind the party.
+(let* ((m (parse-map *art* :name "test"))
+       (rogue (with-rng (5) (make-hero "Sly" :t-rogue)))
+       (g (new-game m :party (list rogue)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((trap "4d8" "Doom!")))
+  (turn-right g)
+  (with-rng (10)                        ; 10 < 51: spotted
+    (move-party g :forward))
+  (check "the rogue spots and disarms"
+         '("Sly spots a trap and disarms it!") (funcall msgs))
+  (move-party g :back)
+  (with-rng (10)                        ; the trap re-armed: rolled anew
+    (move-party g :forward))
+  (check "the trap re-arms behind the party" 2
+         (count-if (lambda (s) (search "spots a trap" s))
+                   (funcall msgs)))
+  (check "the rogue is unhurt" (hero-max-hp rogue) (hero-hp rogue)))
+
+;; A fumbled detection lets it spring on the rogue too.
+(let* ((m (parse-map *art* :name "test"))
+       (rogue (with-rng (5) (make-hero "Sly" :t-rogue)))
+       (g (new-game m :party (list rogue)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((trap "1d4" "Snap!")))
+  (turn-right g)
+  (with-rng (60 0 3)                    ; 60 >= 51: fumbled; no save; 4
+    (move-party g :forward))
+  (check-true "the fumble springs the trap"
+              (find-if (lambda (s) (search "Snap!" s)) (funcall msgs)))
+  (check "the rogue pays for it" 4 (- (hero-max-hp rogue)
+                                      (hero-hp rogue))))
+
+;; A trap Trap Zap has destroyed stays quiet for good.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((trap "4d8" "Doom!")))
+  (set-flag g (trap-disarmed-flag m 1 0))
+  (turn-right g)
+  (move-party g :forward)
+  (check "a destroyed trap is silent" '() (funcall msgs))
+  (check "and harmless" 8 (hero-hp h)))
+
+;; TEXT and DIFFICULTY are optional, in either order.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((trap "1d4" 10 "Ouch!")))
+  (turn-right g)
+  (with-rng (12 0)                      ; roll - 2 = 10 clears bar 10
+    (move-party g :forward))
+  (check "the tail takes difficulty before text" "Ouch!"
+         (first (funcall msgs)))
+  (check-true "the eased bar saves on a lesser roll"
+              (find-if (lambda (s) (search "twists aside" s))
+                       (funcall msgs))))
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((trap "1d4")))
+  (turn-right g)
+  (with-rng (0 0)
+    (move-party g :forward))
+  (check "a bare trap has a stock cry" "A trap springs!"
+         (first (funcall msgs))))
+
+;; A diceless trap is loud -- map data errors surface, not fizzle.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (setf (cell-special m 0 0) '((trap)))
+  (check-error "a diceless trap is an error" (trigger-special g)))
+
+;; Trap Zap: :DISARM-TRAPS N destroys the traps up to N squares ahead,
+;; for good.
+(check-error ":disarm-traps t is no longer a flag"
+  (define-spell 'test-bogus :disarm-traps t))
+(define-spell 'test-zap :cost 1 :classes '(:t-mage) :disarm-traps 2)
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((trap "4d8" "Doom!")))
+  (setf (cell-special m 2 0) '((message "a chest") (trap "4d8")))
+  (turn-right g)                        ; facing east: (1,0), (2,0) ahead
+  (check-true "the zap casts" (cast-spell g mage 'test-zap))
+  (check "both traps ahead are destroyed" 2
+         (count-if (lambda (s) (search "hidden trap is destroyed" s))
+                   (funcall msgs)))
+  (check-true "the way is made safe"
+              (find-if (lambda (s) (search "made safe" s))
+                       (funcall msgs)))
+  (check-true "the kill is flagged for good"
+              (and (flag g (trap-disarmed-flag m 1 0))
+                   (flag g (trap-disarmed-flag m 2 0))))
+  (move-party g :forward)
+  (check "walking the zapped corridor is safe"
+         (hero-max-hp mage) (hero-hp mage)))
+
+;; The zap reaches only its range, and stops at the map's edge.
+(define-spell 'test-zap-short :cost 1 :classes '(:t-mage)
+  :disarm-traps 1)
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage))))
+  (setf (cell-special m 2 0) '((trap "4d8")))
+  (turn-right g)
+  (cast-spell g mage 'test-zap-short)
+  (check "the short zap spares the far trap" nil
+         (flag g (trap-disarmed-flag m 2 0))))
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (msgs (watch-messages g)))
+  ;; facing north from (0,0): nothing ahead but the map's edge
+  (check-true "the zap casts into the void" (cast-spell g mage 'test-zap))
+  (check-true "a clear corridor is still made safe"
+              (find-if (lambda (s) (search "made safe" s))
+                       (funcall msgs)))
+  (check "no phantom kills" nil
+         (find-if (lambda (s) (search "destroyed" s)) (funcall msgs))))
+
 ;; :BUFF-DAMAGE strengthens every blow.
 (define-spell 'test-arms :cost 1 :classes '(:t-mage)
   :buff-damage 2 :duration 30)
