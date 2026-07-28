@@ -6,3 +6,4 @@ tests/tmp-*.map
 *.uaem
 tests/tmp-*.8svx
 tests/tmp-sfx/
+.reviews/

@@ -19,7 +19,7 @@ CLAMIGA ?= $(firstword $(wildcard ../cl-amiga/build/host/clamiga ../amigasources
 HEAP    ?= 16M
 OUT     ?=
 
-.PHONY: test assets pack preview clamiga-check
+.PHONY: test assets pack preview clamiga-check install-hooks
 
 test: clamiga-check
 	$(CLAMIGA) --heap $(HEAP) --non-interactive --load tests/run-tests.lisp
@@ -54,3 +54,9 @@ clamiga-check:
 	  echo "clamiga not found at $(CLAMIGA)."; \
 	  echo "Build it first: make host in the cl-amiga checkout (or set CLAMIGA=/path/to/clamiga)"; \
 	  exit 1; }
+
+install-hooks:
+	@git config core.hooksPath githooks
+	@chmod +x githooks/* scripts/review/pre-commit.sh 2>/dev/null || true
+	@echo "=> auto-review hook activated (core.hooksPath=githooks)"
+	@echo "   bypass one commit with 'git commit --no-verify'; disable with CLAUDE_AUTO_REVIEW=0"
