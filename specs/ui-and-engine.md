@@ -111,11 +111,15 @@ campaign data, never as code that knows about "the" town.
   and click-anywhere-to-close on the map/help/sheet pages.
 - Menu lists **scroll** (2026-07-19): a list deeper than a page
   (`+menu-page-size+`, 7 — party-sized lists never scroll) windows to
-  page − 2 rows bracketed by clickable `^ more above` /
-  `v more below` marker rows; `u`/`d` move the window and digits
-  pick **within the visible window** (row 1 = the window's first
-  row), which keeps every item of an arbitrarily long list reachable
-  with single-digit keys.  The window math lives in one place
+  a full page of rows; `u`/`d` move the window (help-screen
+  knowledge) and digits pick **within the visible window** (row 1 =
+  the window's first row), which keeps every item of an arbitrarily
+  long list reachable with single-digit keys.  Since 2026-07-28 the
+  window spends no rows on marker hints: `menu-scrolled-lines`
+  reports the scroll geometry through `*menu-scroll*` and the Amiga
+  UI draws a clickable scrollbar at the page's right edge instead —
+  a click above the thumb scrolls a window up, below it down.
+  The window math lives in one place
   (`menu-window` / `menu-window-pick` / `menu-scroll` /
   `menu-scrolled-lines` in events.lisp) and both the `*-lines`
   renderers and the `*-act` key handlers go through it, so display
@@ -431,7 +435,7 @@ The Amiga front-end supports two displays, selected by
   town/cellar world walks end-to-end (gate, shoppe, tavern, ladder).
 - Menu scrolling: the `menu-window` clamps (short lists whole, deep
   lists windowed, offsets clamped at both ends), window-relative
-  digit picks, marker rows carrying the scroll keys, and scrolled
+  digit picks, the `*menu-scroll*` scrollbar geometry, and scrolled
   walks through the shop (buy and sell), use, cast, save-picker and
   character-sheet models — including that offsets reset on page
   flips/backing out and that a digit past the window picks nothing.

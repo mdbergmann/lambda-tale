@@ -232,7 +232,7 @@ sheet against a future longer one.")
 (defun hero-sheet-lines (game index &optional (top 0) ordering)
   "The character-sheet page for roster slot INDEX as text lines: the
 hero's stat block (windowed at scroll offset TOP when it overflows
-+SHEET-PAGE-SIZE+ rows, with clickable more-markers) and the sheet's
++SHEET-PAGE-SIZE+ rows — see *MENU-SCROLL*) and the sheet's
 own key hints, a blank line between the two — no header; the roster
 pane already shows who is who.  The front-ends draw these verbatim
 (the SHOP-LINES pattern) and feed u/d through HERO-SHEET-SCROLL.

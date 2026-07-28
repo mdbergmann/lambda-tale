@@ -290,33 +290,32 @@ caller's to truncate."
                            all)))
     all))
 
-;;; Menu scrolling: a list longer than a page shows a window of it,
-;;; bracketed by "more" marker rows that carry the scroll keys (u up,
-;;; d down) as their pick keys — so the markers click like any option
-;;; row.  Digits pick within the visible window (row 1 is the window's
-;;; first row), which also keeps every item of a long list reachable
-;;; with the single-digit keys the models speak.  The window math is
-;;; pure and shared: the *-LINES renderers and the *-ACT key handlers
-;;; both go through MENU-WINDOW, so what is drawn and what a digit
-;;; picks can never disagree.
+;;; Menu scrolling: a list longer than a page shows a full-page window
+;;; of it.  u/d move the window (help-screen knowledge, no rows spent
+;;; on hints) and a pointing front-end draws a clickable scrollbar
+;;; beside the page from *MENU-SCROLL*.  Digits pick within the
+;;; visible window (row 1 is the window's first row), which also keeps
+;;; every item of a long list reachable with the single-digit keys the
+;;; models speak.  The window math is pure and shared: the *-LINES
+;;; renderers and the *-ACT key handlers both go through MENU-WINDOW,
+;;; so what is drawn and what a digit picks can never disagree.
 
 (defconstant +menu-page-size+ 7
   "Menu rows a scrolling list may occupy at once.  At most this many
-items show whole; a longer list scrolls, showing +MENU-PAGE-SIZE+ - 2
-items per window (two rows go to the more-above/more-below markers).
-Seven keeps every party-sized list (+PARTY-LIMIT+ rows) un-scrolled.")
+items show whole; a longer list windows to this many rows and scrolls
+with u/d (or the front-end's scrollbar).  Seven keeps every
+party-sized list (+PARTY-LIMIT+ rows) un-scrolled.")
 
 (defun menu-window (n top &optional (page +menu-page-size+))
   "The visible window of an N-item list scrolled to offset TOP:
 values (START END ABOVE-P BELOW-P), END exclusive.  A list of at most
-PAGE items shows whole; a longer one shows PAGE - 2 items starting at
-TOP (clamped so the window never runs off either end), ABOVE-P/BELOW-P
+PAGE items shows whole; a longer one shows PAGE items starting at TOP
+(clamped so the window never runs off either end), ABOVE-P/BELOW-P
 telling whether hidden items remain above/below."
   (if (<= n page)
       (values 0 n nil nil)
-      (let* ((visible (- page 2))
-             (start (max 0 (min top (- n visible))))
-             (end (+ start visible)))
+      (let* ((start (max 0 (min top (- n page))))
+             (end (+ start page)))
         (values start end (> start 0) (< end n)))))
 
 (defun menu-window-pick (items top digit &optional (page +menu-page-size+))
@@ -333,29 +332,36 @@ the window.  Returns (values ITEM ABSOLUTE-INDEX)."
 window up, d/D a window down (each clamped at the ends), or NIL when
 CHAR is no scroll key or the list does not scroll."
   (when (and (characterp char) (> n page))
-    (let ((visible (- page 2)))
-      (multiple-value-bind (start) (menu-window n top page)
-        (case char
-          ((#\u #\U) (max 0 (- start visible)))
-          ((#\d #\D) (min (- n visible) (+ start visible)))
-          (t nil))))))
+    (multiple-value-bind (start) (menu-window n top page)
+      (case char
+        ((#\u #\U) (max 0 (- start page)))
+        ((#\d #\D) (min (- n page) (+ start page)))
+        (t nil)))))
+
+(defvar *menu-scroll* nil
+  "Scroll geometry of the last list MENU-SCROLLED-LINES windowed —
+(START END N), END exclusive — or NIL when that list fit its page
+whole.  A pointing front-end clears it before generating a page's
+lines and draws a scrollbar from what it finds afterwards: the thumb
+spans the START..END share of the N items, a click above the thumb
+scrolls a window up (u), below it down (d).  The keyboard needs no
+rows for this — u/d live on the help screen.")
 
 (defun menu-scrolled-lines (items top render &optional (page +menu-page-size+))
   "Menu rows for ITEMS scrolled to TOP: each visible item rendered by
 RENDER — called with the 1-based display row number and the item, and
-returning a menu line (see MENU-NUMBERED) — with clickable marker rows
-above/below the window when hidden items remain there.  The whole
-section occupies at most PAGE rows."
+returning a menu line (see MENU-NUMBERED).  The section occupies at
+most PAGE rows; a longer list windows to PAGE rows and reports its
+scroll geometry through *MENU-SCROLL* for the front-ends' scrollbars."
   (multiple-value-bind (start end above below)
       (menu-window (length items) top page)
-    (append
-     (when above (list (menu-option #\u "^ more above")))
-     (let ((i 0))
-       (mapcar (lambda (item)
-                 (incf i)
-                 (funcall render i item))
-               (subseq items start end)))
-     (when below (list (menu-option #\d "v more below"))))))
+    (setf *menu-scroll* (when (or above below)
+                          (list start end (length items))))
+    (let ((i 0))
+      (mapcar (lambda (item)
+                (incf i)
+                (funcall render i item))
+              (subseq items start end)))))
 
 (defun %menu-token-key (token)
   "The key a footer bracket token names: a single character stands for

@@ -1376,6 +1376,28 @@ LINES-CACHE as in %AMIGA-DRAW-LOG."
         (incf y lh)))
     (amiga.gfx:set-a-pen rp 1)))
 
+(defun %amiga-draw-scrollbar (rp x y w h start end n)
+  "A vertical scrollbar beside a windowed menu list: a center rail
+down the trough, the thumb the visible START..END share of the N
+items (END exclusive), never thinner than a clickable nub.  The
+trough above the thumb registers as u, below it as d — the mouse
+keeps scrolling without the marker rows the lists used to spend."
+  (let* ((y1 (+ y h -1))
+         (x1 (+ x w -1))
+         (ty0 (+ y (floor (* h start) n)))
+         (ty1 (min y1 (max (+ ty0 3)
+                           (+ y (1- (ceiling (* h end) n)))))))
+    (amiga.gfx:set-a-pen rp 0)
+    (let ((cx (+ x (floor w 2))))
+      (amiga.gfx:rect-fill rp cx y cx y1))      ; the rail
+    (amiga.gfx:rect-fill rp x ty0 x1 ty1)       ; the thumb
+    ;; the click zones reach a little left of the bar — a thin target
+    ;; is a poor target
+    (when (> ty0 y)
+      (%hotspot #\u (- x 3) y (1+ x1) (1- ty0)))
+    (when (< ty1 y1)
+      (%hotspot #\d (- x 3) (1+ ty1) (1+ x1) y1))))
+
 (defun %amiga-draw-takeover (rp lines log l &optional lines-cache)
   "An interaction taking over the message area — a location's menu or
 the character sheet: LINES (small-face microfont, wrapped) from the
@@ -1383,7 +1405,9 @@ top of the white page.  The menu owns the whole page — the log-tail split the
 page used to carry under a rule read poorly in practice, so game
 feedback waits for the page to close.  The page interior repaints
 wholesale — the takeover's 'cls' — so switching pages never leaves
-stale text.  LINES-CACHE as in %AMIGA-DRAW-LOG."
+stale text.  A windowed list on the page (the generator just ran, so
+*MENU-SCROLL* is its geometry) gets a scrollbar along the page's
+right edge.  LINES-CACHE as in %AMIGA-DRAW-LOG."
   (declare (ignore log))
   (let* ((ox (ui-layout-log-x l))
          (oy (ui-layout-by l))
@@ -1391,7 +1415,10 @@ stale text.  LINES-CACHE as in %AMIGA-DRAW-LOG."
          (h (- (ui-layout-page-b l) oy))
          (lh +microfont-line-height+)
          (rows (max 1 (floor (- h 2) lh)))
-         (max-chars (max 4 (floor (- w 4) +microfont-small-advance+)))
+         (scroll (shiftf *menu-scroll* nil))
+         (bar-w (if scroll 3 0))
+         (max-chars (max 4 (floor (- w 4 (if scroll (+ bar-w 3) 0))
+                                  +microfont-small-advance+)))
          ;; a page that overflows packs its one-option-per-row footer
          ;; hints onto shared rows, then gives up its blank spacer
          ;; lines, before it truncates content (the lores shop page is
@@ -1416,6 +1443,10 @@ stale text.  LINES-CACHE as in %AMIGA-DRAW-LOG."
                                      lh (- ox 3) (+ ox w -1)))
           (incf y lh)
           (incf n))))
+    (when scroll
+      (destructuring-bind (start end n) scroll
+        (%amiga-draw-scrollbar rp (- (+ ox w) 1 bar-w) (1+ oy)
+                               bar-w (- h 2) start end n)))
     (amiga.gfx:set-a-pen rp 1)))
 
 (defun %amiga-hero-row (rp game l y hero index)
@@ -1593,7 +1624,9 @@ spans the page across the whole content width instead — the save/load
 picker uses it: a full slot name would truncate on the lores view
 column, and nothing worth watching happens beside the page while it
 is open.  The caller must then skip the message area, which the page
-covers (the roster below stays).  LINES-CACHE as in %AMIGA-DRAW-LOG.
+covers (the roster below stays).  A windowed list on the page gets a
+scrollbar along its right edge (see %AMIGA-DRAW-SCROLLBAR).
+LINES-CACHE as in %AMIGA-DRAW-LOG.
 Locations and the character sheet use the message-area takeover
 instead (%AMIGA-DRAW-TAKEOVER)."
   (let* ((ox (ui-layout-bx l))
@@ -1607,7 +1640,9 @@ instead (%AMIGA-DRAW-TAKEOVER)."
                  (ui-layout-fp-w l)))
          (ph (- (ui-layout-hdr-y l) 4 py))
          (max-lines (floor (- ph 8) lh))
-         (max-chars (floor (- pw 16) cw))
+         (scroll (shiftf *menu-scroll* nil))
+         (bar-w (if scroll 3 0))
+         (max-chars (floor (- pw 16 (if scroll (+ bar-w 3) 0)) cw))
          (lines (fit-menu-lines menu-lines max-lines max-chars)))
     ;; page shadow, sheet, outline — same look as the character sheet
     (amiga.gfx:set-a-pen rp 0)
@@ -1631,6 +1666,12 @@ instead (%AMIGA-DRAW-TAKEOVER)."
                                      (1+ px) (+ px pw -1)))
           (incf y lh)
           (incf n))))
+    ;; a windowed list (the generator just ran — *MENU-SCROLL* is its
+    ;; geometry) gets the scrollbar along the page's right edge
+    (when scroll
+      (destructuring-bind (start end n) scroll
+        (%amiga-draw-scrollbar rp (- (+ px pw) 3 bar-w) (+ py 4)
+                               bar-w (- ph 8) start end n)))
     (amiga.gfx:set-a-pen rp 1)))
 
 (defun %amiga-draw-map-legend (rp entries lx lw top bottom)
@@ -1921,7 +1962,8 @@ character sheet and the round orders take over the message area, with
 the location's :image / the hero's portrait / the enemy's portrait in
 the view column when the campaign ships one.  A menu list longer than a page (a deep shop stock, a full
 pack on the sheet) scrolls: U/D move the window, digits pick within
-it, and the '^ more'/'v more' marker rows click as the scroll keys.  Shift-S / Shift-L (and the
+it, and the scrollbar on the page's right edge clicks — above the
+thumb a window up, below it down.  Shift-S / Shift-L (and the
 menu strip's Save/Load, right mouse button) open the save-slot
 picker: 1-9 pick a slot, N names a new save (saves/NAME.sav), Esc
 cancels; Quit sits in the menu strip too.
@@ -2222,6 +2264,11 @@ map/help/sheet pages close on a click outside a target — see
                           ;; where the mode has one, the renderers'
                           ;; specific targets on top of it
                           (setf *hotspots* '())
+                          ;; scroll geometry too: the generators below
+                          ;; refill it, and a page without a windowed
+                          ;; list (the item card) must not inherit the
+                          ;; last frame's scrollbar
+                          (setf *menu-scroll* nil)
                           (when (member mode '(:map :help :sheet))
                             (%hotspot :esc
                                       (ui-layout-bx l) (ui-layout-by l)

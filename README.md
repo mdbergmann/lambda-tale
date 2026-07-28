@@ -232,8 +232,9 @@ elsewhere.  Menu option rows carry their pick key (`menu-option` /
 `menu-numbered` in `src/events.lisp`), so front-ends map clicks to
 keys without parsing the text.  A menu list deeper than a page — a
 big shop stock, a full pack on the sell page or the character sheet,
-a fat spell book — **scrolls**: `u`/`d` (or clicking the `^ more` /
-`v more` marker rows) move the window and digits pick within it, so
+a fat spell book — **scrolls**: `u`/`d` (or the scrollbar at the
+page's right edge — a click above the thumb is a window up, below it
+down) move the window and digits pick within it, so
 every item stays reachable with single-digit keys (`menu-window` in
 `src/events.lisp`; the scroll walks live in the model tests in
 `tests/run-tests.lisp`).  The pointer is an **open hand** that

@@ -1258,7 +1258,7 @@ height" d)
 (check "hint-line-p leaves plain prose alone" nil
        (hint-line-p "Who is shopping?"))
 (check "hint-line-p leaves option lines alone" nil
-       (hint-line-p (menu-option #\u "^ more above")))
+       (hint-line-p (menu-option #\g "[G]old pool")))
 (check "hint wrap keeps whole options per row"
        '("[1-9] buy  [S]ell" "[G]old pool  [Esc] back")
        (wrap-hint-line "[1-9] buy  [S]ell  [G]old pool  [Esc] back" 27))
@@ -1292,40 +1292,41 @@ height" d)
          (menu-texts (fit-menu-lines lines 4 27))))
 
 ;; Menu scrolling: a list longer than +MENU-PAGE-SIZE+ (7) windows to
-;; 5 rows plus the more-above/more-below markers; the same MENU-WINDOW
-;; math drives the renderers and the digit picks, so they cannot
-;; disagree.
+;; a full page of rows — no rows spent on marker hints; the scroll
+;; geometry goes to the front-ends' scrollbars through *MENU-SCROLL*.
+;; The same MENU-WINDOW math drives the renderers and the digit
+;; picks, so they cannot disagree.
 (multiple-value-bind (start end above below) (menu-window 7 0)
   (check "a page-sized list shows whole" '(0 7) (list start end))
-  (check "a page-sized list has no markers" '(nil nil)
+  (check "a page-sized list hides nothing" '(nil nil)
          (list above below)))
 (multiple-value-bind (start end above below) (menu-window 3 9)
   (check "a short list ignores the offset" '(0 3) (list start end))
-  (check "a short list has no markers" '(nil nil) (list above below)))
+  (check "a short list hides nothing" '(nil nil) (list above below)))
 (multiple-value-bind (start end above below) (menu-window 12 0)
-  (check "a deep list windows to page - 2 rows" '(0 5) (list start end))
-  (check "only the below marker at the top" '(nil t)
+  (check "a deep list windows to a full page" '(0 7) (list start end))
+  (check "hidden rows below only at the top" '(nil t)
          (list above (and below t))))
 (multiple-value-bind (start end above below) (menu-window 12 3)
-  (check "mid-list window" '(3 8) (list start end))
-  (check "both markers mid-list" '(t t)
+  (check "mid-list window" '(3 10) (list start end))
+  (check "hidden rows on both sides mid-list" '(t t)
          (list (and above t) (and below t))))
 (multiple-value-bind (start end above below) (menu-window 12 99)
-  (check "the offset clamps to the tail" '(7 12) (list start end))
-  (check "only the above marker at the bottom" '(t nil)
+  (check "the offset clamps to the tail" '(5 12) (list start end))
+  (check "hidden rows above only at the bottom" '(t nil)
          (list (and above t) below)))
 (multiple-value-bind (start end) (menu-window 12 -4)
-  (check "a negative offset clamps to the head" '(0 5) (list start end)))
+  (check "a negative offset clamps to the head" '(0 7) (list start end)))
 (multiple-value-bind (start end) (menu-window 10 0 8)
-  (check "the page size is a parameter" '(0 6) (list start end)))
+  (check "the page size is a parameter" '(0 8) (list start end)))
 ;; digits pick within the visible window
 (let ((items '(a b c d e f g h i j k l)))
   (check "digit 1 picks the window's first row" 'f
          (menu-window-pick items 5 1))
-  (check "digit 5 picks the window's last row" 'j
-         (menu-window-pick items 5 5))
+  (check "digit 7 picks the window's last row" 'l
+         (menu-window-pick items 5 7))
   (check "a digit past the window picks nothing" nil
-         (menu-window-pick items 5 6))
+         (menu-window-pick items 0 8))
   (check "the pick returns the absolute index" 7
          (nth-value 1 (menu-window-pick items 5 3)))
   (check "an unscrolled deep list picks from the head" 'e
@@ -1334,41 +1335,41 @@ height" d)
   (check "a short list picks directly" 'b (menu-window-pick items 0 2))
   (check "a digit past a short list picks nothing" nil
          (menu-window-pick items 0 3)))
-;; u/d move the window; other keys and short lists say NIL
+;; u/d move the window a full page; other keys and short lists say NIL
 (check "d scrolls a window down" 5 (menu-scroll 0 #\d 12))
-(check "d clamps at the tail" 7 (menu-scroll 5 #\d 12))
-(check "d at the tail stays" 7 (menu-scroll 7 #\d 12))
-(check "u scrolls a window up" 2 (menu-scroll 7 #\u 12))
+(check "d clamps at the tail" 5 (menu-scroll 3 #\d 12))
+(check "d at the tail stays" 5 (menu-scroll 5 #\d 12))
+(check "u scrolls a window up" 6 (menu-scroll 13 #\u 20))
 (check "u clamps at the head" 0 (menu-scroll 2 #\u 12))
 (check "U is u" 0 (menu-scroll 0 #\U 12))
 (check "a non-scroll key is not a scroll" nil (menu-scroll 0 #\x 12))
 (check "a non-character is not a scroll" nil (menu-scroll 0 :esc 12))
 (check "a short list never scrolls" nil (menu-scroll 0 #\d 7))
-;; the rendered window: marker rows carry the scroll keys
+;; the rendered window: a full page of rows, the geometry reported
+;; through *MENU-SCROLL* for the scrollbar
 (let ((items '("A" "B" "C" "D" "E" "F" "G" "H" "I")))
   (let ((lines (menu-scrolled-lines
                 items 0
                 (lambda (i x) (menu-numbered i (format nil "~D) ~A" i x))))))
-    (check "top window: rows then the below marker"
-           '("1) A" "2) B" "3) C" "4) D" "5) E" "v more below")
+    (check "top window: a full page of rows, no marker rows"
+           '("1) A" "2) B" "3) C" "4) D" "5) E" "6) F" "7) G")
            (menu-texts lines))
-    (check "the below marker carries the scroll key" #\d
-           (menu-line-key (first (last lines))))
+    (check "the geometry reports the window" '(0 7 9) *menu-scroll*)
     (check "option rows renumber within the window" #\1
            (menu-line-key (first lines))))
   (let ((lines (menu-scrolled-lines
                 items 4
                 (lambda (i x) (menu-numbered i (format nil "~D) ~A" i x))))))
-    (check "tail window: the above marker then the tail rows"
-           '("^ more above" "1) E" "2) F" "3) G" "4) H" "5) I")
+    (check "tail window: the clamped last page"
+           '("1) C" "2) D" "3) E" "4) F" "5) G" "6) H" "7) I")
            (menu-texts lines))
-    (check "the above marker carries the scroll key" #\u
-           (menu-line-key (first lines)))))
-(check "a short list renders without markers" '("1) A" "2) B")
+    (check "the tail geometry" '(2 9 9) *menu-scroll*)))
+(check "a short list renders whole" '("1) A" "2) B")
        (menu-texts (menu-scrolled-lines
                     '("A" "B") 0
                     (lambda (i x)
                       (menu-numbered i (format nil "~D) ~A" i x))))))
+(check "a short list reports no scroll geometry" nil *menu-scroll*)
 
 ;; Compass-rose geometry (the UI's facing indicator).
 (destructuring-bind (needle letters) (compass-points +north+ 100 50 20)
@@ -4620,13 +4621,12 @@ height" d)
        (view (make-equip-view h)))
   (dolist (name '(teq-1 teq-2 teq-3 teq-4 teq-5 teq-6 teq-7 teq-8))
     (give-item g h name))
-  (check-true "deep pack: the below marker shows"
-              (member "v more below" (menu-texts (equip-lines g view))
-                      :test #'equal))
+  (check "deep pack: the window geometry reaches the scrollbar"
+         '(0 7 8) (progn (equip-lines g view) *menu-scroll*))
   (check "d scrolls the pack" nil (equip-act g view #\d))
-  (check "the view holds the clamped offset" 3 (equip-view-top view))
-  (check-true "scrolled pack: row 1 is the fourth item"
-              (find-if (lambda (s) (search "1) Teq 4" s))
+  (check "the view holds the clamped offset" 1 (equip-view-top view))
+  (check-true "scrolled pack: row 1 is the second item"
+              (find-if (lambda (s) (search "1) Teq 2" s))
                        (menu-texts (equip-lines g view)))))
 
 ;; PASS-ITEM: handing an item to another party member.  The item is
@@ -5778,10 +5778,17 @@ height" d)
                       :test #'equal))
   (check "inspecting spends no gold" 25 (hero-gold h))
   (check "esc leaves the card" nil (shop-act g view #\Escape))
-  (check "back on the inspect page" :inspect (shop-view-mode view))
   (check "the card item is forgotten" nil (shop-view-pending view))
-  (check "esc then returns to the buy page" nil (shop-act g view #\Escape))
-  (check "buy mode again" :buy (shop-view-mode view))
+  ;; inspecting is a one-card detour: the card's Esc lands straight
+  ;; back on the buy page, so the next digit buys instead of opening
+  ;; another card
+  (check "the card's esc lands back on the buy page" :buy
+         (shop-view-mode view))
+  (shop-act g view #\1)
+  (check "the next digit buys again, not another card" 15 (hero-gold h))
+  (check "i then esc with no card picked also returns to buying" :buy
+         (progn (shop-act g view #\i) (shop-act g view #\Escape)
+                (shop-view-mode view)))
   (check "the hero stays selected" h (shop-view-hero view))
   (check "escape backs out to the pick page" nil
          (shop-act g view #\Escape))
@@ -5884,7 +5891,7 @@ height" d)
 ;;; deeper than a page windows with u/d and digits pick within the
 ;;; visible window — the front-ends inherit all of it from the models.
 
-;; a nine-item stock: deeper than the page (7), windows to 5 rows
+;; a nine-item stock: deeper than the page (7), windows to a full page
 (dolist (spec '((tscr-1 1) (tscr-2 2) (tscr-3 3) (tscr-4 4) (tscr-5 5)
                 (tscr-6 6) (tscr-7 7) (tscr-8 8) (tscr-9 9)))
   (define-item (first spec) :price (second spec)))
@@ -5899,36 +5906,35 @@ height" d)
   (let ((texts (menu-texts (shop-lines g view))))
     (check-true "deep stock: the first window starts at the head"
                 (find-if (lambda (s) (search "1) Tscr 1" s)) texts))
-    (check-true "deep stock: the below marker shows"
-                (member "v more below" texts :test #'equal))
-    (check "deep stock: no above marker at the head" nil
-           (member "^ more above" texts :test #'equal)))
+    (check-true "deep stock: the seventh item still shows"
+                (find-if (lambda (s) (search "7) Tscr 7" s)) texts))
+    (check "deep stock: the eighth is over the window's edge" nil
+           (find-if (lambda (s) (search "Tscr 8" s)) texts))
+    (check "deep stock: the geometry reaches the scrollbar"
+           '(0 7 9) *menu-scroll*))
   (check "d scrolls the stock" nil (shop-act g view #\d))
-  (check "the view holds the clamped offset" 4 (shop-view-top view))
+  (check "the view holds the clamped offset" 2 (shop-view-top view))
   (let ((texts (menu-texts (shop-lines g view))))
-    (check-true "scrolled stock: row 1 is the sixth item"
-                (find-if (lambda (s) (search "1) Tscr 5" s)) texts))
-    (check-true "scrolled stock: the above marker shows"
-                (member "^ more above" texts :test #'equal))
-    (check "scrolled stock: no below marker at the tail" nil
-           (member "v more below" texts :test #'equal)))
-  (shop-act g view #\2)                 ; buys the sixth item, tscr-6
-  (check "a digit buys within the window" '(tscr-6) (hero-items h))
-  (check "the windowed buy paid the right price" 94 (hero-gold h))
+    (check-true "scrolled stock: row 1 is the third item"
+                (find-if (lambda (s) (search "1) Tscr 3" s)) texts))
+    (check "scrolled stock: the geometry follows"
+           '(2 9 9) *menu-scroll*))
+  (shop-act g view #\2)                 ; buys the fourth item, tscr-4
+  (check "a digit buys within the window" '(tscr-4) (hero-items h))
+  (check "the windowed buy paid the right price" 96 (hero-gold h))
   (check "a digit past the window buys nothing" nil
-         (progn (shop-act g view #\7) (rest (hero-items h))))
+         (progn (shop-act g view #\8) (rest (hero-items h))))
   (check "u scrolls back to the head" nil (shop-act g view #\u))
   (check "the offset is back at the head" 0 (shop-view-top view))
   ;; the sell page scrolls the pack the same way
   (dotimes (i 7) (give-item g h 'tscr-1))
   (shop-act g view #\s)
   (check "the page flip resets the offset" 0 (shop-view-top view))
-  (let ((texts (menu-texts (shop-lines g view))))
-    (check-true "a full pack scrolls on the sell page"
-                (member "v more below" texts :test #'equal)))
+  (check "a full pack scrolls on the sell page"
+         '(0 7 8) (progn (shop-lines g view) *menu-scroll*))
   (shop-act g view #\d)
-  (check "the pack window clamps to its tail" 3 (shop-view-top view))
-  (shop-act g view #\1)                 ; sells pack item 4 (tscr-1)
+  (check "the pack window clamps to its tail" 1 (shop-view-top view))
+  (shop-act g view #\1)                 ; sells pack item 2 (tscr-1)
   (check "a digit sells within the window" 7 (length (hero-items h)))
   (check "escape resets the scroll offset" 0
          (progn (shop-act g view #\Escape) (shop-view-top view)))
@@ -5941,10 +5947,9 @@ height" d)
        (v (make-use-view)))
   (dotimes (i 8) (give-item g h 't-lantern))
   (use-act g v #\1)                     ; the hero uses
-  (let ((texts (menu-texts (use-lines g v))))
-    (check-true "a full pack scrolls on the use menu"
-                (member "v more below" texts :test #'equal)))
-  (check "d scrolls the use list" 3
+  (check "a full pack scrolls on the use menu"
+         '(0 7 8) (progn (use-lines g v) *menu-scroll*))
+  (check "d scrolls the use list" 1
          (progn (use-act g v #\d) (use-view-top v)))
   (check "a windowed digit resolves the use" :done (use-act g v #\1))
   (check-true "the scrolled use landed" (light-active-p g)))
@@ -5960,16 +5965,16 @@ height" d)
   (check-true "the test book is deeper than a page"
               (> (length book) +menu-page-size+))
   (cast-act g v #\1)                    ; the mage casts
-  (let ((texts (menu-texts (cast-lines g v))))
-    (check-true "a deep book scrolls on the cast menu"
-                (member "v more below" texts :test #'equal)))
+  (check-true "a deep book scrolls on the cast menu"
+              (progn (cast-lines g v) *menu-scroll*))
   (loop for top = (cast-view-top v)    ; page down to the very bottom
         do (cast-act g v #\d)
         until (= top (cast-view-top v)))
-  (check "the cast window scrolled to the end" (- (length book) 5)
+  (check "the cast window scrolled to the end"
+         (- (length book) +menu-page-size+)
          (cast-view-top v))
   ;; the last row is tscr-spell-4, a heal — castable out of combat
-  (cast-act g v #\5)
+  (cast-act g v (digit-char +menu-page-size+))
   (check "a windowed digit picks the right spell"
          (first (last book)) (cast-view-spell v)))
 
@@ -5979,13 +5984,12 @@ height" d)
        (v (%make-save-menu
            :mode :load
            :slots '("s1" "s2" "s3" "s4" "s5" "s6" "s7" "s8" "s9"))))
-  (let ((texts (menu-texts (save-menu-lines g v))))
-    (check-true "nine slots scroll in the picker"
-                (member "v more below" texts :test #'equal)))
+  (check "nine slots scroll in the picker"
+         '(0 7 9) (progn (save-menu-lines g v) *menu-scroll*))
   (check "d scrolls the slots" nil (save-menu-act g v #\d))
-  (check "the slot window scrolled" 4 (save-menu-top v))
+  (check "the slot window scrolled" 2 (save-menu-top v))
   (check "a windowed digit loads the right slot"
-         (list :load (slot-path "s6"))
+         (list :load (slot-path "s4"))
          (save-menu-act g v #\2)))
 
 ;; the character sheet windows a long stat block (a full pack lists
@@ -6013,8 +6017,7 @@ height" d)
   (equip-item g h 't-sword)
   (dotimes (i 7) (give-item g h 't-torch))
   (let ((texts (menu-texts (hero-sheet-lines g 0))))
-    (check "a full pack no longer scrolls the sheet" nil
-           (member "v more below" texts :test #'equal))
+    (check "a full pack no longer scrolls the sheet" nil *menu-scroll*)
     (check "a full pack stays off the sheet" nil
            (find-if (lambda (s) (search "T Torch" s)) texts)))
   (check "a full pack leaves the sheet unscrollable" nil

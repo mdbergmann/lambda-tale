@@ -315,9 +315,10 @@ the inspect page — the same stock, a digit showing that item's card
   "Apply key CHAR to the shop interaction.  Digits pick within the
 visible stock/pack window, u/d scroll it (see MENU-WINDOW), p pools
 the party's gold onto the shopper (see POOL-GOLD), i on the buy page
-opens the inspect page — a digit shows that item's card, and the page
-stays open for the next card; Esc steps back card, stock, buy page
-(the EQUIP-ACT pattern).  Mutates VIEW and the game state; returns
+opens the inspect page — a digit shows that item's card, and Esc from
+the card lands straight back on the buy page (inspecting is a
+one-card detour: the next digit buys again); Esc on the pick page
+returns to the buy page too.  Mutates VIEW and the game state; returns
 :LEFT when the party leaves the location (the front-end drops its
 view then), else NIL."
   (let ((loc (game-location game))
@@ -337,8 +338,11 @@ view then), else NIL."
       ;; — before the page-leaving Esc, so Esc steps back one page
       ((eq (shop-view-mode view) :inspect)
        (cond ((shop-view-pending view)
+              ;; closing the card ends the whole detour: back to
+              ;; buying, so the next digit spends gold, not curiosity
               (when (eql char #\Escape)
-                (setf (shop-view-pending view) nil))
+                (setf (shop-view-pending view) nil
+                      (shop-view-mode view) :buy))
               nil)
              (digit
               (let ((name (menu-window-pick (shop-stock loc)
