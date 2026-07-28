@@ -983,19 +983,28 @@ spot and disarm a springing floor trap (the rogue's), and
 `:description` a lore line for the campaign to show.  The roster holds
 up to 7 members (`join-party`): six regular heroes plus one guest slot
 for a summoned monster or story NPC.  Combat is
-round-based, Bard's Tale style: the **round-orders page** asks one
+round-based, Bard's Tale style: every round opens on the **engage
+page** — *Attack Enemy or Flee*, the one choice that is the whole
+party's (everyone runs or nobody does, and only at the top of the
+round; a failed flee costs a free monster round and asks again) —
+then the **round-orders page** asks one
 hero at a time (attack, defend, cast a spell, play a song, use an
-item; `Esc` undoes the previous pick, `f` flees party-level), and when
+item; `Esc` undoes the previous pick), and when
 the last of them has picked it turns into the **review** — every hero
 with the order it gave, under *Is this OK?* — where `y` fights the
 round and `n` throws the orders away and asks again from the first
-hero.  On the Amiga both pages take over the message area,
+hero.  On the Amiga all these pages take over the message area,
 with the enemy's portrait in the view column.  Then
 the round runs — heroes strike first, then every surviving monster
 swings at a random front-rank hero.  Each round opens with a
 `-- Round N --` line and its transcript plays out one message at a
 time on a fresh page of its own; `+`/`-` set the pace (5 speeds, from
-a second per line — the starting pace — to instant).  All randomness
+a second per line — the starting pace — to instant).  A won fight
+pays out each monster type's XP and gold, may turn up an item a
+fallen monster carried (`define-monster ... :item NAME :item-chance
+P`, one find per fight at most), and lingers on the campaign's
+`*victory-image*` treasure picture for `*victory-linger*` seconds
+before play resumes.  All randomness
 goes through
 `*rng*`, so the test suite scripts entire fights deterministically.
 

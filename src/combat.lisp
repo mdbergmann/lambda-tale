@@ -28,19 +28,26 @@
   (damage "1d4")
   (xp 10)
   (gold-dice 0)
+  item                ; item this monster may carry, or NIL
+  (item-chance 100)   ; percent chance the carried item drops
   image)              ; portrait file name, map-relative, or NIL
 
 (defvar *monster-types* (make-hash-table :test 'equalp))
 
 (defun define-monster (name &key (level 1) (hp-dice "1d8") (ac 10)
-                                 (damage "1d4") (xp 10) (gold 0) image)
+                                 (damage "1d4") (xp 10) (gold 0)
+                                 item (item-chance 100) image)
   "Register monster type NAME (a string).  Campaign data calls this.
-:IMAGE names the type's portrait file, resolved beside the map like a
-location picture (COMBAT-IMAGE-PATH) — the Amiga front-end shows it in
-the view column for as long as the fight lasts."
+:ITEM names an item the monster carries into the fight — after a
+victory each fallen carrier rolls :ITEM-CHANCE percent, and the first
+success hands the party that item, one find per fight at most (see
+%AWARD-LOOT).  :IMAGE names the type's portrait file, resolved
+beside the map like a location picture (COMBAT-IMAGE-PATH) — the Amiga
+front-end shows it in the view column for as long as the fight lasts."
   (setf (gethash name *monster-types*)
         (%make-monster-type :name name :level level :hp-dice hp-dice
                             :ac ac :damage damage :xp xp :gold-dice gold
+                            :item item :item-chance item-chance
                             :image image))
   name)
 
@@ -94,6 +101,26 @@ view column while the round-orders page takes over the message area."
       (let ((image (combat-enemy-image combat)))
         (when image
           (%resolve-map-path (dungeon-map-name (game-map game)) image))))))
+
+(defparameter *victory-image* nil
+  "Picture file name for the spoils of a won fight — a treasure
+chest — resolved beside the current map like a monster portrait
+(VICTORY-IMAGE-PATH), or NIL for none.  A campaign sets it; the Amiga
+front-end shows it in the view column over the victory transcript for
+*VICTORY-LINGER* seconds before play resumes.")
+
+(defparameter *victory-linger* 3
+  "Seconds the front-ends keep the victory screen — the treasure
+picture over the won fight's transcript — before giving the view
+column back to the walls.")
+
+(defun victory-image-path (game)
+  "*VICTORY-IMAGE* resolved relative to the current map file's
+directory (the COMBAT-IMAGE-PATH rule), or NIL when no campaign named
+one."
+  (when *victory-image*
+    (%resolve-map-path (dungeon-map-name (game-map game))
+                       *victory-image*)))
 
 (defun combat-banner (combat)
   (with-output-to-string (s)
@@ -253,7 +280,8 @@ and damage spells so the log reads the same either way.  The verbs are
 CAPITALS on purpose: landed damage must stand out when the transcript
 scrolls by, while misses stay lowercase and quiet.  A hit that leaves
 the monster standing names its remaining hit points — the party can
-read how close the kill is."
+read how close the kill is; the killing blow names its damage too, so
+a spell's or an arrow's worth shows even when it ends the fight."
   (let ((type (monster-kind monster)))
     (decf (monster-hp monster) dmg)
     (if (monster-alive-p monster)
@@ -264,8 +292,8 @@ read how close the kill is."
                (monster-hp monster)))
         (progn
           (emit game :slay monster)
-          (say game "~A SLAYS the ~A!"
-               attacker-name (monster-type-name type))))))
+          (say game "~A SLAYS the ~A for ~D points!"
+               attacker-name (monster-type-name type) dmg)))))
 
 (defun %hero-strike (game hero monster to-hit-bonus dice damage-bonus)
   "One strike — melee blow and arrow shot share the resolution.
@@ -346,7 +374,29 @@ lets an out-of-reach attack pass as a wasted action."
         (incf (hero-gold (first survivors)) gold)
         (let ((share (floor xp (length survivors))))
           (dolist (h survivors)
-            (award-xp game h share)))))))
+            (award-xp game h share)))
+        (%award-loot game combat survivors)))))
+
+(defun %award-loot (game combat survivors)
+  "The Bard's Tale find: each fallen monster whose type names an :ITEM
+rolls its :ITEM-CHANCE, and the FIRST success hands the item over —
+one find per fight at most, so a pack of carriers is a better chance
+at the same single prize, not a shower of prizes.  The item goes to
+the first survivor with pack room (GIVE-ITEM says when a pack is
+full, and the next hero steps up); with every pack full the find is
+simply left behind."
+  (dolist (m (combat-monsters combat))
+    (let* ((type (monster-kind m))
+           (item (monster-type-item type)))
+      (when (and item (< (roll 100) (monster-type-item-chance type)))
+        (say game "The ~A carried a ~A!"
+             (monster-type-name type) (item-title item))
+        (dolist (h survivors)
+          (when (give-item game h item)
+            (emit game :loot item h)
+            (say game "~A takes it." (hero-name h))
+            (return)))
+        (return)))))
 
 (defun %combat-outcome (game combat)
   (cond ((not (party-alive-p game))
@@ -465,12 +515,19 @@ strike back.  The round costs one clock tick.  Returns :victory,
 ;;; the round, N throws the orders away and starts asking again from
 ;;; the first hero.
 ;;;
+;;; Before any hero is asked, every round opens on the one party-level
+;;; choice — Attack Enemy or Flee.  Fleeing is all-or-nothing (the
+;;; whole party runs or nobody does) and only stands there, at the top
+;;; of the round: A commits the party for THIS round's orders (the
+;;; view's ENGAGED flag; each round's fresh view asks anew), and a
+;;; failed flee costs the free round the monsters just took — the next
+;;; round opens on the same choice.
+;;;
 ;;; The model collects (HERO . ACTION) pairs in party order; C,
 ;;; P and U open the cast/sing/use pickers for the hero at hand in
 ;;; their :ORDERS mode, which hands the pick back as a round action
 ;;; instead of fighting a round itself (see %CAST-COMMIT /
-;;; %SING-COMMIT / %USE-COMMIT).  F is
-;;; party-level flight (from either page), Esc undoes the previous
+;;; %SING-COMMIT / %USE-COMMIT).  Esc undoes the previous
 ;;; hero's pick — and on the review page it is N — and +/- set the
 ;;; transcript speed.  COMBAT-ORDERS-ACT returns (:FIGHT ACTIONS) only
 ;;; when the review is accepted; the front-end fights the round then.
@@ -481,6 +538,9 @@ strike back.  The round costs one clock tick.  Returns :victory,
 ;;; roster and lost its footer at the bottom of a lores column.
 
 (defstruct (combat-orders (:constructor %make-combat-orders))
+  engaged             ; T once the party chose to stand and fight this
+                      ; round — until then the page offers the one
+                      ; party-level choice, Attack Enemy or Flee
   chosen              ; (HERO . ACTION) pairs picked so far, party order
   sub                 ; CAST-VIEW/SING-VIEW picking for the hero at hand
   review)             ; T once every hero has picked: the review page,
@@ -532,7 +592,9 @@ at hand, and the actions — one per row, first letter as the key (no
 bracket noise), and only the actions this hero can actually take: an
 :ATTACK out of reach, a Cast for the spell-less, a Play for the
 song-less or a Use from an empty pack would only draw the refusal the
-key handler keeps for scripted input.  Defend and Flee always stand.
+key handler keeps for scripted input.  Defend always stands; Flee is
+not a hero's to give — it is the party's choice at the top of the
+round, and this round's went when the party engaged.
 The navigation keys (Esc undo, +/- speed) are common knowledge and
 live on the help screen instead.  The page draws in the message
 column (the Amiga takeover), 27 characters wide at lores; every row
@@ -552,14 +614,25 @@ the lores page height (the suite checks both)."
      (when (and (hero-singer-p hero) (songs-for-hero hero))
        (list "Play"))
      (when (usable-items hero)
-       (list "Use"))
-     (list "Flee"))))
+       (list "Use")))))
+
+(defun %orders-engage-lines (game)
+  "The page every round opens on: the enemy block and the one choice
+that is the party's to make as a whole — stand and fight, or run.
+Either the whole party flees or no one does; once the party engages,
+the choice waits for the top of the next round (each round's fresh
+orders view asks anew — see COMBAT-ORDERS-ENGAGED)."
+  (append
+   (%orders-head-lines game)
+   (list ""
+         "Attack Enemy"
+         "Flee")))
 
 (defun %orders-review-lines (game view)
   "The review page: every hero with the order it gave, and the
 question the round waits on.  It does not repeat the enemy block —
 every hero's page just showed it, and the rows the list needs are the
-rows a full party's orders take.  F and +/- still answer here (see
+rows a full party's orders take.  +/- still answers here (see
 %ORDERS-REVIEW-ACT); the page names the two keys the question is
 about."
   (append
@@ -576,14 +649,18 @@ about."
 
 (defun combat-orders-lines (game view)
   "The round-orders page as menu lines (the SHOP-LINES pattern): the
-page asking the hero at hand for its order, or — once every hero has
-one — the review page listing them all under \"Is this OK?\".  While a
-cast/sing/use pick is open, its page shows instead."
+party-level engage page while the fight waits on its opening choice
+(Attack Enemy or Flee), then the page asking the hero at hand for its
+order, or — once every hero has one — the review page listing them
+all under \"Is this OK?\".  While a cast/sing/use pick is open, its
+page shows instead."
   (let ((sub (combat-orders-sub view)))
     (cond
       ((cast-view-p sub) (cast-lines game sub))
       ((sing-view-p sub) (sing-lines game sub))
       ((use-view-p sub) (use-lines game sub))
+      ((not (combat-orders-engaged view))
+       (%orders-engage-lines game))
       ((combat-orders-review view) (%orders-review-lines game view))
       ((combat-orders-hero game view) (%orders-hero-lines game view))
       ;; nobody left to ask and nothing to review (the party fell while
@@ -623,13 +700,24 @@ lands as the hero-at-hand's action; Esc backs out to the action keys."
 (defun %orders-review-act (game view char)
   "Apply key CHAR to the review page: Y fights the round with the
 orders as they stand, N (or Esc) throws them away and asks the party
-again from the first hero, F still runs, +/- still set the pace."
+again from the first hero, +/- still set the pace."
   (case (char-downcase char)
     (#\y (list :fight (mapcar #'cdr (combat-orders-chosen view))))
     ((#\n #\Escape)
      (setf (combat-orders-chosen view) '()
            (combat-orders-review view) nil)
      nil)
+    (#\+ (adjust-combat-speed game 1) nil)
+    (#\- (adjust-combat-speed game -1) nil)
+    (t nil)))
+
+(defun %orders-engage-act (game view char)
+  "Apply key CHAR to the engage page: A commits the party to this
+round's orders (the choice returns at the top of the next round), F
+runs — the whole party or nobody — and +/- set the pace as
+everywhere else."
+  (case (char-downcase char)
+    (#\a (setf (combat-orders-engaged view) t) nil)
     (#\f :flee)
     (#\+ (adjust-combat-speed game 1) nil)
     (#\- (adjust-combat-speed game -1) nil)
@@ -638,12 +726,14 @@ again from the first hero, F still runs, +/- still set the pace."
 (defun combat-orders-act (game view char)
   "Apply key CHAR to the round-orders page.  Returns (:FIGHT ACTIONS)
 when the review page is accepted — the front-end fights the round with
-them (COMBAT-ROUND) — :FLEE when the party runs (ATTEMPT-FLEE), else
-NIL."
+them (COMBAT-ROUND) — :FLEE when the party runs from the round's
+engage page (ATTEMPT-FLEE; the choice only stands there), else NIL."
   (let ((sub (combat-orders-sub view))
         (hero (combat-orders-hero game view)))
     (cond
       (sub (%orders-sub-act game view sub char))
+      ((not (combat-orders-engaged view))
+       (%orders-engage-act game view char))
       ((combat-orders-review view) (%orders-review-act game view char))
       ((null hero) nil)                 ; nobody left to ask
       (t
@@ -669,7 +759,6 @@ NIL."
                         (make-use-view :in-combat :orders :hero hero))
                   (say game "~A has nothing to use." (hero-name hero)))
               nil)
-         (#\f :flee)
          (#\+ (adjust-combat-speed game 1) nil)
          (#\- (adjust-combat-speed game -1) nil)
          (#\Escape
@@ -680,8 +769,12 @@ NIL."
          (t nil))))))
 
 (defun attempt-flee (game)
-  "Try to run from combat.  Success (even odds) ends the fight; failure
-gives the monsters a free round.  Returns :fled, :defeat or :ongoing."
+  "Try to run from combat — the whole party or nobody.  Success (even
+odds) ends the fight; failure gives the monsters a free round, and
+the next round's orders open on the same Attack-or-Flee choice.
+Returns :fled, :defeat or :ongoing.  The orders pages only offer the
+run on the engage page at the top of a round, but a scripted caller
+may try it any time."
   (let ((combat (game-combat game)))
     (unless combat
       (error "attempt-flee: no combat is in progress"))

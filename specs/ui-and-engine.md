@@ -230,10 +230,15 @@ profile, not a patch.)
   **help page** (`h`/`?`, `help-lines`), position/facing/clock to the
   **map footer**, contextual prompts (win/lose) into the message log.
   Combat keys live on the **round-orders page** (`combat-orders-lines`
-  / `combat-orders-act` in combat.lisp): every living hero picks an
-  action in turn (attack/defend/cast/play/use, `Esc` undoes, `f` flees,
+  / `combat-orders-act` in combat.lisp): every round opens on the
+  party-level engage page (`a` attacks, `f` flees — the whole party or
+  nobody, and only at the top of a round; a failed flee costs a
+  free monster round and asks again), then every living hero picks an
+  action in turn (attack/defend/cast/play/use, `Esc` undoes,
   `+`/`-` set the transcript speed), then the round runs with each
-  message lingering `combat-message-delay` seconds.
+  message lingering `combat-message-delay` seconds.  A won fight
+  lingers `*victory-linger*` seconds on the campaign's
+  `*victory-image*` treasure picture in the view column.
 
 ## Message-area takeovers (locations, character sheet)
 

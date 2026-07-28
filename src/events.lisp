@@ -22,6 +22,7 @@
 ;;;   :hero-died HERO        a hero dropped to 0 hp
 ;;;   :party-defeated        the last hero fell
 ;;;   :level-up HERO         a hero rose a level
+;;;   :loot ITEM HERO        a fallen monster's item found after a fight
 ;;;   :coin AMOUNT           gold changed hands in a shop (buy, sell)
 ;;; plus :spell-cast, :song-sung, :item-used, :item-passed, :drink,
 ;;; :hero-revived, :party-joined, :time-band, :sunrise, :sunset and

@@ -2835,8 +2835,11 @@ height" d)
   (check "combat-end event" '(:victory) ended)
   (check "xp awarded" 10 (hero-xp h))
   (check "gold awarded" 6 (hero-gold h))
-  (check-true "slain message"
-              (find-if (lambda (s) (search "SLAYS" s)) (funcall msgs)))
+  ;; the killing blow names its damage — a spell's or an arrow's worth
+  ;; shows even when it ends the fight
+  (check-true "slain message names the damage"
+              (find "Alva SLAYS the test rat for 3 points!"
+                    (funcall msgs) :test #'equal))
   (check-true "victory message"
               (find-if (lambda (s) (search "Victory" s)) (funcall msgs))))
 
@@ -2894,6 +2897,90 @@ height" d)
   (combat-round (new-game (parse-map *art*))))
 (check-error "attempt-flee without combat"
   (attempt-flee (new-game (parse-map *art*))))
+
+;; Monster loot: a type may carry an :ITEM into the fight; after the
+;; victory each fallen carrier rolls its :ITEM-CHANCE and the FIRST
+;; success hands the item over — one find per fight at most.
+(define-item 'test-fang)
+(define-monster "test looter"
+  :hp-dice 3 :ac 10 :damage "1d2" :xp 5 :gold 0
+  :item 'test-fang :item-chance 50)
+
+(check "a monster carries no item unless told to" nil
+       (monster-type-item (find-monster-type "test rat")))
+(check "the item chance defaults to a sure drop" 100
+       (monster-type-item-chance
+        (%make-monster-type :name "x" :item 'test-fang)))
+
+;; The drop lands: kill the carrier, roll under the chance, take it.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (start-combat g '(("test looter" 1)))
+  ;; d20=10 hits, 1d6=3 slays; the loot roll 49 lands under chance 50
+  (check "the carrier falls" :victory (with-rng (10 2 49) (combat-round g)))
+  (check-true "the find is spoken"
+              (find "The test looter carried a Test Fang!"
+                    (funcall msgs) :test #'equal))
+  (check-true "and taken"
+              (find "Alva takes it." (funcall msgs) :test #'equal))
+  (check-true "the item sits in the pack"
+              (hero-carrying-p h 'test-fang)))
+
+;; The chance can fail — then nothing is found or said.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (start-combat g '(("test looter" 1)))
+  (check "the carrier falls anyway" :victory
+         (with-rng (10 2 75) (combat-round g)))
+  (check "an unlucky roll finds nothing" nil
+         (find-if (lambda (s) (search "carried" s)) (funcall msgs)))
+  (check "the pack stays empty" nil (hero-carrying-p h 'test-fang)))
+
+;; Two carriers are a better chance at the same single prize, not a
+;; shower of prizes: the first success stops the rolling.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h))))
+  (start-combat g '(("test looter" 2)))
+  (check "round one fells the first carrier" :ongoing
+         (with-rng (10 2 0 0) (combat-round g)))
+  ;; the loot roll 3 succeeds on the first carrier; were the second
+  ;; rolled too, the exhausted script's 0 would also drop — the single
+  ;; fang below proves it never was
+  (check "round two wins" :victory (with-rng (10 2 3) (combat-round g)))
+  (check "one find per fight" 1 (count 'test-fang (hero-items h))))
+
+;; With every pack full the find is left behind, whole.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (setf (hero-items h) (make-list +inventory-limit+
+                                  :initial-element 'test-fang))
+  (start-combat g '(("test looter" 1)))
+  (check "the fight is won" :victory (with-rng (10 2 0) (combat-round g)))
+  (check-true "the find is spoken"
+              (find "The test looter carried a Test Fang!"
+                    (funcall msgs) :test #'equal))
+  (check-true "but the pack is full"
+              (find "Alva's pack is full." (funcall msgs) :test #'equal))
+  ;; the filler is fangs too, so count, not carry: the pack must hold
+  ;; exactly what it held — the find never squeezed in as one more
+  (check "and the fang stays behind" +inventory-limit+
+         (length (hero-items h))))
+
+;; The victory picture: campaign data, resolved beside the map like a
+;; monster portrait; NIL until a campaign names one.
+(let* ((m (parse-map *art* :name "world/deep/test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (check "no victory picture by default" nil (victory-image-path g))
+  (let ((*victory-image* "gfx/treasure.iff"))
+    (check "the victory picture resolves beside the map"
+           "world/deep/gfx/treasure.iff" (victory-image-path g))))
 
 ;; Reach cuts both ways: the front ranks are the heroes monsters can
 ;; hit AND the only heroes who can trade melee blows back; a hero
@@ -2982,14 +3069,15 @@ height" d)
        (msgs (watch-messages g))
        (view (make-combat-orders)))
   (start-combat g '(("test rat" 1)))
+  (combat-orders-act g view #\a)        ; the party engages
   (dotimes (i 3) (combat-orders-act g view #\a))
   (check "the back-rank hero is at hand" "D"
          (hero-name (combat-orders-hero g view)))
   ;; the page already dropped the Attack row for the bare back rank —
   ;; but a scripted A still draws the spoken refusal below
   (check "the bare back rank's page drops Attack"
-         '("Defend" "Flee")
-         (last (menu-texts (combat-orders-lines g view)) 2))
+         '("Defend")
+         (last (menu-texts (combat-orders-lines g view)) 1))
   (check "a refused attack returns nil" nil (combat-orders-act g view #\a))
   (check "the refusal keeps asking the same hero" "D"
          (hero-name (combat-orders-hero g view)))
@@ -2999,7 +3087,8 @@ height" d)
   (check "defending still stands open" nil (combat-orders-act g view #\d))
   (check-true "the four picks reach the review"
               (combat-orders-review view))
-  ;; redo with a strung bow: the same hero's A now records
+  ;; redo with a strung bow: the same hero's A now records — the
+  ;; engagement stands through the redo, no second engage page
   (combat-orders-act g view #\n)
   (give-item g d 'test-bow)
   (give-item g d 'test-arrows)
@@ -3007,8 +3096,8 @@ height" d)
   (equip-item g d 'test-arrows)
   (dotimes (i 3) (combat-orders-act g view #\a))
   (check "the strung back rank's page offers Attack"
-         '("Attack" "Defend" "Flee")
-         (last (menu-texts (combat-orders-lines g view)) 3))
+         '("Attack" "Defend")
+         (last (menu-texts (combat-orders-lines g view)) 2))
   (combat-orders-act g view #\a)
   (check "a strung back-rank attack records"
          '(:fight (:attack :attack :attack :attack))
@@ -3135,9 +3224,10 @@ height" d)
   (check-true "cast announced"
               (find-if (lambda (s) (search "casts test bolt" s))
                        (funcall msgs)))
-  (check-true "spell kill reads like a kill"
-              (find-if (lambda (s) (search "SLAYS the test rat" s))
-                       (funcall msgs))))
+  ;; ... and names the spell's damage, like every killing blow
+  (check-true "spell kill reads like a kill and names its damage"
+              (find "Zzgo SLAYS the test rat for 3 points!"
+                    (funcall msgs) :test #'equal)))
 
 ;; Heal targets a chosen hero; buffs and light become timed effects.
 (let* ((m (parse-map *art* :name "test"))
@@ -4413,14 +4503,35 @@ height" d)
   (check-true "round 2 header"
               (find "-- Round 2 --" (funcall msgs) :test #'equal)))
 
-;; The round-orders model: the page asks ONE hero at a time, and the
-;; last pick raises the review page — the round waits there for Y.
+;; The round-orders model: the fight opens on the party-level engage
+;; page — Attack Enemy or Flee, the one choice that is the whole
+;; party's — then the page asks ONE hero at a time, and the last pick
+;; raises the review page — the round waits there for Y.
 (let* ((m (parse-map *art* :name "test"))
        (grunt (%combat-hero))
        (mage (%combat-mage))
        (g (new-game m :party (list grunt mage)))
        (view (make-combat-orders)))
   (start-combat g '(("test rat" 2)))
+  (check "a fresh round's orders are not engaged" nil
+         (combat-orders-engaged view))
+  (check "the engage page carries the party's choice"
+         '("Attack Enemy" "Flee")
+         (last (menu-texts (combat-orders-lines g view)) 2))
+  (check-true "the engage page shows the coming round"
+              (find-if (lambda (s) (search "Round 1" s))
+                       (menu-texts (combat-orders-lines g view))))
+  (check "no hero is asked before the party engages" nil
+         (find "What will Alva do?"
+               (menu-texts (combat-orders-lines g view))
+               :test #'equal))
+  (check "a hero key does nothing on the engage page" nil
+         (combat-orders-act g view #\d))
+  (check "the engage page took no hero pick" nil
+         (combat-orders-chosen view))
+  (check "a engages the party" nil (combat-orders-act g view #\a))
+  (check-true "this round's orders are engaged"
+              (combat-orders-engaged view))
   (check "orders ask the first hero" grunt (combat-orders-hero g view))
   (check-true "orders page shows the coming round"
               (find-if (lambda (s) (search "Round 1" s))
@@ -4437,8 +4548,8 @@ height" d)
   ;; grunt neither casts, plays nor carries a thing; the navigation
   ;; keys (Esc undo, +/- speed) live on the help screen
   (check "orders page ends with the grunt's own actions"
-         '("Attack" "Defend" "Flee")
-         (last (menu-texts (combat-orders-lines g view)) 3))
+         '("Attack" "Defend")
+         (last (menu-texts (combat-orders-lines g view)) 2))
   (check "the page asks one hero, not the roster" nil
          (find-if (lambda (s) (search "Zzgo" s))
                   (menu-texts (combat-orders-lines g view))))
@@ -4450,8 +4561,8 @@ height" d)
                     :test #'equal))
   ;; the mage casts, so its page grows the Cast row the grunt's lacked
   (check "the caster's page offers Cast"
-         '("Attack" "Defend" "Cast" "Flee")
-         (last (menu-texts (combat-orders-lines g view)) 4))
+         '("Attack" "Defend" "Cast")
+         (last (menu-texts (combat-orders-lines g view)) 3))
   (check "esc undoes the previous pick" nil
          (combat-orders-act g view #\Escape))
   (check "back to the first hero" grunt (combat-orders-hero g view))
@@ -4487,6 +4598,7 @@ height" d)
          (g (new-game m :party (list grunt mage)))
          (view (make-combat-orders)))
     (start-combat g '(("test rat" 1)))
+    (combat-orders-act g view #\a)      ; the party engages
     (combat-orders-act g view #\a)
     (combat-orders-act g view #\d)
     (check-true "the review is up" (combat-orders-review view))
@@ -4498,21 +4610,60 @@ height" d)
     (check "and the first hero is asked again" grunt
            (combat-orders-hero g view))))
 
-;; The party can still run from the review, and still set the pace
-;; there — the page names the two keys the question is about, but the
-;; round-orders keys that are not about one hero keep answering.
+;; Fleeing is the engage page's alone — the whole party runs or
+;; nobody, and only at the top of a round.  Once the party engages,
+;; F answers nowhere for the rest of the round: not on a hero's page,
+;; not on the review.  The pace keys keep answering on every page.
 (let* ((m (parse-map *art* :name "test"))
        (g (new-game m :party (list (%combat-hero))))
        (view (make-combat-orders))
        (*combat-speed* 3))
   (start-combat g '(("test rat" 1)))
+  (check "+ sets the pace on the engage page" nil
+         (combat-orders-act g view #\+))
+  (check "and it took" 4 *combat-speed*)
+  (check "f flees from the engage page" :flee
+         (combat-orders-act g view #\f))
+  (combat-orders-act g view #\a)        ; the party engages instead
+  (check "f does nothing on a hero's page" nil
+         (combat-orders-act g view #\f))
+  (check "no pick was recorded by it" nil (combat-orders-chosen view))
   (combat-orders-act g view #\a)
   (check-true "the review is up" (combat-orders-review view))
   (check "+ still sets the pace on the review" nil
          (combat-orders-act g view #\+))
-  (check "and it took" 4 *combat-speed*)
+  (check "and it took again" 5 *combat-speed*)
   (check "the review is still up" t (combat-orders-review view))
-  (check "f flees from the review" :flee (combat-orders-act g view #\f)))
+  (check "f does nothing on the review" nil
+         (combat-orders-act g view #\f))
+  (check-true "the review still stands" (combat-orders-review view)))
+
+;; The choice returns at the top of EVERY round: after a failed flee
+;; (the monsters took their free round) and after a fought round
+;; alike, the next round's fresh orders view opens on it again.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero))))
+       (view (make-combat-orders)))
+  (start-combat g '(("test rat" 2)))    ; 3 hp each
+  (check "the engage page offers the run" :flee
+         (combat-orders-act g view #\f))
+  (check "the flee fails and the fight goes on" :ongoing
+         (with-rng (60 0 11 1) (attempt-flee g)))
+  (let ((fresh (make-combat-orders)))
+    (check "after the failed flee the choice stands again"
+           '("Attack Enemy" "Flee")
+           (last (menu-texts (combat-orders-lines g fresh)) 2))
+    ;; engage, fight a round that leaves a rat standing (the hero
+    ;; misses, the rat misses back) — the fight goes on
+    (combat-orders-act g fresh #\a)
+    (check "the fought round goes on" :ongoing
+           (with-rng (0 0 0) (combat-round g)))
+    (let ((next (make-combat-orders)))
+      (check "the next round opens on the choice again"
+             '("Attack Enemy" "Flee")
+             (last (menu-texts (combat-orders-lines g next)) 2))
+      (check "and f still runs there" :flee
+             (combat-orders-act g next #\f)))))
 
 ;; A hero's page costs a fixed handful of rows: a seven-strong party
 ;; asks seven pages, none of them longer than a two-strong party's.
@@ -4526,6 +4677,8 @@ height" d)
        (v7 (make-combat-orders)))
   (start-combat two '(("test rat" 1)))
   (start-combat seven '(("test rat" 1)))
+  (combat-orders-act two v2 #\a)        ; both parties engage
+  (combat-orders-act seven v7 #\a)
   (check "the hero page does not grow with the party"
          (length (combat-orders-lines two v2))
          (length (combat-orders-lines seven v7))))
@@ -4539,7 +4692,7 @@ height" d)
 ;;
 ;; A hero who is both a caster and a singer (a game may define such a
 ;; class) draws the widest hero page there is: Attack, Defend, Cast,
-;; Play, Use and Flee all at once.  A class and spell of its own keep
+;; Play and Use all at once.  A class and spell of its own keep
 ;; this fixture off the :T-MAGE roster the spell tests above depend
 ;; on.
 (define-hero-class :t-adept :hp-dice "1d6+2" :damage "1d4" :ac 9
@@ -4573,6 +4726,8 @@ height" d)
                                    label)
                            (<= (length (remove "" lines :test #'equal))
                                rows)))))
+      (fits "engage page")
+      (combat-orders-act g view #\a)    ; the party engages
       (fits "hero page")
       ;; attack is a front-rank pick; the back ranks defend (reach)
       (dotimes (i +party-limit+)
@@ -4589,6 +4744,7 @@ height" d)
        (g (new-game m :party (list grunt mage)))
        (view (make-combat-orders)))
   (start-combat g '(("test rat" 2)))    ; 3 hp each
+  (combat-orders-act g view #\a)        ; the party engages
   (combat-orders-act g view #\a)        ; the grunt attacks
   (check "c opens the mage's spell pick" nil (combat-orders-act g view #\c))
   (check-true "the pick page is the mage's cast menu"
@@ -4618,6 +4774,7 @@ height" d)
        (g (new-game m :party (list grunt mage)))
        (view (make-combat-orders)))
   (start-combat g '(("test rat" 1)))
+  (combat-orders-act g view #\a)        ; the party engages
   (combat-orders-act g view #\a)
   (combat-orders-act g view #\c)
   (combat-orders-act g view #\2)        ; test-mend: heal, pick a target
@@ -4639,6 +4796,7 @@ height" d)
        (g (new-game m :party (list grunt bard)))
        (view (make-combat-orders)))
   (start-combat g '(("test rat" 1)))
+  (combat-orders-act g view #\a)        ; the party engages
   (combat-orders-act g view #\a)
   (check "p opens the bard's song pick" nil (combat-orders-act g view #\p))
   (check "the song pick completes the orders" nil
@@ -4656,6 +4814,7 @@ height" d)
        (view (make-combat-orders)))
   (give-item g grunt 'test-bomb)
   (start-combat g '(("test rat" 1)))    ; 3 hp
+  (combat-orders-act g view #\a)        ; the party engages
   (check "u opens the use pick" nil (combat-orders-act g view #\u))
   (check-true "the pick page lists the bomb"
               (find-if (lambda (s) (search "Test Bomb" s))
@@ -4674,13 +4833,14 @@ height" d)
     (check "the round spent the bomb" nil
            (hero-carrying-p grunt 'test-bomb))))
 
-;; Refusals stay put; F flees party-level from any hero's turn.
+;; Refusals stay put.
 (let* ((m (parse-map *art* :name "test"))
        (grunt (%combat-hero))
        (g (new-game m :party (list grunt)))
        (msgs (watch-messages g))
        (view (make-combat-orders)))
   (start-combat g '(("test rat" 1)))
+  (combat-orders-act g view #\a)        ; the party engages
   (check "c on a non-caster stays put" nil (combat-orders-act g view #\c))
   (check-true "and says who cannot cast"
               (find "Alva cannot cast." (funcall msgs) :test #'equal))
@@ -4692,8 +4852,7 @@ height" d)
   (check-true "and says who has nothing"
               (find "Alva has nothing to use." (funcall msgs)
                     :test #'equal))
-  (check "still asking the same hero" grunt (combat-orders-hero g view))
-  (check "f flees" :flee (combat-orders-act g view #\f)))
+  (check "still asking the same hero" grunt (combat-orders-hero g view)))
 
 ;; Combat transcript speed: +/- during orders, clamped both ways; the
 ;; front-ends linger COMBAT-MESSAGE-DELAY seconds on each message.

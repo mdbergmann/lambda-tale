@@ -5,9 +5,11 @@
 ;;;       1-7=character sheet  S=save  L=load  q=quit
 ;;; In the map view: m/Esc=back  f=toggle omniscient (debug)  q=quit
 ;;; In the help page: h/Esc=back  q=quit
-;;; In combat the round-orders page asks one hero at a time:
+;;; In combat every round opens on the party-level choice — a=attack
+;;; the enemy, f=flee (the whole party or nobody; only offered
+;;; there) — then the round-orders page asks one hero at a time:
 ;;; a=attack  d=defend  c=cast  p=play  u=use  Esc=undo the previous
-;;; pick; f=flee (party-level), +/-=transcript speed.  When the last
+;;; pick; +/-=transcript speed.  When the last
 ;;; hero has picked, the page reviews the orders and asks "Is this
 ;;; OK?" — y fights the round, n throws them away and asks again from
 ;;; the first hero.  Each message of the round lingers

@@ -1951,12 +1951,15 @@ toggle an item on/off, class-unfit items are marked (u), P hands
 an item to another party member (1-9 the item, then 1-7 who receives
 it) — and Esc leaves), C cast a spell (pick
 caster/spell/target by number, Esc backs out), Q/Esc quit; in combat
-the round-orders page asks one hero at a time — A attack, D defend,
+every round opens on the party-level choice — A attack the enemy, F
+flee (the whole party or nobody; only there) — then the round-orders
+page asks one hero at a time — A attack, D defend,
 C cast, P play, U use, Esc undo the previous pick — and then reviews
 the orders under \"Is this OK?\", where Y fights the round and N asks
-again from the first hero; F flees (party-level)
-and +/- set the transcript speed, each round message lingering
-COMBAT-MESSAGE-DELAY seconds; in a location (shop) 1-9 choose,
+again from the first hero; +/- set the transcript speed, each round
+message lingering COMBAT-MESSAGE-DELAY seconds, and a won fight shows
+the campaign's treasure picture for *VICTORY-LINGER* seconds; in a
+location (shop) 1-9 choose,
 S/B switch sell/buy, Esc back/leave — the location menu, the
 character sheet and the round orders take over the message area, with
 the location's :image / the hero's portrait / the enemy's portrait in
@@ -2420,17 +2423,34 @@ map/help/sheet pages close on a click outside a target — see
                           ;; open fresh orders when combat goes on
                           (setf ordersv nil)
                           (setf round-base (log-length log))
-                          (unwind-protect
-                              (progn (setf pacing t) (funcall thunk))
-                            (setf pacing nil))
-                          (if (game-combat game)
-                              (progn
-                                (setf ordersv (make-combat-orders))
-                                (redraw))
-                              ;; combat over: the enemy portrait gives
-                              ;; the view column back to the walls, so
-                              ;; repaint the chrome under it too
-                              (fresh-play)))
+                          (let ((result
+                                  (unwind-protect
+                                      (progn (setf pacing t)
+                                             (funcall thunk))
+                                    (setf pacing nil))))
+                            (if (game-combat game)
+                                (progn
+                                  (setf ordersv (make-combat-orders))
+                                  (redraw))
+                                (progn
+                                  ;; a won fight lingers on its spoils:
+                                  ;; the campaign's treasure picture
+                                  ;; over the victory transcript (xp,
+                                  ;; gold, the found item), a beat to
+                                  ;; read before play resumes
+                                  (when (eq result :victory)
+                                    (let ((picture (victory-image-path
+                                                    game)))
+                                      (when (and picture
+                                                 (%amiga-draw-picture
+                                                  rp icons picture l log))
+                                        (%amiga-party rp game l nil)
+                                        (sleep *victory-linger*))))
+                                  ;; combat over: the enemy portrait
+                                  ;; gives the view column back to the
+                                  ;; walls, so repaint the chrome under
+                                  ;; it too
+                                  (fresh-play)))))
                         (open-cast (in-combat)
                           (if (some #'hero-caster-p (alive-heroes game))
                               (setf castv

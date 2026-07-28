@@ -154,6 +154,7 @@
    ;; combat
    #:define-monster #:find-monster-type #:monster-type-name
    #:monster-type-level #:monster-type-ac #:monster-type-xp
+   #:monster-type-item #:monster-type-item-chance
    #:monster-type-image
    #:monster-kind #:monster-hp #:monster-alive-p
    #:start-combat #:combat-round #:attempt-flee #:hero-can-attack-p
@@ -162,9 +163,12 @@
    #:game-idle-encounter-clock
    #:combat-monsters #:alive-monsters #:combat-groups #:combat-banner
    #:combat-enemy-image #:combat-image-path
+   #:*victory-image* #:*victory-linger* #:victory-image-path
    #:combat-round-no
-   ;; combat round orders (every hero picks, then the round runs)
+   ;; combat round orders (the party engages or flees, every hero
+   ;; picks, then the round runs)
    #:make-combat-orders #:combat-orders-hero #:combat-orders-chosen
+   #:combat-orders-engaged
    #:combat-orders-review #:combat-orders-lines #:combat-orders-act
    ;; combat transcript speed (the +/- keys)
    #:*combat-speed* #:+combat-speed-max+
