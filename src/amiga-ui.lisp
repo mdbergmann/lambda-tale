@@ -1607,7 +1607,7 @@ front-ends that want it."
                       (length (game-party game))))
         (incf y (floor lh 2))
         (when hero
-          (dolist (text (hero-summary-lines hero))
+          (dolist (text (hero-summary-lines hero game))
             (line text)))
         (incf y (floor lh 2))
         (line "1-7 view another   Esc back")))

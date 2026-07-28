@@ -2072,7 +2072,9 @@ height" d)
   (check "sheet has six lines" 6 (length lines))
   (check "sheet name/class line" "El Cid the War Mage" (first lines))
   (check "sheet level/xp line" "Level 3  XP 1200" (second lines))
-  (check "sheet hp/ac line" "HP 9/11  AC 8" (third lines))
+  ;; the sheet's AC is the roster's: HERO-EFFECTIVE-AC, not the base
+  ;; slot — here the DEX 12 gift takes the base 8 to 7
+  (check "sheet hp/ac line" "HP 9/11  AC 7" (third lines))
   (check "sheet primary stats line" "STR 15 DEX 12 IQ 9" (fourth lines))
   (check "sheet secondary stats line" "CON 14 LCK 10" (fifth lines))
   (check "sheet gold line, standing" "Gold 250 gp" (sixth lines))
@@ -4529,6 +4531,12 @@ height" d)
   (check-true "equip a shield" (equip-item g h 't-buckler))
   (check "armor and shield lower the descending ac" 3
          (hero-effective-ac h))
+  ;; the sheet agrees with the roster on the equipped hero: both read
+  ;; HERO-EFFECTIVE-AC — a loaded save's sheet must not fall back to
+  ;; the bare base slot beside a roster showing the equipped value
+  (check "the sheet's AC line carries the equipped ac"
+         (format nil "HP ~D/~D  AC 3" (hero-hp h) (hero-max-hp h))
+         (third (hero-summary-lines h g)))
   (check "misc items cannot be equipped" nil (equip-item g h 't-torch))
   (check-true "unequip returns t" (unequip-item g h 't-mail))
   (check "unequip keeps the item in the pack" t
@@ -5437,7 +5445,15 @@ height" d)
       (check "loaded hero tunes" 3 (hero-tunes b2))
       (check-true "loaded caster hero is still a caster" (hero-caster-p c2))
       (check "loaded caster max-sp" (hero-max-sp c) (hero-max-sp c2))
-      (check "loaded caster sp" (hero-sp c) (hero-sp c2)))
+      (check "loaded caster sp" (hero-sp c) (hero-sp c2))
+      ;; the sheet a front-end draws for the loaded hero agrees with
+      ;; the roster: one AC, HERO-EFFECTIVE-AC (the loaded blessing's
+      ;; :ac 1 included) — the sheet falling back to the bare base
+      ;; slot beside the roster's equipped value was a live bug
+      (check "loaded hero's sheet shows the roster's ac"
+             (format nil "HP ~D/~D  AC ~D" (hero-hp a2) (hero-max-hp a2)
+                     (hero-effective-ac a2 g2))
+             (third (hero-summary-lines a2 g2))))
     (check-true "loaded knowledge: visited cell explored"
                 (cell-explored-p (game-knowledge g2) 1 0))
     (check "loaded knowledge: unseen cell unexplored" nil

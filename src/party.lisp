@@ -199,16 +199,21 @@ first two words of a multi-word class, else the first two letters —
          (map 'string (lambda (w) (char w 0)) (subseq words 0 2))
          (subseq name 0 (min 2 (length name)))))))
 
-(defun hero-summary-lines (hero)
+(defun hero-summary-lines (hero &optional game)
   "The character sheet as a list of text lines — the stat block a
 player sees when they open a roster slot.  The pack is not in it: that
-lists on its own page (EQUIP-LINES, the sheet's 'i').  Every line
-stays within 20 character cells at worst-case values (three-digit
-hit/spell points, a negative AC), well inside the lores message-area
-takeover's 27 small-face cells, so the block never wraps mid-figure;
-a raced hero's class steps onto its own line for the same reason.
-Pure (no I/O), so both the Amiga sheet view and the tests render from
-the same source."
+lists on its own page (EQUIP-LINES, the sheet's 'i').  The armor class
+is the one the roster prints — HERO-EFFECTIVE-AC, equipment and the
+DEX gift included, and the party's :AC effects when GAME is given —
+never the bare base slot: the sheet draws right beside the roster,
+and a base 'AC 8' next to the roster's equipped 'AC 2' reads as a
+stale, unequipped hero (most jarringly right after loading a save).
+Every line stays within 20 character cells at worst-case values
+(three-digit hit/spell points, a negative AC), well inside the lores
+message-area takeover's 27 small-face cells, so the block never wraps
+mid-figure; a raced hero's class steps onto its own line for the same
+reason.  Pure (no I/O), so both the Amiga sheet view and the tests
+render from the same source."
   (append
    ;; "Name the Race" with the class under it — or "Name the Class"
    ;; on one line when the hero is raceless
@@ -220,7 +225,8 @@ the same source."
                      (hero-class-title hero))))
    (list (format nil "Level ~D  XP ~D" (hero-level hero) (hero-xp hero))
          (format nil "HP ~D/~D  AC ~D"
-                 (hero-hp hero) (hero-max-hp hero) (hero-ac hero)))
+                 (hero-hp hero) (hero-max-hp hero)
+                 (hero-effective-ac hero game)))
    (when (hero-caster-p hero)
      (list (format nil "SP ~D/~D" (hero-sp hero) (hero-max-sp hero))))
    (when (hero-singer-p hero)
@@ -260,7 +266,7 @@ ORDERING true is the marching-order pick ('o'): the hints give way to
 the where-to prompt, a digit there moves the hero (MOVE-HERO) and Esc
 cancels."
   (let* ((hero (nth index (game-party game)))
-         (body (when hero (hero-summary-lines hero))))
+         (body (when hero (hero-summary-lines hero game))))
     (append
      (when hero
        (menu-scrolled-lines body top
@@ -289,7 +295,7 @@ cancels."
 MENU-SCROLL), or NIL when CHAR does not scroll or slot INDEX is empty."
   (let ((hero (nth index (game-party game))))
     (when hero
-      (menu-scroll top char (length (hero-summary-lines hero))
+      (menu-scroll top char (length (hero-summary-lines hero game))
                    +sheet-page-size+))))
 
 (defun party-full-p (game)
