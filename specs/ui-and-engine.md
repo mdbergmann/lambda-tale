@@ -298,13 +298,46 @@ with pictures in the view column.)
   its pages and turns to the next: the stat block (name, then `Race
   Class` spelled out under it, for a raced hero), the pack page
   (`equip-lines`, whose `equip-act` answers `n` with `:next`), a
-  caster's or singer's **spells/songs page** (`hero-magic-lines` /
-  `hero-magic-scroll`, gated by `hero-magic-p`: the spellbook and the
-  songbook under `Spells:`/`Songs:` heads, windowed at
-  `+sheet-page-size+`), and from the last page back around to the
-  stat block.  The stat block's old `Inventory` row is gone — `NEXT`
-  is the way to the pack now (`i` stays as a keyboard shortcut) — and
-  the spellbook left the stat block for the new page.
+  caster's or singer's **spells/songs page**, and from the last page
+  back around to the stat block.  The stat block's old `Inventory`
+  row is gone — `NEXT` is the way to the pack now (`i` stays as a
+  keyboard shortcut) — and the spellbook left the stat block for the
+  new page.
+- The **spells/songs page** is its own model (`magic-view` /
+  `magic-lines` / `magic-act`, gated by `hero-magic-p`), the
+  `shop-view` pattern again.  `magic-entries` flattens the hero's
+  spellbook and songbook into ONE numbered list — a single run of
+  pick digits addresses the whole book even for a hero who casts and
+  sings — windowed at `+menu-page-size+`, with `Spells:`/`Songs:`
+  heads emitted over the first entry of each kind **within the
+  window**, so a scrolled page still says what it is looking at.
+  There is no separate inspect mode the way the pack page has one:
+  the rows carry pick digits, so typing one *is* the inspection and a
+  digit opens that entry's **card**.
+- The **cards** (`spell-card-lines` / `song-card-lines`, the
+  `item-card-lines` idea for magic) carry the tier and the cost
+  against the caster's own points (or the song's level against tunes
+  in hand), the four-letter incantation, the spellbook's range and
+  duration words, and what the thing does — the campaign's
+  `:description` when it wrote one, else the effect read back out of
+  the spec by `effect-summary-lines`.  A card also **acts**: `c`
+  casts the spell, `p` plays the song.  A song resolves at once; a
+  spell goes through `begin-cast`, which resolves it on the spot when
+  it needs no aiming and otherwise hands back a `cast-view` (caster
+  and spell already picked) for the front-end to go on with — so
+  aiming reuses the `c`-menu's model rather than growing a second
+  one.  `magic-act` reports these as `:done` (the front-end closes
+  the sheet, so the log can be read — the takeover owns the whole
+  page) and `(:cast VIEW)`.
+- **Effect prose** (`effect-summary-lines` in game.lisp, beside the
+  vocabulary it reads): an effect spec in player's words, one phrase
+  per key from `*effect-phrases*` plus the timed run, dice quoted as
+  their span via `dice-range-text` (`(:heal "4d4")` → `Heals 4-16`).
+  Deriving it keeps the words honest — the same plist feeds the
+  sentence and the cast.  A campaign's `:description` (new on
+  `define-spell`/`define-song`) overrides it where the derived line is
+  too plain; `:notes` stays **designer-facing** and never reaches a
+  card, which is why the two are separate fields.
 
 ## Full map view (`m`)
 
@@ -487,8 +520,11 @@ The Amiga front-end supports two displays, selected by
   of combat, in combat (one caster casts, the rest attack) and the
   Esc unwind.
 - Takeovers: `hero-sheet-lines` (summary block, key hints, the
-  carousel's `NEXT` row) and `hero-magic-lines` (the spells/songs
-  page: sections, windowing, the `NEXT` close);
+  carousel's `NEXT` row) and the spells/songs page (`magic-lines` /
+  `magic-act`: one numbering over both books, heads that follow the
+  window, a digit opening the card, `c`/`p` acting on it, the `NEXT`
+  close), the cards' own fields, `effect-summary-lines` over the
+  vocabulary and `begin-cast`'s three outcomes;
   `location-image`/`location-image-path` and the class portraits
   resolve map-relative, absent ones NIL; generated scenes/portraits
   size to order and keep to the fixed UI pens; Amiga smoke: the

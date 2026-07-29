@@ -1203,6 +1203,18 @@ height" d)
 (with-rng (13)
   (check "scripted roll wraps mod n" 3 (roll 10)))
 
+(multiple-value-bind (lo hi) (dice-range "2d6+1")
+  (check "dice-range 2d6+1 spans low to high" '(3 13) (list lo hi)))
+(multiple-value-bind (lo hi) (dice-range 5)
+  (check "dice-range on a constant is a single point" '(5 5) (list lo hi)))
+(multiple-value-bind (lo hi) (dice-range "1d1")
+  (check "dice-range on 1d1 is a single point" '(1 1) (list lo hi)))
+(check "dice-range-text spans as MIN-MAX" "4-16" (dice-range-text "4d4"))
+(check "dice-range-text collapses a constant to a bare number"
+       "5" (dice-range-text 5))
+(check "dice-range-text collapses 1d1 to a bare number"
+       "1" (dice-range-text "1d1"))
+
 ;;; ---------------------------------------------------------------------
 ;;; Events and story flags
 
@@ -3379,35 +3391,137 @@ height" d)
          (spells-for-hero mage)))
 
 ;; The spellbook lives on the sheet carousel's spells/songs page
-;; (HERO-MAGIC-LINES) — SPELLS-FOR-HERO verbatim, titles indented one
-;; cell under a Spells: head, the carousel's NEXT row closing the
-;; page.  There is no learning step: a fresh level's spells simply
+;; (MAGIC-LINES) — SPELLS-FOR-HERO under a Spells: head, each row
+;; numbered so a digit opens its card, the carousel's NEXT row closing
+;; the page.  There is no learning step: a fresh level's spells simply
 ;; appear with the rise.  A plain hero has no such page at all
 ;; (HERO-MAGIC-P gates it in the front-ends), and the stat block
 ;; itself stays book-free.
 (let* ((m (parse-map *art* :name "test"))
        (mage (%combat-mage))
        (grunt (%combat-hero))
-       (g (new-game m :party (list mage grunt))))
+       (g (new-game m :party (list mage grunt)))
+       (v (make-magic-view mage)))
   (check-true "the caster has a spells/songs page" (hero-magic-p mage))
   (check-true "the plain hero has none" (not (hero-magic-p grunt)))
   (check "the stat block carries no spellbook" nil
          (member "Spells:" (hero-summary-lines mage) :test #'equal))
-  (check "the page is the known spells under their head"
-         '("Spells:" " test bolt" " test mend" " test shield"
-           " test flame" " test needle")
-         (butlast (hero-magic-lines g 0) 2))
+  (check "the entries are the known spells, tagged"
+         '((:spell . test-bolt) (:spell . test-mend) (:spell . test-shield)
+           (:spell . test-flame) (:spell . test-needle))
+         (magic-entries mage))
+  (check "the page numbers the book under its head"
+         '("Spells:" "1) test bolt" "2) test mend" "3) test shield"
+           "4) test flame" "5) test needle")
+         (menu-texts (butlast (magic-lines g v) 2)))
+  (check "each row carries its pick digit" #\3
+         (menu-line-key (fourth (magic-lines g v))))
   (check "the page closes with the NEXT row"
          (list "" (menu-next-option))
-         (last (hero-magic-lines g 0) 2))
+         (last (magic-lines g v) 2))
   (setf (hero-level mage) 3)
   (check-true "a new level's spells appear on the page"
-              (member " test lore" (menu-texts (hero-magic-lines g 0))
-                      :test #'equal))
-  ;; six spells known at level 3: the book fits +SHEET-PAGE-SIZE+
-  ;; whole (7 rows with its head), so it does not scroll
+              (find-if (lambda (s) (search "test lore" s))
+                       (menu-texts (magic-lines g v))))
+  ;; six spells known at level 3: the book fits +MENU-PAGE-SIZE+ whole,
+  ;; so it does not scroll
   (check "a short book does not scroll" nil
-         (hero-magic-scroll g 0 0 #\d)))
+         (progn (magic-lines g v) *menu-scroll*))
+  (check "and d moves nothing" nil (magic-act g v #\d))
+  (check "an empty book says so" '("The book is empty.")
+         (menu-texts (butlast (magic-lines g (make-magic-view grunt)) 2))))
+
+;; The spell card (a digit on the page — there is no separate inspect
+;; mode, the numbered rows ARE the inspection): the tier and what the
+;; cast costs against the caster's own points, the incantation, the
+;; spellbook's range and duration words, then what the spell does —
+;; and the key that casts it right there.
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (v (make-magic-view mage)))
+  (check "a digit opens that entry's card" '(:spell . test-mend)
+         (progn (magic-act g v #\2)
+                (magic-view-pending v)))
+  (let ((texts (menu-texts (magic-lines g v))))
+    (check "the card heads with the title" "*** test mend ***"
+           (first texts))
+    (check-true "it names the tier and the cost against the purse"
+                (member "Tier 1   2 sp (of 6)" texts :test #'equal))
+    (check-true "it reads the effect out of the spec"
+                (member "Heals 1-8" texts :test #'equal))
+    (check-true "and offers the cast"
+                (member (menu-option #\c "Cast it") (magic-lines g v)
+                        :test #'equal)))
+  (check "Esc goes back to the list" nil
+         (progn (magic-act g v #\Escape)
+                (magic-view-pending v)))
+  ;; a campaign's own words win over the derived line
+  (define-spell 'test-worded :cost 1 :level 1 :classes '(:t-mage)
+    :damage "1d4" :description "It stings the eyes.")
+  (check "a :description speaks instead of the effect"
+         '("*** test worded ***" "" "Tier 1   1 sp (of 6)" ""
+           "It stings the eyes.")
+         (menu-texts (spell-card-lines mage 'test-worded)))
+  (check "spell-description reads it back" "It stings the eyes."
+         (spell-description 'test-worded))
+  (check "a spell without one has none" nil
+         (spell-description 'test-mend))
+  (check-error "define-spell rejects a non-string :description"
+    (define-spell 'test-bogus :damage "1d4" :description :nope)))
+
+;; BEGIN-CAST — the card's 'c', a cast started outside the cast menu.
+;; Three outcomes: a spell that needs aiming hands back a CAST-VIEW the
+;; front-end goes on with (already holding caster and spell, so the
+;; menu opens straight on the target question); one that needs no
+;; aiming resolves on the spot; a refusal says why and resolves
+;; nothing.  The sheet's page turns them into :CAST / :DONE.
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage (%combat-hero))))
+       (msgs (watch-messages g)))
+  ;; test-mend heals a chosen hero: the aim is still to come
+  (let ((view (begin-cast g mage 'test-mend)))
+    (check-true "an aiming spell hands back a cast view" (cast-view-p view))
+    (check "with the caster already picked" mage (cast-view-hero view))
+    (check "and the spell already picked" 'test-mend (cast-view-spell view))
+    (check "the page reports it as a handoff" :cast
+           (let ((v (make-magic-view mage)))
+             (magic-act g v #\2)          ; test-mend's card
+             (first (magic-act g v #\c))))
+    (check "no points are spent until it lands" 6 (hero-sp mage)))
+  ;; test-flame is a light spell: nothing to aim at, so it resolves
+  (check "a spell that needs no aim resolves on the spot" nil
+         (begin-cast g mage 'test-flame))
+  (check-true "and it cost the points" (< (hero-sp mage) 6))
+  (check-true "the log carries the cast"
+              (find-if (lambda (s) (search "test flame" s)) (funcall msgs)))
+  ;; drained of points, the same spell is refused — with a reason
+  (setf (hero-sp mage) 0)
+  (check "an unaffordable spell resolves nothing" nil
+         (begin-cast g mage 'test-flame))
+  (check-true "and says why"
+              (find-if (lambda (s) (search "cannot cast" s))
+                       (funcall msgs))))
+
+;; MAGIC-ACT's card-level 'c' must not confuse BEGIN-CAST's two NIL
+;; outcomes: a refusal (unaffordable, etc.) has to keep the card open
+;; so the player reads why and tries another spell, not fall through
+;; to :DONE and close the whole sheet as if a cast had resolved.
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (v (make-magic-view mage))
+       (msgs (watch-messages g)))
+  (setf (hero-sp mage) 0)
+  (magic-act g v #\4)                  ; test-flame's card
+  (check "an unaffordable cast leaves the card open" nil
+         (magic-act g v #\c))
+  (check "the card is still showing" '(:spell . test-flame)
+         (magic-view-pending v))
+  (check-true "and the refusal is logged"
+              (find-if (lambda (s) (search "cannot cast" s)) (funcall msgs)))
+  (check "no points were spent" 0 (hero-sp mage)))
 
 ;; The rise itself names the spells it brings — the book is
 ;; level-gated, so LEVEL-UP diffs it around the bump and announces
@@ -3965,6 +4079,93 @@ height" d)
          (energy-price (game-location g)))
   (check "location-act routes the fount" :left
          (location-act g nil #\Escape)))
+
+;;; ---------------------------------------------------------------------
+;;; EFFECT-SUMMARY-LINES / EFFECT-DURATION-TEXT — the *EFFECT-PHRASES*
+;;; table read straight, one key at a time, no spell or cast needed.
+
+;; instant keys
+(check "damage quotes the dice span" '("Damage 2-8")
+       (effect-summary-lines '(:damage "2d4")))
+(check "damage-per-level quotes the dice span" '("Damage 1-4 a level")
+       (effect-summary-lines '(:damage-per-level "1d4")))
+(check "damage-group quotes the dice span" '("Group damage 4-10")
+       (effect-summary-lines '(:damage-group "2d4+2")))
+(check "damage-all quotes the dice span" '("Damage 10-13 to all")
+       (effect-summary-lines '(:damage-all "1d4+9")))
+(check "slay quotes the percent" '("Fells a foe (50%)")
+       (effect-summary-lines '(:slay 50)))
+(check "push-foes is a flat sentence" '("Hurls the foes back")
+       (effect-summary-lines '(:push-foes t)))
+(check "halt-foes is a flat sentence" '("Freezes the foes")
+       (effect-summary-lines '(:halt-foes t)))
+(check "calm is a flat sentence" '("Soothes the foes")
+       (effect-summary-lines '(:calm t)))
+(check "heal-party quotes the dice span" '("Heals all 1-4")
+       (effect-summary-lines '(:heal-party "1d4")))
+(check "a :full heal speaks the word" '("Heals fully")
+       (effect-summary-lines '(:heal :full)))
+(check "a :full heal-party speaks the word" '("Heals all fully")
+       (effect-summary-lines '(:heal-party :full)))
+(check "resurrect is a flat sentence" '("Raises the fallen")
+       (effect-summary-lines '(:resurrect t)))
+(check "cure lists the ailments" '("Cures poison, insanity")
+       (effect-summary-lines '(:cure (:poison :insanity))))
+(check "scry is a flat sentence" '("Tells where you are")
+       (effect-summary-lines '(:scry t)))
+(check "disarm-traps quotes the reach" '("Disarms traps (3 sq)")
+       (effect-summary-lines '(:disarm-traps 3)))
+(check "a real teleport quotes the squares" '("Folds space (4 sq)")
+       (effect-summary-lines '(:teleport 4)))
+(check "a flavor teleport has no square count" '("Folds space")
+       (effect-summary-lines '(:teleport t)))
+(check "summon names the ally" '("Summons test wolf")
+       (effect-summary-lines '(:summon "test wolf")))
+
+;; timed keys
+(check "light is a flat sentence" '("Light")
+       (effect-summary-lines '(:light t)))
+(check "night-vision is a flat sentence" '("Sight in the dark")
+       (effect-summary-lines '(:night-vision t)))
+(check "reveal is a flat sentence" '("Magical sight")
+       (effect-summary-lines '(:reveal t)))
+(check "compass is a flat sentence" '("Shows your facing")
+       (effect-summary-lines '(:compass t)))
+(check "levitate is a flat sentence" '("Floats over traps")
+       (effect-summary-lines '(:levitate t)))
+(check "buff-damage quotes the bonus" '("Damage +3")
+       (effect-summary-lines '(:buff-damage 3)))
+(check "save-bonus quotes the bonus" '("Saving rolls +2")
+       (effect-summary-lines '(:save-bonus 2)))
+(check "regen-sp quotes the multiplier" '("SP return x2")
+       (effect-summary-lines '(:regen-sp 2)))
+(check "extra-attacks quotes the count" '("+1 strike a round")
+       (effect-summary-lines '(:extra-attacks 1)))
+(check "combat-heal quotes the dice span" '("Heals 1-4 a round")
+       (effect-summary-lines '(:combat-heal "1d4")))
+(check "foes-ac is a flat sentence" '("Foes easier to hit")
+       (effect-summary-lines '(:foes-ac 1)))
+(check "foes-attack is a flat sentence" '("Foes hit less often")
+       (effect-summary-lines '(:foes-attack 1)))
+
+;; EFFECT-DURATION-TEXT on its own
+(check "no :duration says nothing" nil
+       (effect-duration-text '(:buff-ac 2)))
+(check "an :indefinite duration" "until dispelled"
+       (effect-duration-text '(:buff-ac 2 :duration :indefinite)))
+(check "a single minute is singular" "for a minute"
+       (effect-duration-text '(:buff-ac 2 :duration 1)))
+(check "several minutes are plural" "for 60 minutes"
+       (effect-duration-text '(:buff-ac 2 :duration 60)))
+
+;; the duration closes the summary, but only when there is a phrase to
+;; close after
+(check "the summary closes with the duration when the spec carries one"
+       '("AC 2 better" "for 60 minutes")
+       (effect-summary-lines '(:buff-ac 2 :duration 60)))
+(check "a duration with no phrase lines stays silent" nil
+       (effect-summary-lines '(:duration 60)))
+(check "a spec naming nothing gives NIL" nil (effect-summary-lines nil))
 
 ;;; ---------------------------------------------------------------------
 ;;; The extended effect vocabulary: spell metadata, combined effects,
@@ -5063,41 +5264,76 @@ height" d)
       (fits "review page"))))
 
 ;; The spells/songs page for singers: the songbook under its own head
-;; (a singer is a HERO-MAGIC-P hero too), and a hero who both casts
-;; and sings stacks the two sections with a blank row between.  A
-;; book past +SHEET-PAGE-SIZE+ rows windows and scrolls — the stat
-;; block's u/d contract — so the adept gets two more spells to grow
-;; on (class-gated to :t-adept, invisible to the :t-mage checks).
+;; (a singer is a HERO-MAGIC-P hero too), its card offering the tune
+;; instead of a cast.  A hero who both casts and sings runs the two
+;; sections off ONE numbered list, so a single run of pick digits
+;; addresses the whole book; the heads follow the window rather than
+;; the book, so a scrolled page still says what it is looking at.  The
+;; adept gets two more spells to grow past the window on (class-gated
+;; to :t-adept, invisible to the :t-mage checks).
 (define-spell 'test-adept-glow :cost 1 :level 1 :classes '(:t-adept)
   :light t :duration 5)
+(define-spell 'test-adept-mend :cost 1 :level 1 :classes '(:t-adept)
+  :heal "1d4")
 (define-spell 'test-adept-ward :cost 2 :level 3 :classes '(:t-adept)
   :buff-ac 1 :duration 5)
 (let* ((m (parse-map *art* :name "test"))
        (bard (with-rng () (make-hero "Mel" :t-bard)))
        (adept (%combat-adept))
-       (g (new-game m :party (list bard adept))))
+       (g (new-game m :party (list bard adept)))
+       (bv (make-magic-view bard))
+       (av (make-magic-view adept)))
   (check-true "the singer has a spells/songs page" (hero-magic-p bard))
   (check "the singer's page is the songbook under its head"
-         '("Songs:" " test march" " test gleam" " test road")
-         (menu-texts (butlast (hero-magic-lines g 0) 2)))
-  (check "the adept's page stacks both sections"
-         '("Spells:" " test adept bolt" " test adept glow" ""
-           "Songs:" " test march" " test gleam" " test road")
-         (menu-texts (butlast (hero-magic-lines g 1) 2)))
+         '("Songs:" "1) test march" "2) test gleam" "3) test road")
+         (menu-texts (butlast (magic-lines g bv) 2)))
+  (check "the adept's page stacks both sections on one numbering"
+         '("Spells:" "1) test adept bolt" "2) test adept glow"
+           "3) test adept mend" ""
+           "Songs:" "4) test march" "5) test gleam" "6) test road")
+         (menu-texts (butlast (magic-lines g av) 2)))
   (check "the adept's short book does not scroll" nil
-         (hero-magic-scroll g 1 0 #\d))
-  ;; level 3 grows the book past the window: ward and dirge arrive,
-  ;; ten body rows against the eight-row page
+         (progn (magic-lines g av) *menu-scroll*))
+  ;; the song card offers the tune, not a cast
+  (magic-act g bv #\1)
+  (let ((texts (menu-texts (magic-lines g bv))))
+    (check "the song card heads with the title" "*** test march ***"
+           (first texts))
+    (check-true "it names the level and the tunes in hand"
+                (member "Level 1   Tunes 1/1" texts :test #'equal))
+    (check-true "it reads the effect out of the spec"
+                (member "AC 2 better" texts :test #'equal)))
+  (check-true "the song card offers the tune"
+              (member (menu-option #\p "Play it") (magic-lines g bv)
+                      :test #'equal))
+  ;; playing it resolves on the spot: the front-end leaves the sheet so
+  ;; the log can be read
+  (check "p plays the tune" :done (magic-act g bv #\p))
+  (check-true "and the song is up" (current-song g))
+  ;; level 3 grows the adept's book past the seven-entry window: ward
+  ;; and dirge arrive, eight entries in all
   (setf (hero-level adept) 3)
-  (check "the grown book windows at the page size" '(0 8 10)
-         (progn (hero-magic-lines g 1)
-                *menu-scroll*))
-  (check "d scrolls the spells/songs page" 2
-         (hero-magic-scroll g 1 0 #\d))
-  (check "n does not scroll it" nil
-         (hero-magic-scroll g 1 0 #\n))
-  (check "an empty slot has no page" nil
-         (hero-magic-scroll g 5 0 #\d)))
+  (check "the grown book windows at the page size" '(0 7 8)
+         (progn (magic-lines g av) *menu-scroll*))
+  (check "d scrolls the spells/songs page" 1
+         (progn (magic-act g av #\d) (magic-view-top av)))
+  ;; the head is re-emitted at the top of a scrolled window — the
+  ;; section began above it, and a page with no head at all would not
+  ;; say what it is looking at — and the digits number the WINDOW
+  (check "a scrolled window still names its section"
+         '("Spells:" "1) test adept glow" "2) test adept mend"
+           "3) test adept ward" ""
+           "Songs:" "4) test march" "5) test gleam" "6) test dirge"
+           "7) test road")
+         (menu-texts (butlast (magic-lines g av) 2)))
+  (check "and the window's first row is its digit 1" '(:spell . test-adept-glow)
+         (progn (magic-act g av #\1)
+                (prog1 (magic-view-pending av)
+                  (magic-act g av #\Escape))))
+  (check "n turns the carousel from the list" :next
+         (magic-act g av #\n))
+  (check "Esc gives way to the stat block" :cancelled
+         (magic-act g av #\Escape)))
 
 ;; C during orders opens the spell pick for the hero at hand; the pick
 ;; lands as that hero's round action instead of fighting a round.

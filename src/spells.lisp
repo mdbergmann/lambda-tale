@@ -43,9 +43,14 @@
                       ; (:damage "1d4"), (:heal "10d4" :cure (:poison)),
                       ; (:buff-ac 2 :light t :duration 30)
   image               ; effects-band icon file for the timed kinds, or NIL
+  description         ; player-facing lore line for the spell card, or
+                      ; NIL — the card then speaks from the effect spec
+                      ; alone (EFFECT-SUMMARY-LINES)
   notes)              ; designer notes (canon effect text, stand-in
                       ; remarks) — carried as data so generated
-                      ; spellbooks show them; no mechanics
+                      ; spellbooks show them; no mechanics.  NOT the
+                      ; card's text: notes may carry development
+                      ; caveats, :DESCRIPTION is what a player reads
 
 (defvar *spell-types* (make-hash-table :test 'eq))
 (defvar *spell-names* '()
@@ -53,7 +58,7 @@
 
 (defparameter %spell-meta-keys
   '(:title :code :range :duration-text :cost :level :classes :image
-    :notes)
+    :description :notes)
   "DEFINE-SPELL's non-effect keywords; everything else in the argument
 plist is the effect spec.")
 
@@ -62,9 +67,12 @@ plist is the effect spec.")
 ARGS is a plist: :TITLE, :CODE, :RANGE, :DURATION-TEXT (display
 metadata), :COST (sp, default 1), :LEVEL (minimum caster level,
 default 1), :CLASSES (allowed caster classes; NIL = any caster),
-:IMAGE (the effects-band icon for the timed kinds), :NOTES (a
+:IMAGE (the effects-band icon for the timed kinds), :DESCRIPTION (the
+player-facing lore line the spell card shows, over and above the
+effect it derives from the spec itself), :NOTES (a
 designer-facing string — canon effect text, stand-in remarks — data,
-not mechanics, so generated spellbooks can surface it) — and the
+not mechanics, so generated spellbooks can surface it; never shown on
+the card, which is why :DESCRIPTION is its own field) — and the
 effect spec itself, one or more keys of the shared vocabulary (see
 *INSTANT-EFFECT-KEYS* / *TIMED-EFFECT-KEYS* in game.lisp) plus
 :DURATION (game minutes, or :INDEFINITE) when any timed key rides
@@ -74,10 +82,14 @@ along.  TITLE defaults to the downcased name (MAGE-FLAME ->
         unless (and (keywordp (first tail)) (cdr tail))
           do (error "define-spell ~S: malformed argument plist at ~S"
                     name tail))
-  (let ((notes (getf args :notes)))
+  (let ((notes (getf args :notes))
+        (description (getf args :description)))
     (when (and notes (not (stringp notes)))
       (error "define-spell ~S: :notes must be a string (got ~S)"
-             name notes)))
+             name notes))
+    (when (and description (not (stringp description)))
+      (error "define-spell ~S: :description must be a string (got ~S)"
+             name description)))
   (let ((spec (loop for (key value) on args by #'cddr
                     unless (member key %spell-meta-keys)
                       append (list key value))))
@@ -95,6 +107,7 @@ along.  TITLE defaults to the downcased name (MAGE-FLAME ->
            :classes (getf args :classes)
            :effect spec
            :image (getf args :image)
+           :description (getf args :description)
            :notes (getf args :notes))))
   ;; keep the registration order; a re-registration keeps its spot
   (unless (member name *spell-names*)
@@ -119,6 +132,10 @@ along.  TITLE defaults to the downcased name (MAGE-FLAME ->
 (defun spell-duration-text (name)
   "The spellbook's duration text for the spell, or NIL."
   (spell-type-duration-text (find-spell-type name)))
+
+(defun spell-description (name)
+  "The spell's player-facing lore line (the card's own words), or NIL."
+  (spell-type-description (find-spell-type name)))
 
 (defun spell-target-kind (name)
   "What the spell needs aimed at: :HERO when it heals, cures or raises
@@ -153,6 +170,53 @@ there is no walking away through folded space."
              (and (game-combat game) t))
          (not (and (game-combat game)
                    (integerp (getf (spell-type-effect type) :teleport)))))))
+
+(defun spell-card-lines (hero name)
+  "The spell card for NAME — the facts a caster wants before spending
+the points, one per row: the tier and cost (with HERO's purse of spell
+points beside it, so 'can I?' is answered on the card), the four-letter
+incantation, the spellbook's range and duration words when the
+campaign gave them, then what the spell actually does — the
+campaign's :DESCRIPTION when it wrote one, else the effect read back
+out of the spec itself (EFFECT-SUMMARY-LINES).  The character sheet's
+spells/songs page shows this when a digit picks a row; the item card
+(ITEM-CARD-LINES) is the same idea for the pack."
+  (let ((type (find-spell-type name)))
+    (append
+     (list (format nil "*** ~A ***" (spell-title name)) "")
+     (list (format nil "Tier ~D   ~D sp (of ~D)"
+                   (spell-type-level type) (spell-type-cost type)
+                   (hero-sp hero)))
+     (when (spell-type-code type)
+       (list (format nil "Words: ~A" (spell-type-code type))))
+     (when (spell-type-range type)
+       (list (format nil "Range: ~A" (spell-type-range type))))
+     (when (spell-type-duration-text type)
+       (list (format nil "Lasts: ~A" (spell-type-duration-text type))))
+     (list "")
+     (if (spell-type-description type)
+         (list (spell-type-description type))
+         (effect-summary-lines (spell-type-effect type))))))
+
+(defun begin-cast (game hero name)
+  "Start HERO's cast of NAME from outside the cast menu — the
+character sheet's spell card offers it on 'c'.  A spell that still
+wants a target (a heal's hero, a teleport's heading and count) answers
+with a CAST-VIEW the front-end goes on with, exactly the model the C
+menu drives from there; one that needs no aiming resolves on the spot
+and answers NIL.  A spell the caster cannot manage right now answers
+NIL too, having said why (SPELL-CASTABLE-P's rules — unaffordable, a
+battle spell out of a fight, a teleport inside one)."
+  (cond
+    ((not (spell-castable-p game hero name))
+     (say game "~A cannot cast ~A now."
+          (hero-name hero) (spell-title name))
+     nil)
+    ((member (spell-target-kind name) '(:hero :offset))
+     (%make-cast-view :hero hero :spell name))
+    (t
+     (cast-spell game hero name)
+     nil)))
 
 (defun %revive-hero (game hero)
   "Raise the fallen HERO to one hit point (the resurrection effect)."

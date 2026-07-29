@@ -2038,7 +2038,7 @@ map/help/sheet pages close on a click outside a target — see
          (full nil)         ; omniscient map (debug), map mode only
          (sheet-hero 0)     ; party index shown in :sheet mode
          (sheet-top 0)      ; current sheet page's scroll offset (u/d)
-         (magic nil)        ; sheet: the spells/songs page is showing
+         (magic nil)        ; MAGIC-VIEW while the spells/songs page is up
          (ordering nil)     ; sheet: picking the hero's new slot (o)
          (equipv nil)       ; EQUIP-VIEW while the pack page is open
          (tradev nil)       ; TRADE-VIEW while the trade page is open
@@ -2237,8 +2237,37 @@ map/help/sheet pages close on a click outside a target — see
                           (let ((hero (nth sheet-hero
                                            (game-party game))))
                             (setf equipv nil
-                                  magic (and hero (hero-magic-p hero))
+                                  magic (when (and hero
+                                                   (hero-magic-p hero))
+                                          (make-magic-view hero))
                                   sheet-top 0)))
+                        (magic-page-act (key)
+                          ;; the spells/songs page: the shared model
+                          ;; eats the keys (a digit opens that entry's
+                          ;; card, c casts / p plays from the card,
+                          ;; u/d scroll, n turns the carousel, Esc
+                          ;; backs out to the stat block)
+                          (let ((r (magic-act game magic key)))
+                            (cond ((member r '(:next :cancelled))
+                                   ;; the carousel's last page rounds
+                                   ;; back to the stat block
+                                   (setf magic nil sheet-top 0)
+                                   (redraw))
+                                  ;; a tune played or a spell resolved
+                                  ;; — leave the sheet so the log shows
+                                  ;; what happened
+                                  ((eq r :done)
+                                   (setf magic nil sheet-top 0)
+                                   (leave-sheet))
+                                  ;; the spell still wants a target:
+                                  ;; hand over to the cast menu, which
+                                  ;; lives outside the sheet
+                                  ((and (consp r) (eq (first r) :cast))
+                                   (setf magic nil sheet-top 0)
+                                   (leave-sheet)
+                                   (setf castv (second r))
+                                   (redraw))
+                                  (t (redraw)))))
                         (leave-sheet ()
                           ;; the sheet lives in the panes (takeover +
                           ;; portrait) — no chrome to repair
@@ -2435,9 +2464,7 @@ map/help/sheet pages close on a click outside a target — see
                                               (tradev
                                                (trade-lines game tradev))
                                               (magic
-                                               (hero-magic-lines
-                                                game sheet-hero
-                                                sheet-top))
+                                               (magic-lines game magic))
                                               (t
                                                (hero-sheet-lines
                                                 game sheet-hero
@@ -2706,31 +2733,15 @@ map/help/sheet pages close on a click outside a target — see
                                                  (redraw)))
                                           nil)
                                          (magic
-                                          ;; the spells/songs page: n
-                                          ;; (or Esc) turns back to the
-                                          ;; stat block, u/d scroll a
-                                          ;; long book, digits switch
-                                          ;; to another hero's sheet
-                                          (cond ((or (eql lc #\n)
-                                                     (eql c :esc))
-                                                 (setf magic nil
-                                                       sheet-top 0)
-                                                 (redraw))
-                                                ((and (characterp c)
-                                                      (digit-char-p c)
-                                                      (<= 1
-                                                          (digit-char-p c)
-                                                          +party-limit+))
-                                                 (open-sheet
-                                                  (1- (digit-char-p c))))
-                                                ((characterp c)
-                                                 (let ((top
-                                                         (hero-magic-scroll
-                                                          game sheet-hero
-                                                          sheet-top c)))
-                                                   (when top
-                                                     (setf sheet-top top)
-                                                     (redraw)))))
+                                          ;; the spells/songs page: the
+                                          ;; shared model eats the keys
+                                          ;; — digits pick a card
+                                          ;; there, so Q alone quits
+                                          (let ((key (if (eq c :esc)
+                                                         #\Escape
+                                                         c)))
+                                            (when (characterp key)
+                                              (magic-page-act key)))
                                           nil)
                                          ((eql c :esc) (leave-sheet) nil)
                                          ((and (characterp c)

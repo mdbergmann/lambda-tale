@@ -104,7 +104,7 @@ engine has no default world; the game names its starting map."
          (full nil)          ; omniscient automap (debug), map mode only
          (sheet-hero 0)      ; party index shown in :sheet mode
          (sheet-top 0)       ; current sheet page's scroll offset (u/d)
-         (magic nil)         ; sheet: the spells/songs page is showing
+         (magic nil)         ; MAGIC-VIEW while the spells/songs page is up
          (ordering nil)      ; sheet: picking the hero's new slot (o)
          (equip nil)         ; EQUIP-VIEW while the pack page is open
          (trade nil)         ; TRADE-VIEW while the trade page is open
@@ -253,8 +253,7 @@ engine has no default world; the game names its starting map."
              (draw-sheet-page ()
                (dolist (line (cond (equip (equip-lines game equip))
                                    (trade (trade-lines game trade))
-                                   (magic (hero-magic-lines game sheet-hero
-                                                            sheet-top))
+                                   (magic (magic-lines game magic))
                                    (t (hero-sheet-lines game sheet-hero
                                                         sheet-top
                                                         ordering))))
@@ -368,8 +367,29 @@ engine has no default world; the game names its starting map."
                ;; around to the stat block
                (let ((hero (nth sheet-hero (game-party game))))
                  (setf equip nil
-                       magic (and hero (hero-magic-p hero))
+                       magic (when (and hero (hero-magic-p hero))
+                               (make-magic-view hero))
                        sheet-top 0))
+               nil)
+             (magic-page-act (c)
+               ;; the spells/songs page: the shared model eats the keys
+               ;; (a digit opens that entry's card, c casts / p plays
+               ;; from the card, u/d scroll, n turns the carousel, Esc
+               ;; backs out to the stat block)
+               (let ((r (magic-act game magic c)))
+                 (cond ((member r '(:next :cancelled))
+                        ;; the last page of the carousel: round to the
+                        ;; stat block
+                        (setf magic nil sheet-top 0))
+                       ;; a tune played or a spell resolved — leave the
+                       ;; sheet so the log shows what happened
+                       ((eq r :done)
+                        (setf magic nil sheet-top 0 mode :play))
+                       ;; the spell still wants a target: hand over to
+                       ;; the cast menu, which lives outside the sheet
+                       ((and (consp r) (eq (first r) :cast))
+                        (setf magic nil sheet-top 0 mode :play
+                              cast (second r)))))
                nil)
              (sheet-act (c)
                (cond
@@ -412,21 +432,12 @@ engine has no default world; the game names its starting map."
                           ((member c '(#\q #\Q)) :quit)
                           (t nil))))
                  (magic
-                  ;; the spells/songs page: n (or Esc) turns back to
-                  ;; the stat block, u/d scroll a long book, digits
-                  ;; switch to another hero's sheet
-                  (let ((digit (digit-char-p c))
-                        (top (hero-magic-scroll game sheet-hero
-                                                sheet-top c)))
-                    (cond ((and digit (<= 1 digit +party-limit+))
-                           (open-sheet (1- digit)))
-                          (top (setf sheet-top top) nil)
-                          ((member c '(#\n #\N #\Escape))
-                           (setf magic nil
-                                 sheet-top 0)
-                           nil)
-                          ((member c '(#\q #\Q)) :quit)
-                          (t nil))))
+                  ;; the spells/songs page: the shared model eats the
+                  ;; keys — digits pick a card there, so Q alone still
+                  ;; quits
+                  (if (member c '(#\q #\Q))
+                      :quit
+                      (magic-page-act c)))
                  (t
                   (let ((digit (digit-char-p c))
                         (top (hero-sheet-scroll game sheet-hero

@@ -1049,7 +1049,15 @@ caster **knows** every registered spell of their class at or below
 their level — no separate learning step; a fresh level's spells
 arrive with the rise, which names each one ("Zzal learns test
 flame!"), and the character sheet's spells/songs page carries the
-spellbook as it stands.  A
+spellbook as it stands — numbered, so a digit opens that spell's
+**card**: the tier, what the cast costs against the caster's own
+points, the four-letter incantation, the range and duration the
+campaign gave it, and what the spell does.  That last line is
+*derived from the effect spec* (`(:heal "4d4")` reads "Heals 4-16"),
+so it cannot drift from the mechanics; a spell may carry its own
+`:description` where the derived words are too plain.  The card casts
+too — `c` there spends the points without a trip through the `c`
+menu, asking for a target only when the spell needs one.  A
 spell's effect is a plist over a shared vocabulary, and the keys
 **combine freely** — a restoration heals *and* cures, a batchspell
 installs five enchantments in one casting:
@@ -1084,8 +1092,12 @@ installs five enchantments in one casting:
 Beside the mechanics a spell keeps its lore: `:code` (the four-letter
 incantation), `:range` and `:duration-text` — display metadata the
 engine stores (`spell-code`, `spell-range`, `spell-duration-text`)
-and never interprets — plus designer `:notes` carried as data for
-generated spellbooks (`define-song` takes `:notes` too).  Spell
+and never interprets — plus `:description`, the player-facing line the
+card shows, and designer `:notes` carried as data for
+generated spellbooks (`define-song` takes both too).  The two are
+deliberately separate: notes may record where an engine stand-in
+departs from canon, and a player should never read that, so **only
+`:description` reaches a card**.  Spell
 points trickle back Bard's Tale style
 while walking outdoors in daylight.  The "Spells" and "extended
 effect vocabulary" test sections of `tests/run-tests.lisp` are the
@@ -1101,7 +1113,10 @@ in a fight (`:regen-sp 2 :extra-attacks 1 :duration 60`).  Singers
 song, one charge per level when rested — and only **one song plays at
 a time**: striking up a new one displaces the old, the Bard's Tale
 rule.  `p` opens the sing menu, and in combat `(:sing SONG)` is a
-party action beside attacking and casting.  Tunes come back with a
+party action beside attacking and casting.  The songbook also lists on
+the character sheet's spells/songs page, where a digit opens the
+song's card — its level, the tunes in hand and what the tune does —
+and `p` there strikes it up on the spot.  Tunes come back with a
 drink at a **tavern** — a `(location TITLE :tavern :price N)` map
 special; a tavern may also hold the way below (`:down FILE`, the
 trapdoor to the cellar).  The "Bard songs" test section of

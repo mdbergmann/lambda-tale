@@ -42,3 +42,19 @@ string like \"2d6\", \"1d8+2\" or \"3d4-1\"."
     (let ((total bonus))
       (dotimes (i count total)
         (incf total (1+ (roll sides)))))))
+
+(defun dice-range (spec)
+  "The span dice SPEC can roll, as (values MIN MAX) — every die at its
+1 for the low end, at its face count for the high.  Pure arithmetic,
+no dice thrown: the spell and item cards quote a spell's reach
+(\"Heals 4-16\") from the same string the cast rolls."
+  (multiple-value-bind (count sides bonus) (parse-dice spec)
+    (values (+ count bonus) (+ (* count sides) bonus))))
+
+(defun dice-range-text (spec)
+  "Dice SPEC as the cards' span text: \"4-16\", or a bare \"8\" when
+the spec can only land on one number (a constant, or a single d1)."
+  (multiple-value-bind (low high) (dice-range spec)
+    (if (= low high)
+        (format nil "~D" low)
+        (format nil "~D-~D" low high))))

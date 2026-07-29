@@ -381,6 +381,109 @@ share this rule."
         ((integerp (getf spec :teleport)) :offset)
         (t :none)))
 
+;;; ---------------------------------------------------------------------
+;;; Reading an effect spec back out in player's words.
+;;;
+;;; The spell and song cards (and any campaign tool that wants to say
+;;; what a thing does) need prose, and deriving it from the spec keeps
+;;; the words honest: a spell that says "Heals 4-16" heals 4-16
+;;; because the same plist feeds both the sentence and the cast.  A
+;;; campaign may still write its own :DESCRIPTION when the derived
+;;; line is too plain — that overrides nothing, it reads alongside.
+;;;
+;;; Every line is kept inside +TAKEOVER-COLUMNS+ so the narrow lores
+;;; card never wraps mid-figure.
+
+(defparameter *effect-phrases*
+  '(;; instant
+    (:damage           "Damage ~A")
+    (:damage-per-level "Damage ~A a level")
+    (:damage-group     "Group damage ~A")
+    (:damage-all       "Damage ~A to all")
+    (:slay             "Fells a foe (~D%)")
+    (:push-foes        "Hurls the foes back")
+    (:halt-foes        "Freezes the foes")
+    (:calm             "Soothes the foes")
+    (:heal             "Heals ~A")
+    (:heal-party       "Heals all ~A")
+    (:resurrect        "Raises the fallen")
+    (:cure             "Cures ~{~A~^, ~}")
+    (:scry             "Tells where you are")
+    (:disarm-traps     "Disarms traps (~D sq)")
+    (:teleport         "Folds space (~D sq)")
+    (:summon           "Summons ~A")
+    ;; timed
+    (:buff-ac          "AC ~D better")
+    (:light            "Light")
+    (:night-vision     "Sight in the dark")
+    (:reveal           "Magical sight")
+    (:compass          "Shows your facing")
+    (:levitate         "Floats over traps")
+    (:buff-damage      "Damage +~D")
+    (:save-bonus       "Saving rolls +~D")
+    (:regen-sp         "SP return x~D")
+    (:extra-attacks    "+~D strike a round")
+    (:combat-heal      "Heals ~A a round")
+    (:foes-ac          "Foes easier to hit")
+    (:foes-attack      "Foes hit less often"))
+  "One player-facing phrase per effect key, in the order a card lists
+them — a FORMAT string taking the key's value where the value is worth
+saying, a plain sentence where it is not (a flag, or a number the
+player never sees).")
+
+(defun %effect-phrase (key value)
+  "KEY's phrase with VALUE read into it, or NIL when KEY names no
+phrase.  Dice values render as their span (\"4-16\") and a :FULL heal
+as the word."
+  (let ((phrase (second (assoc key *effect-phrases*))))
+    (when phrase
+      (cond
+        ;; :TELEPORT alone of the valued keys may also be a bare flag
+        ;; (a named destination whose subsystem is still to come) —
+        ;; then it has no square count to quote
+        ((eq key :teleport)
+         (if (eq value t) "Folds space" (format nil phrase value)))
+        ;; a flag's phrase is already a whole sentence
+        ((eq value t) phrase)
+        ((member key '(:heal :heal-party))
+         (if (eq value :full)
+             (if (eq key :heal) "Heals fully" "Heals all fully")
+             (format nil phrase (dice-range-text value))))
+        ((member key '(:damage :damage-per-level :damage-group
+                       :damage-all :combat-heal))
+         (format nil phrase (dice-range-text value)))
+        ((eq key :cure)
+         (format nil phrase (mapcar (lambda (k) (string-downcase (string k)))
+                                    value)))
+        (t (format nil phrase value))))))
+
+(defun effect-duration-text (spec)
+  "SPEC's timed run in player's words — \"for 60 minutes\", \"until
+dispelled\" — or NIL when nothing in it lasts."
+  (let ((duration (getf spec :duration)))
+    (cond ((null duration) nil)
+          ((eq duration :indefinite) "until dispelled")
+          ((= duration 1) "for a minute")
+          (t (format nil "for ~D minutes" duration)))))
+
+(defun effect-summary-lines (spec)
+  "SPEC — a plist over the effect vocabulary — as player-facing lines,
+one phrase per line in the vocabulary's own order (instant keys
+first), closing with the timed run when the spec carries one.  The
+spell and song cards draw these; a spec naming nothing gives NIL."
+  (let ((lines '()))
+    (dolist (table (list *instant-effect-keys* *timed-effect-keys*))
+      (dolist (entry table)
+        (let* ((key (first entry))
+               (value (getf spec key)))
+          (when value
+            (let ((phrase (%effect-phrase key value)))
+              (when phrase (push phrase lines)))))))
+    (let ((duration (effect-duration-text spec)))
+      (when (and duration lines)
+        (push duration lines)))
+    (nreverse lines)))
+
 (defun %effects-sum (game key)
   (let ((n 0))
     (dolist (e (game-effects game) n)

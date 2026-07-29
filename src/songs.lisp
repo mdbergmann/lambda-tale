@@ -30,24 +30,32 @@
   effect              ; timed effect plist, e.g. (:buff-ac 2 :duration 60)
                       ; or (:regen-sp 2 :extra-attacks 1 :duration 60)
   image               ; effects-band icon file, or NIL
+  description         ; player-facing lore line for the song card, or
+                      ; NIL — the card then speaks from the effect spec
+                      ; alone (EFFECT-SUMMARY-LINES)
   notes)              ; designer notes (canon effect text, stand-in
                       ; remarks) — carried as data so generated
-                      ; songbooks show them; no mechanics
+                      ; songbooks show them; no mechanics.  NOT the
+                      ; card's text: notes may carry development
+                      ; caveats, :DESCRIPTION is what a player reads
 
 (defvar *song-types* (make-hash-table :test 'eq))
 (defvar *song-names* '()
   "Song names in registration order — the stable order of the menus.")
 
-(defparameter %song-meta-keys '(:title :level :image :notes)
+(defparameter %song-meta-keys '(:title :level :image :description :notes)
   "DEFINE-SONG's non-effect keywords; everything else in the argument
 plist is the effect spec.")
 
 (defun define-song (name &rest args)
   "Register song type NAME (a symbol).  Campaign data calls this.
 ARGS is a plist: :TITLE, :LEVEL (minimum singer level, default 1),
-:IMAGE (the effects-band icon), :NOTES (a designer-facing string —
+:IMAGE (the effects-band icon), :DESCRIPTION (the player-facing lore
+line the song card shows, over and above the effect it derives from
+the spec itself), :NOTES (a designer-facing string —
 canon effect text, stand-in remarks — data, not mechanics, so
-generated songbooks can surface it) — and the effect spec itself, one
+generated songbooks can surface it; never shown on the card, which is
+why :DESCRIPTION is its own field) — and the effect spec itself, one
 or more keys of the TIMED vocabulary (*TIMED-EFFECT-KEYS* in game.lisp;
 keys combine into one effect record).  Songs are always timed, so
 :DURATION (game minutes, or :INDEFINITE) is required.  TITLE defaults
@@ -56,10 +64,14 @@ to the downcased name (TRAVELLERS-TUNE -> \"travellers tune\")."
         unless (and (keywordp (first tail)) (cdr tail))
           do (error "define-song ~S: malformed argument plist at ~S"
                     name tail))
-  (let ((notes (getf args :notes)))
+  (let ((notes (getf args :notes))
+        (description (getf args :description)))
     (when (and notes (not (stringp notes)))
       (error "define-song ~S: :notes must be a string (got ~S)"
-             name notes)))
+             name notes))
+    (when (and description (not (stringp description)))
+      (error "define-song ~S: :description must be a string (got ~S)"
+             name description)))
   (let ((spec (loop for (key value) on args by #'cddr
                     unless (member key %song-meta-keys)
                       append (list key value))))
@@ -72,6 +84,7 @@ to the downcased name (TRAVELLERS-TUNE -> \"travellers tune\")."
            :level (or (getf args :level) 1)
            :effect spec
            :image (getf args :image)
+           :description (getf args :description)
            :notes (getf args :notes))))
   ;; keep the registration order; a re-registration keeps its spot
   (unless (member name *song-names*)
@@ -84,6 +97,28 @@ to the downcased name (TRAVELLERS-TUNE -> \"travellers tune\")."
 
 (defun song-title (name)
   (song-type-title (find-song-type name)))
+
+(defun song-description (name)
+  "The song's player-facing lore line (the card's own words), or NIL."
+  (song-type-description (find-song-type name)))
+
+(defun song-card-lines (hero name)
+  "The song card for NAME — the level it opens at, HERO's tunes in
+hand (a song costs one charge, so the card answers 'can I?' the way
+the spell card does), and what the tune actually does: the campaign's
+:DESCRIPTION when it wrote one, else the effect read back out of the
+spec (EFFECT-SUMMARY-LINES).  The sheet's spells/songs page shows this
+when a digit picks a row."
+  (let ((type (find-song-type name)))
+    (append
+     (list (format nil "*** ~A ***" (song-title name)) "")
+     (list (format nil "Level ~D   Tunes ~D/~D"
+                   (song-type-level type)
+                   (hero-tunes hero) (hero-max-tunes hero))
+           "")
+     (if (song-type-description type)
+         (list (song-type-description type))
+         (effect-summary-lines (song-type-effect type))))))
 
 (defun song-known-p (hero name)
   "Does HERO know song NAME?  A singer who has reached the song's

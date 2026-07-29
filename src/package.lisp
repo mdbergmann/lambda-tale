@@ -8,6 +8,7 @@
    #:dir-index #:dir-keyword #:dir-opposite #:turn-dir
    ;; dice
    #:*rng* #:roll #:parse-dice #:roll-dice
+   #:dice-range #:dice-range-text
    ;; ILBM images
    #:make-image #:read-ilbm #:write-ilbm #:pixel-ref
    #:image-width #:image-height #:image-depth #:image-palette #:image-pixels
@@ -48,6 +49,8 @@
    #:*timed-effect-keys* #:*instant-effect-keys*
    #:check-effect-spec #:effect-spec-combat-only-p
    #:effect-spec-target-kind
+   ;; an effect spec read back out in player's words (the cards)
+   #:*effect-phrases* #:effect-summary-lines #:effect-duration-text
    #:effects-ac-bonus #:effects-damage-bonus #:effects-save-bonus
    #:effects-extra-attacks #:effects-foes-ac #:effects-foes-attack
    #:effects-regen-sp #:effects-combat-heal
@@ -101,7 +104,11 @@
    #:hero-extra-attacks #:hero-trap-skill
    #:hero-class-title #:hero-class-abbrev #:hero-summary-lines
    #:hero-image #:hero-image-path #:hero-sheet-lines #:hero-sheet-scroll
-   #:hero-magic-p #:hero-magic-lines #:hero-magic-scroll
+   ;; the sheet carousel's spells/songs page (a digit opens the card,
+   ;; the card casts or plays)
+   #:hero-magic-p #:make-magic-view #:magic-view-hero
+   #:magic-view-pending #:magic-view-top
+   #:magic-entries #:magic-lines #:magic-act
    #:+party-limit+ #:party-full-p #:join-party #:move-hero
    #:damage-hero #:heal-hero #:stat-bonus #:stat-gift #:saving-throw
    #:award-xp #:xp-for-level
@@ -139,12 +146,14 @@
    ;; spells
    #:define-spell #:find-spell-type #:spell-title
    #:spell-code #:spell-range #:spell-duration-text #:spell-target-kind
+   #:spell-description #:spell-card-lines #:begin-cast
    #:spell-known-p #:spell-castable-p #:spells-for-hero #:cast-spell
    #:make-cast-view #:cast-view-hero #:cast-view-spell #:cast-view-top
    #:cast-view-dir #:cast-view-distance
    #:cast-lines #:cast-act #:*sp-regen-minutes*
    ;; bard songs
    #:define-song #:find-song-type #:song-title #:song-known-p
+   #:song-description #:song-card-lines
    #:songs-for-hero #:sing-song #:current-song
    #:hero-singer-p #:hero-tunes #:hero-max-tunes
    #:make-sing-view #:sing-view-hero #:sing-view-top

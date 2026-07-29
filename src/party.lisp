@@ -344,53 +344,131 @@ MENU-SCROLL), or NIL when CHAR does not scroll or slot INDEX is empty."
 hero casts or sings."
   (or (hero-caster-p hero) (hero-singer-p hero)))
 
-(defun %hero-magic-body (hero)
-  "The spells/songs page's body rows: the spellbook (SPELLS-FOR-HERO:
-class + level) and the songbook (SONGS-FOR-HERO), each under its own
-head with the titles indented one cell — so a campaign's spell and
-song titles must respect the stat block's width.  NIL for a hero with
-neither."
-  (append
-   (when (hero-caster-p hero)
-     (cons "Spells:"
-           (mapcar (lambda (name)
-                     (format nil " ~A" (spell-title name)))
-                   (spells-for-hero hero))))
-   (when (hero-singer-p hero)
-     (append
-      (when (hero-caster-p hero) (list ""))
-      (cons "Songs:"
-            (mapcar (lambda (name)
-                      (format nil " ~A" (song-title name)))
-                    (songs-for-hero hero)))))))
+;;; ---------------------------------------------------------------------
+;;; The spells/songs page (the sheet carousel's third stop — the
+;;; SHOP-VIEW pattern again): the hero's book as a numbered list, a
+;;; digit opens that entry's card, and the card casts or plays it.
+;;; There is no separate inspect mode the way the pack page has one:
+;;; the rows carry pick digits, so typing one IS the inspection.
 
-(defun hero-magic-lines (game index &optional (top 0))
-  "The sheet carousel's spells/songs page for roster slot INDEX as
-text lines: the hero's spellbook and songbook (%HERO-MAGIC-BODY,
-windowed at scroll offset TOP when it overflows +SHEET-PAGE-SIZE+
-rows — see *MENU-SCROLL*) and the closing NEXT row that turns the
-carousel back to the stat block.  The front-ends draw these verbatim
-and feed u/d through HERO-MAGIC-SCROLL; they only open the page for a
-HERO-MAGIC-P hero."
-  (let ((hero (nth index (game-party game))))
-    (append
-     (when hero
-       (menu-scrolled-lines (%hero-magic-body hero) top
-                            (lambda (i line)
-                              (declare (ignore i))
-                              line)
-                            +sheet-page-size+))
-     (list ""
-           (menu-next-option)))))
+(defstruct (magic-view (:constructor %make-magic-view))
+  hero                ; the hero whose book this is
+  pending             ; the entry whose card is showing, or NIL on the list
+  (top 0))            ; scroll offset into the entry list
 
-(defun hero-magic-scroll (game index top char)
-  "The spells/songs page's scroll offset after key CHAR (u/d — see
-MENU-SCROLL), or NIL when CHAR does not scroll or slot INDEX is
-empty."
-  (let ((hero (nth index (game-party game))))
-    (when hero
-      (menu-scroll top char (length (%hero-magic-body hero))
-                   +sheet-page-size+))))
+(defun make-magic-view (hero)
+  (%make-magic-view :hero hero))
+
+(defun magic-entries (hero)
+  "HERO's book as pickable entries — (:SPELL . NAME) for each spell
+known, then (:SONG . NAME) for each song, both in registration order.
+One flat list, so a single run of pick digits addresses the whole book
+even for a hero who casts and sings both; MAGIC-LINES puts the section
+heads back in as it draws."
+  (append (mapcar (lambda (name) (cons :spell name))
+                  (when (hero-caster-p hero) (spells-for-hero hero)))
+          (mapcar (lambda (name) (cons :song name))
+                  (when (hero-singer-p hero) (songs-for-hero hero)))))
+
+(defun %magic-entry-title (entry)
+  (if (eq (car entry) :spell)
+      (spell-title (cdr entry))
+      (song-title (cdr entry))))
+
+(defun magic-lines (game view)
+  "The spells/songs page as menu lines — the front-ends draw these
+verbatim (the SHOP-LINES pattern).  On the list: the hero's book
+windowed to +MENU-PAGE-SIZE+ entries (u/d scroll it, the geometry
+riding *MENU-SCROLL* for the scrollbar), each row numbered so a digit
+opens its card, with a Spells:/Songs: head standing over the first
+entry of each kind IN THE WINDOW — the heads follow the window rather
+than the book, so a scrolled page still says what it is looking at.
+On a card: SPELL-CARD-LINES or SONG-CARD-LINES, closing with the
+casting key.  Either way the carousel's NEXT row has the last word."
+  (declare (ignore game))
+  (let* ((hero (magic-view-hero view))
+         (pending (magic-view-pending view)))
+    (if pending
+        (append
+         (if (eq (car pending) :spell)
+             (spell-card-lines hero (cdr pending))
+             (song-card-lines hero (cdr pending)))
+         (list ""
+               (if (eq (car pending) :spell)
+                   (menu-option #\c "Cast it")
+                   (menu-option #\p "Play it"))
+               ""
+               (menu-next-option)))
+        (let ((entries (magic-entries hero)))
+          (append
+           (if entries
+               (multiple-value-bind (start end above below)
+                   (menu-window (length entries) (magic-view-top view))
+                 (setf *menu-scroll* (when (or above below)
+                                       (list start end (length entries))))
+                 (let ((kind nil)
+                       (i 0)
+                       (rows '()))
+                   (dolist (entry (subseq entries start end) (nreverse rows))
+                     (incf i)
+                     (unless (eq (car entry) kind)
+                       (setf kind (car entry))
+                       (when (> i 1) (push "" rows))
+                       (push (if (eq kind :spell) "Spells:" "Songs:") rows))
+                     (push (menu-numbered
+                            i (format nil "~D) ~A" i
+                                      (%magic-entry-title entry)))
+                           rows))))
+               (list "The book is empty."))
+           (list ""
+                 (menu-next-option)))))))
+
+(defun magic-act (game view char)
+  "Apply key CHAR to the spells/songs page.  On the list a digit opens
+that entry's card, u/d scroll a long book, n turns the carousel and
+Esc leaves the page.  On a card c casts the spell (or p plays the
+song), Esc goes back to the list and n turns the carousel.  Returns
+:NEXT when the carousel should turn, :CANCELLED when the page should
+give way to the stat block, :DONE when a cast or a tune resolved — the
+front-end closes the sheet then, so the log can be read — (:CAST VIEW)
+when the spell still wants a target and the front-end should go on
+with that CAST-VIEW, else NIL."
+  (let ((hero (magic-view-hero view))
+        (pending (magic-view-pending view))
+        (digit (digit-char-p char)))
+    (cond
+      ;; a card is showing
+      (pending
+       (cond
+         ((member char '(#\n #\N)) :next)
+         ((eql char #\Escape)
+          (setf (magic-view-pending view) nil)
+          nil)
+         ((and (eq (car pending) :spell) (member char '(#\c #\C)))
+          (if (spell-castable-p game hero (cdr pending))
+              (let ((cast (begin-cast game hero (cdr pending))))
+                (if cast (list :cast cast) :done))
+              (progn
+                (say game "~A cannot cast ~A now."
+                     (hero-name hero) (spell-title (cdr pending)))
+                nil)))
+         ((and (eq (car pending) :song) (member char '(#\p #\P)))
+          (sing-song game hero (cdr pending))
+          :done)
+         (t nil)))
+      ;; the list
+      ((member char '(#\n #\N)) :next)
+      ((eql char #\Escape) :cancelled)
+      (digit
+       (let ((entry (menu-window-pick (magic-entries hero)
+                                      (magic-view-top view) digit)))
+         (when entry (setf (magic-view-pending view) entry)))
+       nil)
+      (t
+       (let ((top (menu-scroll (magic-view-top view) char
+                               (length (magic-entries hero)))))
+         (when top (setf (magic-view-top view) top)))
+       nil))))
 
 (defun party-full-p (game)
   (>= (length (game-party game)) +party-limit+))
