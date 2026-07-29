@@ -24,10 +24,12 @@ table; plane `k` at step fraction `t` wants the inset `f(k - t)`.
 
 **2. Back-to-front painting with no double buffer.**  Far ranks land
 first, near ranks slam over them.  On a slow machine you watch the
-four ranks arrive and that alone reads as motion.  We already draw
-this way — `%draw-fp-view` blits `view-blit-list` back to front
-straight into the window rastport — so on a 14 MHz 020 some of this
-effect is already there for free, and on an 040/RTG it is gone.
+four ranks arrive and that alone reads as motion.  The engine used to
+draw this way, but on anything faster than a 14 MHz 020 the arriving
+ranks read as flicker, not motion — so `%amiga-draw-fp` now composes
+the frame in an offscreen back buffer and puts it on screen as one
+blit.  This mechanism is off the table; stages 1 and 2 below are the
+honest ways to get the effect.
 
 **3. Real per-frame rescaling of the wall bitmaps.**  Ruled out: no
 68020 rescales a viewport of bitmaps at speed, and the blitter cannot
@@ -45,7 +47,7 @@ frame over it.  Blitter rectangle moves inside one bitmap are close to
 free, and because the correct frame lands immediately afterwards the
 distortion never accumulates.
 
-Scope: a helper in `src/amiga-ui.lisp` beside `%draw-fp-view`, called
+Scope: a helper in `src/amiga-ui.lisp` beside `%amiga-draw-fp`, called
 from the movement path before the redraw.  No asset changes, no
 `view.lisp` changes, ~15 lines.
 

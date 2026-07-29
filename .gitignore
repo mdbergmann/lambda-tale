@@ -6,4 +6,5 @@ tests/tmp-*.map
 *.uaem
 tests/tmp-*.8svx
 tests/tmp-sfx/
+tests/amiga-results.txt
 .reviews/

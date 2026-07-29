@@ -8723,6 +8723,17 @@ never its own"
                     (ui-layout-band-y l) (+ (ui-layout-page-b l) 4))
              (%amiga-draw-fp rp g (ui-layout-bx l) (ui-layout-by l)
                              (ui-layout-fp-w l) (ui-layout-fp-h l))
+             ;; the live session's path: the frame composes in the
+             ;; offscreen back buffer and lands as one blit
+             (let ((back (%alloc-fp-backbuffer rp l)))
+               (check-true "fp back buffer allocates in the display format"
+                           back)
+               (when back
+                 (unwind-protect
+                     (%amiga-draw-fp rp g (ui-layout-bx l) (ui-layout-by l)
+                                     (ui-layout-fp-w l) (ui-layout-fp-h l)
+                                     nil back)
+                   (amiga.gfx:free-bitmap back))))
              (%amiga-draw-band rp g l)
              (%amiga-draw-log rp log l)
              ;; the cached-bitmap log path (the live session's) and
@@ -9375,6 +9386,49 @@ ground-pen fill" pname)
                        +art-pen-ground+
                        (amiga.gfx:read-pixel rp (+ (ui-layout-bx l) sx)
                                              (+ (ui-layout-by l) sy))))
+              ;; The back-buffered path (the live session's) must land
+              ;; the SAME pens on screen as the direct compose above:
+              ;; spoil the viewport, redraw through the back buffer,
+              ;; and read the same three witnesses back.
+              (let ((back (%alloc-fp-backbuffer rp l)))
+                (check-true (format nil "~A: fp back buffer allocates ~
+on the custom screen" pname)
+                            back)
+                (when back
+                  (unwind-protect
+                      (progn
+                        (amiga.gfx:set-a-pen rp 3)
+                        (amiga.gfx:rect-fill
+                         rp (ui-layout-bx l) (ui-layout-by l)
+                         (+ (ui-layout-bx l) (ui-layout-fp-w l) -1)
+                         (+ (ui-layout-by l) (ui-layout-fp-h l) -1))
+                        (%amiga-draw-fp rp g (ui-layout-bx l)
+                                        (ui-layout-by l)
+                                        (ui-layout-fp-w l)
+                                        (ui-layout-fp-h l)
+                                        walls back)
+                        (destructuring-bind (fx fy) front-xy
+                          (check (format nil "~A: back-buffered front ~
+wall edge pixel" pname)
+                                 1
+                                 (amiga.gfx:read-pixel
+                                  rp (+ (ui-layout-bx l) fx)
+                                  (+ (ui-layout-by l) fy))))
+                        (destructuring-bind (cx cy) ceiling-xy
+                          (check (format nil "~A: back-buffered ceiling ~
+is the sky-pen fill" pname)
+                                 +art-pen-sky+
+                                 (amiga.gfx:read-pixel
+                                  rp (+ (ui-layout-bx l) cx)
+                                  (+ (ui-layout-by l) cy))))
+                        (destructuring-bind (sx sy) floor-xy
+                          (check (format nil "~A: back-buffered floor ~
+is the ground-pen fill" pname)
+                                 +art-pen-ground+
+                                 (amiga.gfx:read-pixel
+                                  rp (+ (ui-layout-bx l) sx)
+                                  (+ (ui-layout-by l) sy)))))
+                    (amiga.gfx:free-bitmap back))))
               ;; The planar fast path (*WALL-LOAD-PLANAR*, the default)
               ;; pokes ILBM plane rows into a scratch BitMap and lets
               ;; the blitter move them into the piece bitmap, never

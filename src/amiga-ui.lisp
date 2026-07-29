@@ -328,12 +328,40 @@ small gap above the effect strip — see %AMIGA-DRAW-BAND)."
   (amiga.gfx:draw-line rp (+ cx hw) (- cy hh) (+ cx hw) (+ cy hh))
   (amiga.gfx:set-a-pen rp 1))
 
-(defun %amiga-draw-fp (rp game ox oy w h &optional walls)
+(defun %amiga-draw-fp (rp game ox oy w h &optional walls back)
   "Draw the first-person view into the rastport at (OX,OY): blitted
 wall graphics when WALLS (the loaded piece bitmaps) is available and
-the viewport has its full asset size, the wireframe otherwise.  The
-blitted view starts from the ceiling/floor backdrop (black where the
-pack has none); the walls carve the perspective on top of it."
+the viewport has its full asset size, the wireframe otherwise.  With
+BACK (an offscreen bitmap at least W x H in the display's format, see
+%ALLOC-FP-BACKBUFFER) the frame is composed there and reaches the
+screen as ONE blit; without it every backdrop fill and wall piece
+paints the visible window in turn, which the eye catches as flicker
+on any machine fast enough (specs/step-animation.md discusses the one
+place that painting-as-motion was ever welcome)."
+  (if back
+      (amiga.gfx:with-bitmap-rastport (brp back)
+        (%amiga-compose-fp brp game 0 0 w h walls)
+        (amiga.gfx:blt-bitmap-rastport back 0 0 rp ox oy w h))
+      (%amiga-compose-fp rp game ox oy w h walls)))
+
+(defun %alloc-fp-backbuffer (rp l)
+  "The offscreen bitmap %AMIGA-DRAW-FP composes the view frame in:
+sized to layout L's viewport and allocated with the window's bitmap as
+friend, so it lives in the display's native format and the final blit
+is a plain copy.  NIL when the allocation fails — the view then paints
+the window directly, as it always did."
+  (handler-case
+      (let ((friend (amiga.gfx:rastport-bitmap rp)))
+        (amiga.gfx:alloc-bitmap (ui-layout-fp-w l) (ui-layout-fp-h l)
+                                (amiga.gfx:get-bitmap-attr
+                                 friend amiga.gfx:+bma-depth+)
+                                :friend friend))
+    (error () nil)))
+
+(defun %amiga-compose-fp (rp game ox oy w h walls)
+  "The view composition %AMIGA-DRAW-FP wraps: the blitted view starts
+from the ceiling/floor backdrop (black where the pack has none); the
+walls carve the perspective on top of it."
   (let ((slices (compute-view (game-map game) (game-x game) (game-y game)
                               (game-facing game) (render-view-depth game)))
         (planes (view-planes w h)))
@@ -2088,6 +2116,10 @@ map/help/sheet pages close on a click outside a target — see
               (amiga.gadtools:with-menus (menu *menu-entries* vi win)
                 (let* ((rp (%game-rastport win font))
                        (l (%amiga-layout win rp))
+                       (fp-back (%alloc-fp-backbuffer rp l))
+                                        ; offscreen frame compose (view
+                                        ; tears without it; NIL = draw
+                                        ; direct when RAM is that tight)
                        (walls nil)      ; loaded piece bitmaps
                        (walls-dir nil)  ; the pack they came from
                        (walls-pal nil)  ; ... and its CMAP palette
@@ -2356,7 +2388,7 @@ map/help/sheet pages close on a click outside a target — see
                                                         (ui-layout-by l)
                                                         (ui-layout-fp-w l)
                                                         (ui-layout-fp-h l)
-                                                        walls)))
+                                                        walls fp-back)))
                                     (%amiga-draw-band rp game l icons log)))
                              ;; click-to-walk zones on the view — only
                              ;; while W/A/S/D actually walk (no menu or
@@ -2897,7 +2929,10 @@ map/help/sheet pages close on a click outside a target — see
                                  (return)))))))
                    (%free-standard-pointer win)
                    (amiga-sound-close)
+                   (when fp-back
+                     (amiga.gfx:free-bitmap fp-back))
                    (setf *anim-blits* '()   ; records hold freed bitmaps
+                         fp-back nil
                          walls (%free-wall-assets walls)
                          pack-cache (%pack-cache-free-all pack-cache)
                          icons (%free-images icons)
