@@ -198,7 +198,8 @@ order, where the later draw lands on top."
 (defun map-legend-entries (map knowledge &key full)
   "MAP's discovered locations as legend entries (MARKER X Y TITLE),
 MARKER a character from *LEGEND-MARKERS*.  A location counts as found
-once its cell is explored — the party has stepped inside.  FULL
+once its cell is explored — the party has stepped inside — or marked
+found: it stood right before the place, facing it (see OBSERVE).  FULL
 non-NIL lists every location (the omniscient debug map).  Only special
 places are legended: a location of kind :HOUSE is scenery — a city
 block's worth of front doors would bury the shops and taverns under
@@ -224,7 +225,9 @@ right); entries beyond the marker alphabet are dropped."
           (when (and loc
                      (not (eq (second loc) :house))
                      (or full
-                         (and knowledge (cell-explored-p knowledge x y))))
+                         (and knowledge
+                              (or (cell-explored-p knowledge x y)
+                                  (cell-found-p knowledge x y)))))
             (push (list x y (first loc)) entries))))
       (setf entries (nreverse entries))
       (let ((i -1))

@@ -3,12 +3,15 @@
 ;;; Per cell we track one fixnum of bits:
 ;;;   bits 0..3  wall in direction N/E/S/W has been seen from this cell
 ;;;   bit  4     cell has been explored (party stood here)
+;;;   bit  5     the place on this cell has been found (party stood
+;;;              right before it, facing it — see OBSERVE)
 ;;; The knowledge lives with the save game, so the automap fills in
 ;;; permanently as the party explores.
 
 (in-package :tale)
 
 (defconstant +know-explored+ 16)
+(defconstant +know-found+ 32)
 (defconstant +know-all-walls+ 15)
 
 (defstruct (map-knowledge (:constructor %make-map-knowledge))
@@ -37,6 +40,18 @@
 
 (defun cell-explored-p (knowledge x y)
   (/= 0 (logand (aref (map-knowledge-bits knowledge) y x) +know-explored+)))
+
+(defun know-found (knowledge x y)
+  "Record that the party found the place on cell (X,Y) without standing
+in it — it stood right before the place, facing it (see OBSERVE).
+Only this bit is set: the cell's own walls stay unseen until the party
+steps inside."
+  (let ((bits (map-knowledge-bits knowledge)))
+    (setf (aref bits y x)
+          (logior (aref bits y x) +know-found+))))
+
+(defun cell-found-p (knowledge x y)
+  (/= 0 (logand (aref (map-knowledge-bits knowledge) y x) +know-found+)))
 
 (defun wall-known-p (knowledge x y dir)
   (/= 0 (logand (aref (map-knowledge-bits knowledge) y x)

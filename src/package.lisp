@@ -24,8 +24,8 @@
    #:dungeon-map-idle-encounter-minutes
    #:cell-wall #:cell-feature #:cell-special #:wall-passable-p #:neighbor
    ;; knowledge
-   #:make-map-knowledge #:know-cell #:know-wall
-   #:cell-explored-p #:wall-known-p
+   #:make-map-knowledge #:know-cell #:know-wall #:know-found
+   #:cell-explored-p #:cell-found-p #:wall-known-p
    ;; first-person view geometry
    #:+view-depth+ #:*draw-depth* #:compute-view #:view-planes
    #:view-display-list

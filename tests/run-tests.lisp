@@ -9655,6 +9655,35 @@ pieces need a mask" pname)
          '((#\1 0 0 "The Temple") (#\2 2 1 "Wolfgar's Arms"))
          (map-legend-entries m nil :full t)))
 
+;; A place is found from the street too: standing right before it,
+;; facing it, is enough (see OBSERVE) — entering is not required.
+(let* ((m (parse-map *art*))
+       (g (new-game m))
+       (k (game-knowledge g)))
+  (setf (cell-special m 1 1) '((location "Wolfgar's Arms" :shop)))
+  ;; before the door but facing away: nothing found
+  (setf (game-x g) 1 (game-y g) 0 (game-facing g) +north+)
+  (observe g)
+  (check "legend: a place beside the party stays unfound"
+         nil (map-legend-entries m k))
+  ;; turn to face the door: found, without a step inside
+  (setf (game-facing g) +south+)
+  (observe g)
+  (check-true "facing the door marks the place found"
+              (cell-found-p k 1 1))
+  (check "found from the street is not explored"
+         nil (cell-explored-p k 1 1))
+  (check "legend: the place shows once faced from the street"
+         '((#\1 1 1 "Wolfgar's Arms"))
+         (map-legend-entries m k))
+  ;; an open-fronted place one cell ahead is spotted the same way
+  (setf (cell-special m 1 0) '((location "The Fountain" :temple)))
+  (setf (game-x g) 0 (game-y g) 0 (game-facing g) +east+)
+  (observe g)
+  (check "legend: an open-fronted place ahead is found too"
+         '((#\1 1 0 "The Fountain") (#\2 1 1 "Wolfgar's Arms"))
+         (map-legend-entries m k)))
+
 ;;; ---------------------------------------------------------------------
 ;;; Keyboard input normalization (src/keys.lisp): VANILLA-KEY-CHAR maps
 ;;; an IDCMP_VANILLAKEY Code+Qualifier to the key ACT dispatches on.

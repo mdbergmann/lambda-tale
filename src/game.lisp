@@ -34,19 +34,32 @@ side walls plus the front walls seen through open sides.
 
 The cone is GAME-VIEW-DEPTH — what the light allows — NOT the drawn
 RENDER-VIEW-DEPTH: the draw-distance knob is a speed setting, and a
-player who lowers it must still map what the party could see."
-  (let ((k (game-knowledge game))
+player who lowers it must still map what the party could see.
+
+A location straight ahead is found without entering: standing right
+before a shop, facing its front, is knowledge — the cell beyond the
+door (or across the open cell edge) is marked found and the automap
+legend lists the place (see MAP-LEGEND-ENTRIES).  One cell only, and
+even in the dark — the wall dead ahead is always visible
+(GAME-VIEW-DEPTH never drops below one cell)."
+  (let ((map (game-map game))
+        (k (game-knowledge game))
+        (x (game-x game))
+        (y (game-y game))
         (f (game-facing game)))
-    (know-cell k (game-x game) (game-y game))
-    (dolist (s (compute-view (game-map game) (game-x game) (game-y game) f
-                             (game-view-depth game)))
+    (know-cell k x y)
+    (dolist (s (compute-view map x y f (game-view-depth game)))
       (know-wall k (view-slice-cx s) (view-slice-cy s) f)
       (know-wall k (view-slice-cx s) (view-slice-cy s) (turn-dir f -1))
       (know-wall k (view-slice-cx s) (view-slice-cy s) (turn-dir f 1))
       (when (view-slice-lx s)
         (know-wall k (view-slice-lx s) (view-slice-ly s) f))
       (when (view-slice-rx s)
-        (know-wall k (view-slice-rx s) (view-slice-ry s) f)))))
+        (know-wall k (view-slice-rx s) (view-slice-ry s) f)))
+    (when (wall-passable-p (cell-wall map x y f))
+      (multiple-value-bind (nx ny) (neighbor map x y f)
+        (when (and nx (cell-location-op map nx ny))
+          (know-found k nx ny))))))
 
 (defun new-game (map &key party)
   "Start a fresh game on MAP at its start position, with PARTY (a list
