@@ -198,8 +198,9 @@
    ;; rendering
    #:render-dungeon #:render-game #:render-first-person #:beside
    #:map-edge-runs #:map-legend-entries #:*legend-markers*
-   ;; the help screen
+   ;; the help screen and the quit confirmation
    #:help-lines
+   #:quit-confirm-lines #:quit-confirm-act
    ;; keyboard input normalization (see src/keys.lisp)
    #:vanilla-key-char
    ;; the microfont (the 7x7 display face, plus the condensed bold

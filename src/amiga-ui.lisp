@@ -1651,65 +1651,111 @@ front-ends that want it."
         (line "1-7 view another   Esc back")))
     (amiga.gfx:set-a-pen rp 1)))
 
-(defun %amiga-draw-page (rp menu-lines l &optional lines-cache wide)
+(defun %menu-page-box (l)
+  "The overlay menu page's box on layout L: values (PX PY PW PH).
+The page is a dialog: four fifths of the content width, the leftover
+split evenly so it sits centered between the content edges, running
+from just below the content top down to the roster header.  Every
+picker lists names — save slots, spells, songs, pack items — and a
+name has no room in the lores view column, so they all take the same
+box rather than one shape per menu."
+  (let* ((ox (ui-layout-bx l))
+         (py (+ (ui-layout-by l) 4))
+         (pw (floor (* 4 (- (ui-layout-right l) ox)) 5))
+         (px (+ ox (max 0 (floor (- (ui-layout-right l) ox pw) 2)))))
+    (values px py pw (- (ui-layout-hdr-y l) 4 py))))
+
+(defun %amiga-draw-page (rp menu-lines l &optional lines-cache)
   "An overlay menu page (cast, use, sing, save slots): MENU-LINES on
-a white page over the view column, in the microfont's condensed small
-face — the same type as the message log and the location takeover,
-and small enough that a long save-slot or spell list fits the lo-res
-page without truncation.  The log and roster panes stay live around it —
-hit/spell points and messages update as the party acts.  WIDE non-NIL
-spans the page across the whole content width instead — the save/load
-picker uses it: a full slot name would truncate on the lores view
-column, and nothing worth watching happens beside the page while it
-is open.  The caller must then skip the message area, which the page
-covers (the roster below stays).  A windowed list on the page gets a
-scrollbar along its right edge (see %AMIGA-DRAW-SCROLLBAR).
-LINES-CACHE as in %AMIGA-DRAW-LOG.
+a white dialog centered over the page (%MENU-PAGE-BOX), in the
+microfont's condensed small face — the same type as the message log
+and the location takeover, and small enough that a long save-slot or
+spell list fits the lo-res page without truncation.  The roster below
+stays live, so hit/spell points move as the party acts, but the
+dialog covers the message area: the caller skips drawing the log
+under it and repaints (FRESH-PLAY) when the picker closes — nothing
+worth watching happens beside a picker while it is open.  A windowed
+list on the page gets a scrollbar along its right edge (see
+%AMIGA-DRAW-SCROLLBAR).  LINES-CACHE as in %AMIGA-DRAW-LOG.
 Locations and the character sheet use the message-area takeover
 instead (%AMIGA-DRAW-TAKEOVER)."
-  (let* ((ox (ui-layout-bx l))
-         (oy (ui-layout-by l))
-         (lh +microfont-line-height+)
+  (multiple-value-bind (px py pw ph) (%menu-page-box l)
+    (let* ((lh +microfont-line-height+)
+           (cw +microfont-small-advance+)
+           (max-lines (floor (- ph 8) lh))
+           (scroll (shiftf *menu-scroll* nil))
+           (bar-w (if scroll 3 0))
+           (max-chars (floor (- pw 16 (if scroll (+ bar-w 3) 0)) cw))
+           (lines (fit-menu-lines menu-lines max-lines max-chars)))
+      ;; page shadow, sheet, outline — same look as the character sheet
+      (amiga.gfx:set-a-pen rp 0)
+      (amiga.gfx:rect-fill rp (+ px 2) (+ py 2) (+ px pw 2) (+ py ph 2))
+      (amiga.gfx:set-a-pen rp 1)
+      (amiga.gfx:rect-fill rp px py (+ px pw) (+ py ph))
+      (amiga.gfx:set-a-pen rp 0)
+      (%chrome-rect rp px py (+ px pw) (+ py ph))
+      (let ((y (+ py 4))
+            (n 0))
+        (dolist (line lines)
+          (when (< n max-lines)
+            (let ((text (menu-line-text line)))
+              (%put-microfont-line rp lines-cache
+                                   (if (> (length text) max-chars)
+                                       (subseq text 0 max-chars)
+                                       text)
+                                   (+ px 8) y)
+              ;; a click on an option row / a footer hint is its key
+              (%register-line-hotspots line (+ px 8) y cw lh
+                                       (1+ px) (+ px pw -1)))
+            (incf y lh)
+            (incf n))))
+      ;; a windowed list (the generator just ran — *MENU-SCROLL* is its
+      ;; geometry) gets the scrollbar along the page's right edge
+      (when scroll
+        (destructuring-bind (start end n) scroll
+          (%amiga-draw-scrollbar rp (- (+ px pw) 3 bar-w) (+ py 4)
+                                 bar-w (- ph 8) start end n)))
+      (amiga.gfx:set-a-pen rp 1))))
+
+(defun %amiga-draw-confirm (rp lines l &optional lines-cache)
+  "A small confirmation box centered on the inner window — the quit
+question and its options (QUIT-CONFIRM-LINES) in the microfont's
+condensed small face on a white page, drawn on top of whatever page is
+already up.  The box is sized to its text; option rows click as their
+keys, exactly as on %AMIGA-DRAW-PAGE.  LINES-CACHE as in
+%AMIGA-DRAW-LOG."
+  (let* ((lh +microfont-line-height+)
          (cw +microfont-small-advance+)
-         (px (+ ox 4))
-         (py (+ oy 4))
-         (pw (if wide
-                 (- (ui-layout-right l) px 2)
-                 (ui-layout-fp-w l)))
-         (ph (- (ui-layout-hdr-y l) 4 py))
-         (max-lines (floor (- ph 8) lh))
-         (scroll (shiftf *menu-scroll* nil))
-         (bar-w (if scroll 3 0))
-         (max-chars (floor (- pw 16 (if scroll (+ bar-w 3) 0)) cw))
-         (lines (fit-menu-lines menu-lines max-lines max-chars)))
-    ;; page shadow, sheet, outline — same look as the character sheet
+         (widest (reduce #'max lines
+                         :key (lambda (line)
+                                (length (menu-line-text line)))
+                         :initial-value 0))
+         (pw (min (+ (* widest cw) 16)
+                  (- (ui-layout-right l) (ui-layout-bx l) 8)))
+         (ph (+ (* lh (length lines)) 8))
+         (px (+ (ui-layout-bx l)
+                (max 0 (floor (- (ui-layout-right l) (ui-layout-bx l) pw) 2))))
+         (py (+ (ui-layout-by l)
+                (max 0 (floor (- (ui-layout-bottom l) (ui-layout-by l) ph) 2))))
+         (max-chars (max 1 (floor (- pw 16) cw))))
+    ;; page shadow, sheet, outline — the character-sheet look
     (amiga.gfx:set-a-pen rp 0)
     (amiga.gfx:rect-fill rp (+ px 2) (+ py 2) (+ px pw 2) (+ py ph 2))
     (amiga.gfx:set-a-pen rp 1)
     (amiga.gfx:rect-fill rp px py (+ px pw) (+ py ph))
     (amiga.gfx:set-a-pen rp 0)
     (%chrome-rect rp px py (+ px pw) (+ py ph))
-    (let ((y (+ py 4))
-          (n 0))
+    (let ((y (+ py 4)))
       (dolist (line lines)
-        (when (< n max-lines)
-          (let ((text (menu-line-text line)))
-            (%put-microfont-line rp lines-cache
-                                 (if (> (length text) max-chars)
-                                     (subseq text 0 max-chars)
-                                     text)
-                                 (+ px 8) y)
-            ;; a click on an option row / a footer hint is its key
-            (%register-line-hotspots line (+ px 8) y cw lh
-                                     (1+ px) (+ px pw -1)))
-          (incf y lh)
-          (incf n))))
-    ;; a windowed list (the generator just ran — *MENU-SCROLL* is its
-    ;; geometry) gets the scrollbar along the page's right edge
-    (when scroll
-      (destructuring-bind (start end n) scroll
-        (%amiga-draw-scrollbar rp (- (+ px pw) 3 bar-w) (+ py 4)
-                               bar-w (- ph 8) start end n)))
+        (let ((text (menu-line-text line)))
+          (%put-microfont-line rp lines-cache
+                               (if (> (length text) max-chars)
+                                   (subseq text 0 max-chars)
+                                   text)
+                               (+ px 8) y)
+          (%register-line-hotspots line (+ px 8) y cw lh
+                                   (1+ px) (+ px pw -1)))
+        (incf y lh)))
     (amiga.gfx:set-a-pen rp 1)))
 
 (defun %amiga-draw-map-legend (rp entries lx lw top bottom)
@@ -2062,6 +2108,7 @@ map/help/sheet pages close on a click outside a target — see
                             ; (see the INTUITICKS handler's living clock)
          (anim-ticks 0)     ; INTUITICKS since the last animation step
                             ; (see +ANIM-TICKS-PER-STEP+)
+         (quitting nil)     ; the quit confirmation is up (see REQUEST-QUIT)
          (over nil))
     (dlog "play-amiga ~A display ~S profile ~S draw-depth ~D draw-flanks ~D"
           map-file display (display-profile-name *display-profile*)
@@ -2286,8 +2333,10 @@ map/help/sheet pages close on a click outside a target — see
                         (leave-help ()
                           (fresh-play help-prior-mode))
                         (menus-idle-p ()
-                          ;; no menu model is eating the keys
-                          (not (or savem castv usev singv equipv tradev
+                          ;; no menu model — and no confirmation — is
+                          ;; eating the keys
+                          (not (or quitting
+                                   savem castv usev singv equipv tradev
                                    (game-location game))))
                         (%shop-picking-p ()
                           ;; the shop is asking who shops: digits mean
@@ -2390,13 +2439,13 @@ map/help/sheet pages close on a click outside a target — see
                              ;; enemy's portrait in combat) with the
                              ;; live first-person view as the fallback
                              ;; when there is no picture.
+                             ;; every picker draws as one centered
+                             ;; dialog over the log column too — see
+                             ;; the page renderer
                              (cond (savem
-                                    ;; the picker spreads over the log
-                                    ;; column too — WIDE, see the page
-                                    ;; renderer
                                     (%amiga-draw-page
                                      rp (save-menu-lines game savem) l
-                                     log-lines t))
+                                     log-lines))
                                    (castv
                                     (%amiga-draw-page
                                      rp (cast-lines game castv) l
@@ -2452,11 +2501,11 @@ map/help/sheet pages close on a click outside a target — see
                              ;; The message area: taken over by the
                              ;; character sheet, the round-orders page
                              ;; or the location's menu (log tail below
-                             ;; the rule), else the log.  The wide
-                             ;; save/load page covers it — nothing to
-                             ;; draw under it (FRESH-PLAY repaints when
-                             ;; the picker closes).
-                             (cond (savem)
+                             ;; the rule), else the log.  A dialog page
+                             ;; covers it — nothing to draw under it
+                             ;; (FRESH-PLAY repaints when the picker
+                             ;; closes).
+                             (cond ((or savem castv usev singv))
                                    ((eq mode :sheet)
                                     (%amiga-draw-takeover
                                      rp (cond (equipv
@@ -2497,7 +2546,25 @@ map/help/sheet pages close on a click outside a target — see
                                            (and (or (menus-idle-p)
                                                     (%shop-picking-p))
                                                 (not (game-combat game))
-                                                (not over))))))
+                                                (not over)))))
+                          ;; the quit confirmation floats over whatever
+                          ;; page is up and owns the frame's click
+                          ;; targets while it waits: the box's own rows
+                          ;; on top of a page-wide catch-all that reads
+                          ;; as "no" — a click beside the box backs out
+                          ;; the way Esc does
+                          (when quitting
+                            ;; nothing animates behind a modal box —
+                            ;; the anim stepper would blit the view's
+                            ;; dirty rectangles straight over it
+                            (setf *anim-blits* '()
+                                  *hotspots* '())
+                            (%hotspot #\n
+                                      (ui-layout-bx l) (ui-layout-by l)
+                                      (ui-layout-right l)
+                                      (ui-layout-bottom l))
+                            (%amiga-draw-confirm rp (quit-confirm-lines) l
+                                                 log-lines)))
                         (%step (relative)
                           ;; Only a refused step speaks: the view (and
                           ;; the door cue) already show a door passage,
@@ -2646,9 +2713,34 @@ map/help/sheet pages close on a click outside a target — see
                                    (redraw))
                                   (t (redraw))))
                           nil)
+                        (request-quit ()
+                          ;; Q, Esc and the menu strip's Quit ask before
+                          ;; the session ends — on the game's own screen
+                          ;; that tears the display down, and Esc is the
+                          ;; key a player reaches for to back out of a
+                          ;; page.  The endgame page asks for Q itself,
+                          ;; so there it quits straight away.
+                          (cond (over :quit)
+                                (t (setf quitting t)
+                                   (redraw)
+                                   nil)))
                         (act (c)
                           "Handle key C; :quit means leave the event loop."
                           (dlog "key ~S mode ~S" c mode)
+                          (cond (quitting
+                                 ;; the confirmation eats every key until
+                                 ;; it is answered
+                                 (case (quit-confirm-act c)
+                                   (:quit :quit)
+                                   (:cancel (setf quitting nil)
+                                            (fresh-play mode)
+                                            nil)
+                                   (t nil)))
+                                ((eq (act-key c) :quit) (request-quit))
+                                (t nil)))
+                        (act-key (c)
+                          "Route key C to the page that owns it; :QUIT
+means the player asked to leave (ACT confirms it)."
                           (let ((lc (if (characterp c) (char-downcase c) c)))
                             (cond ((eq mode :map)
                                    (cond ((eql lc #\q) :quit)
@@ -2937,7 +3029,10 @@ map/help/sheet pages close on a click outside a target — see
                                (case (%menu-item-number code)
                                  (0 (open-saves :save))
                                  (1 (open-saves :load))
-                                 (3 (return))))))
+                                 ;; Quit asks the same question the Q
+                                 ;; key does — see REQUEST-QUIT
+                                 (3 (when (eq (request-quit) :quit)
+                                      (return)))))))
                          (amiga.intuition:+idcmp-vanillakey+ (msg)
                            ;; letter case from the Shift qualifier, not
                            ;; Caps Lock — 's' must step back, never open

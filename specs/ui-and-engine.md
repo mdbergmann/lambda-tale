@@ -278,12 +278,17 @@ with pictures in the view column.)
   `draw-location-scene` / `draw-portrait` (tools/gen-walls.lisp);
   Closure ships viewport-sized scenes and 64x64 portraits
   (worlds/closure/gfx/make-pack.lisp).
-- The **cast/use/sing menus and the save picker keep the overlay
-  page** over the view column (`%amiga-draw-page`) — they can open in
-  combat, where the log must stay readable for the transcript.  The
-  page draws in the same **condensed small face** as the log and the
-  takeover, so the whole UI carries one type size and a long slot or
-  spell list fits the lo-res page.  The
+- The **cast/use/sing menus and the save picker draw as an overlay
+  page** (`%amiga-draw-page`), never as a takeover of the whole
+  window.  The page draws in the same **condensed small face** as the
+  log and the takeover, so the whole UI carries one type size and a
+  long slot or spell list fits the lo-res page.  All four take the
+  same box (`%menu-page-box`): a **centered dialog**, four fifths of
+  the content width — every picker lists names (slots, spells, songs,
+  pack items) and a name truncates in the lores view column, so one
+  shape serves them all.  The dialog covers the message area, so the
+  caller skips drawing the log under it and repaints (`fresh-play`)
+  when the picker closes.  The
   full-page sheet overlay (`%amiga-draw-sheet`) stays available as a
   drawing primitive but the play flow uses the takeover.
 - The sheet content is the platform-free `hero-sheet-lines` (the stat
@@ -379,6 +384,26 @@ with pictures in the view column.)
   it was opened.
 - `q` still quits from map mode.  Map mode is unavailable during
   combat.
+
+## Quitting (`q`, `Esc`, the menu strip)
+
+- Leaving the game **always asks first**: `q`, `Esc` and the menu
+  strip's Quit raise the confirmation (`quit-confirm-lines` /
+  `quit-confirm-act` in help.lisp), and only `y` ends the session.
+  `n`, `Esc` — or, on the Amiga, a click anywhere beside the box —
+  back out to where the player was.
+- The reason is `Esc`: it is the key a player reaches for to back out
+  of a page, and on the game's own screen quitting tears the display
+  down, so a stray press must not cost an unsaved run.
+- The confirmation is **modal**: it eats every other key (a second `q`
+  included), the box owns the frame's click targets, and while it is
+  up the idle clock, the log's expiry sweep and the animation
+  heartbeat all stand still — nothing may draw over it.
+- The **endgame page is exempt**: after a win or a defeat the log
+  itself asks for `q`, and that `q` quits straight away.
+- The Amiga box is drawn by `%amiga-draw-confirm`, sized to its own
+  text and centered on the inner window, on top of whatever page it
+  interrupts; the host front-end prints the same lines under the page.
 
 ## Party
 

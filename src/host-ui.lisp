@@ -116,6 +116,7 @@ engine has no default world; the game names its starting map."
          (menu nil)          ; SAVE-MENU while the save/load picker is open
          (orders nil)        ; COMBAT-ORDERS while a round is picked
          (pacing nil)        ; a combat round is running: pace messages
+         (quitting nil)      ; the quit confirmation is up (see ACT)
          (over nil))
     (labels ((wire (g)
                (setf log (attach-message-log g))
@@ -269,6 +270,12 @@ engine has no default world; the game names its starting map."
                  (:help (draw-help-page))
                  (:sheet (draw-sheet-page))
                  (t (draw-play-page)))
+               ;; the quit confirmation goes under the page it
+               ;; interrupts and owns every key until it is answered
+               (when quitting
+                 (terpri)
+                 (dolist (line (quit-confirm-lines))
+                   (format t "~A~%" (menu-line-text line))))
                (finish-output))
              (note (text)
                (when text
@@ -510,8 +517,9 @@ engine has no default world; the game names its starting map."
                     (#\p (open-sing nil))
                     (#\q :quit)
                     (t nil)))))
-             (act (c)
-               (dlog "key ~S mode ~S" c mode)
+             (act-key (c)
+               ;; route the key to the page that owns it; :QUIT means
+               ;; the player asked to leave (ACT confirms it)
                (cond ((eq mode :map) (map-act c))
                      ((eq mode :help) (help-act c))
                      ((eq mode :sheet) (sheet-act c))
@@ -524,6 +532,21 @@ engine has no default world; the game names its starting map."
                       (location-act game locv c)
                       nil)
                      (t (explore-act c))))
+             (act (c)
+               (dlog "key ~S mode ~S" c mode)
+               (cond (quitting
+                      ;; the confirmation eats every key until it is
+                      ;; answered (see QUIT-CONFIRM-ACT)
+                      (case (quit-confirm-act c)
+                        (:quit :quit)
+                        (:cancel (setf quitting nil) nil)
+                        (t nil)))
+                     ((eq (act-key c) :quit)
+                      ;; Q and Esc ask first — a stray key must not end
+                      ;; an unsaved run
+                      (setf quitting t)
+                      nil)
+                     (t nil)))
              (finished-p ()
                (when over
                  (setf mode :play)

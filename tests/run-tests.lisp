@@ -9134,7 +9134,44 @@ never its own"
   (check-true "help mentions the marching order"
               (find-if (lambda (s) (search "marching order" s)) lines))
   (check-true "help mentions taking a level"
-              (find-if (lambda (s) (search "take a level" s)) lines)))
+              (find-if (lambda (s) (search "take a level" s)) lines))
+  (check-true "help says quitting asks first"
+              (find-if (lambda (s) (search "asks first" s)) lines)))
+
+;;; ---------------------------------------------------------------------
+;;; The quit confirmation: Q, Esc and the menu strip's Quit all ask
+;;; before the session ends — one page, two options, both front-ends.
+
+(let ((lines (quit-confirm-lines)))
+  (check-true "the confirmation asks whether to quit"
+              (find-if (lambda (line)
+                         (search "Really quit" (menu-line-text line)))
+                       lines))
+  (check-true "the confirmation warns about unsaved progress"
+              (find-if (lambda (line)
+                         (search "Unsaved" (menu-line-text line)))
+                       lines))
+  ;; both options are option rows, so a front-end can click them
+  (check "yes is picked by Y" #\y
+         (menu-line-key (find-if (lambda (line)
+                                   (search "Yes" (menu-line-text line)))
+                                 lines)))
+  (check "no is picked by N" #\n
+         (menu-line-key (find-if (lambda (line)
+                                   (search "No," (menu-line-text line)))
+                                 lines))))
+
+(check "Y confirms the quit" :quit (quit-confirm-act #\y))
+(check "shift makes no difference" :quit (quit-confirm-act #\Y))
+(check "N backs out" :cancel (quit-confirm-act #\n))
+(check "Esc backs out as the character" :cancel (quit-confirm-act #\Escape))
+(check "Esc backs out as the front-end's keyword" :cancel
+       (quit-confirm-act :esc))
+;; every other key is eaten: nothing leaks through to the game while
+;; the question stands — not even another Q
+(check "Q neither confirms nor cancels" nil (quit-confirm-act #\q))
+(check "a step key is swallowed" nil (quit-confirm-act #\w))
+(check "a digit is swallowed" nil (quit-confirm-act #\1))
 
 ;;; ---------------------------------------------------------------------
 ;;; The roster's class codes and column plists.
@@ -9672,12 +9709,32 @@ never its own"
                (%amiga-draw-band rp g l)
                (%amiga-draw-log rp log l)
                (%amiga-party rp g l)
-               ;; the map page (all small-face type) and the wide
+               ;; the map page (all small-face type) and the
                ;; save/load page draw on the custom screen too
                (%amiga-draw-map-page rp g l nil)
                (%amiga-draw-page rp (save-menu-lines
                                      g (make-save-menu :save))
-                                 l nil t)
+                                 l nil)
+               ;; the dialog box every picker draws in: four fifths of
+               ;; the content width, the leftover split evenly so it
+               ;; sits centered, and wide enough that a full slot name
+               ;; never truncates in the lores view column
+               (multiple-value-bind (px py pw ph) (%menu-page-box l)
+                 (declare (ignore py ph))
+                 (let ((span (- (ui-layout-right l) (ui-layout-bx l))))
+                   (check "the dialog page is four fifths of the content"
+                          (floor (* 4 span) 5) pw)
+                   (check-true "the dialog page is narrower than the content"
+                               (< pw span))
+                   (check-true "the dialog page is wider than the view column"
+                               (> pw (ui-layout-fp-w l)))
+                   (check-true "the dialog page is horizontally centered"
+                               (<= (abs (- (- px (ui-layout-bx l))
+                                           (- (ui-layout-right l) (+ px pw))))
+                                   1))
+                   (check-true "a full slot name fits the dialog page"
+                               (>= (floor (- pw 16 6) +microfont-small-advance+)
+                                   (+ 3 +slot-name-limit+)))))
                ;; the view-column picture contract, on the game's own
                ;; screen: a real ILBM draws and centers; a missing
                ;; file defers to the caller (falls back to the
@@ -10034,13 +10091,17 @@ pieces need a mask" pname)
             (%free-wall-assets walls)))))))))))
 
 ;; *autoplay* drives a full unattended PLAY-AMIGA session: scripted keys
-;; are fed one per INTUITICK (~10/s), ending in #\q so the event loop
-;; exits on its own.  Verifies the whole real event path — window, menu
+;; are fed one per INTUITICK (~10/s), ending in #\q #\y — q raises the
+;; quit confirmation and y answers it — so the event loop exits on its
+;; own.  (A script that stopped at q would hang the session: the box
+;; waits for an answer.)  Verifies the whole real event path — window, menu
 ;; strip, redraws, key dispatch — with no user at the keyboard.  The
 ;; script also opens the help page (h) and leaves it (Esc), enters map
 ;; mode (m), toggles the debug full view (f) twice, opens help from
 ;; the map view too (? — the second h returns to the map) and leaves
-;; map mode (m) before quitting.
+;; map mode (m) before quitting.  The first q is answered with n: the
+;; confirmation backs out, the session plays on (s steps) and only the
+;; second q/y ends it.
 ;; The scripted keys also open a character sheet (1), switch to another
 ;; roster slot (2) and leave it (:esc) — exercising the whole :sheet
 ;; mode through the real event loop.  The fixture crypt is a :DARK
@@ -10055,7 +10116,9 @@ pieces need a mask" pname)
 (check "amiga-ui autoplay plays a scripted session and quits" :done
        (let ((*autoplay* (list #\w #\d #\1 #\2 :esc #\w #\a
                                #\h :esc
-                               #\m #\f #\f #\? #\h #\m #\s #\q)))
+                               #\m #\f #\f #\? #\h #\m #\s
+                               #\q #\n          ; asked, backed out
+                               #\s #\q #\y)))   ; asked again, answered
          (play-amiga "tests/world/crypt.map" :display :window)
          :done))
 
@@ -10086,7 +10149,7 @@ pieces need a mask" pname)
                                #\1 #\1 #\2 #\s #\1 :esc :esc
                                #\w #\w #\1 :esc
                                #\w #\w
-                               #\u #\1 #\1 #\q))
+                               #\u #\1 #\1 #\q #\y))
              ;; scratch save, like every other test's tests/tmp-* state —
              ;; keeps the real saves/ dir untouched by the test suite
              (*save-dir* "tests/tmp-saves/"))
@@ -10101,7 +10164,7 @@ pieces need a mask" pname)
 ;; the pack palette and the ceiling/floor backdrop all draw for real.
 #+amigaos
 (check "amiga-ui autoplay on an own custom screen" :done
-       (let ((*autoplay* (list #\w #\d #\m #\m #\q)))
+       (let ((*autoplay* (list #\w #\d #\m #\m #\q #\y)))
          (play-amiga "tests/world/crypt.map" :display :screen
                                              :gfx-dir (engine-path "data/gfx/"))
          :done))
@@ -10111,7 +10174,7 @@ pieces need a mask" pname)
 ;; scripted event loop.
 #+amigaos
 (check "amiga-ui autoplay on the hires profile" :done
-       (let ((*autoplay* (list #\w #\d #\m #\m #\q)))
+       (let ((*autoplay* (list #\w #\d #\m #\m #\q #\y)))
          (play-amiga "tests/world/crypt.map" :display :screen
                                              :profile :hires)
          :done))
@@ -10122,14 +10185,19 @@ pieces need a mask" pname)
 ;; and the sheet's click-anywhere-else Esc.  The lores custom screen
 ;; lays out deterministically (borderless backdrop, pads 10/10, the
 ;; 120x112 view at 10,10; topaz-8 rows put party row 1 at y=150), so
-;; the script clicks absolute pixels.
+;; the script clicks absolute pixels.  The quit confirmation is modal
+;; for the mouse too: while it is up the only click targets are its own
+;; rows and the page-wide "no" behind them, so the click at the far
+;; left backs out of it.
 #+amigaos
 (check "amiga-ui autoplay drives the game by mouse clicks" :done
        (let ((*autoplay* (list '(:click 90 60)   ; view middle: forward
                                '(:click 20 60)   ; left quarter: turn
                                '(:click 15 152)  ; roster row 1: sheet
                                '(:click 90 60)   ; off-target: Esc back
-                               #\q)))
+                               #\q
+                               '(:click 15 152)  ; beside the box: no
+                               #\q #\y)))
          (play-amiga "tests/world/crypt.map" :display :screen
                                              :gfx-dir (engine-path "data/gfx/"))
          :done))
@@ -10239,7 +10307,7 @@ pieces need a mask" pname)
 #+amigaos
 (check-true "amiga-ui autoplay leaves a debug-log trace"
             (let ((path "tests/tmp-saves/debug-amiga.log")
-                  (*autoplay* (list #\w #\q)))
+                  (*autoplay* (list #\w #\q #\y)))
               (when (probe-file path) (delete-file path))
               (debug-log-enable path)
               (play-amiga "tests/world/crypt.map" :display :screen)

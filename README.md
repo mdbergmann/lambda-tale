@@ -142,10 +142,11 @@ column carries the enemy's portrait
 (`define-monster ... :image FILE`), so the party sees what it is
 fighting while it picks the round; the picture belongs to the leading
 group and passes to the next one as groups fall.
-The cast/use/sing menus draw as an overlay page over the view column
-instead, keeping the log readable beside them; the save picker spans
-the whole content width — room for full slot names, and nothing worth
-watching happens beside it.
+The pickers — save and load, cast a spell, play a song, use an item —
+open as a centered dialog over the page instead, all four the same
+size: each of them lists names, a name has no room in the view
+column, and nothing worth watching happens beside a picker while it
+is open.
 The key reference lives on the help page under `h`/`?`.  The full
 automap lives under `m` — black ink on the grey page, doors and the
 party amber, with a legend beside the map listing the special places
@@ -241,7 +242,10 @@ Both are picked RTG-aware through `graphics.library/BestModeIDA` (so
 Picasso96/CyberGraphX/MorphOS promote them to a suitable RTG mode),
 with the tile pack's palette and a borderless backdrop window;
 Save/Load/Quit sit in the menu strip (right mouse button, GadTools
-menus with the usual right-Amiga shortcuts).  For development there is
+menus with the usual right-Amiga shortcuts).  Quitting — from the menu,
+from `q` or from `Esc` — always asks first: a small confirmation box
+takes over until `y` ends the session or `n`/`Esc` (or a click beside
+it) returns to the game.  For development there is
 also a window view on the Workbench screen (no custom palette):
 `(tale:play-amiga "mygame/village.map" :display :window)`.
 
