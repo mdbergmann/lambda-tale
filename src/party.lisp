@@ -280,10 +280,11 @@ current map file's directory — or NIL when the class has none."
 
 (defconstant +sheet-page-size+ 8
   "Body rows a character-sheet carousel page shows at once; a longer
-block scrolls with u/d — see MENU-WINDOW.  The spells/songs page only
-overflows for a hero who both casts and sings; HERO-MAGIC-LINES
-windows it the same way the stat block windows with
-HERO-SHEET-SCROLL.")
+block scrolls with u/d — see MENU-WINDOW.  Both windowing pages count
+against it.  The stat block reaches nine rows — and so scrolls — only
+for a raced hero who both casts and sings (the race line, the SP line
+and the Tunes line all at once); the spells/songs page overflows far
+more readily, as soon as a book and its head run past eight rows.")
 
 (defun hero-sheet-lines (game index &optional (top 0) ordering)
   "The character-sheet page for roster slot INDEX as text lines: the

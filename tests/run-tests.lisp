@@ -7118,6 +7118,26 @@ height" d)
   (check "an empty roster slot does not scroll" nil
          (hero-sheet-scroll g 4 0 #\d)))
 
+;; The one stat block that still overflows +SHEET-PAGE-SIZE+: a raced
+;; hero who both casts and sings pays a row for the race line, the SP
+;; line and the Tunes line at once — nine rows against the eight-row
+;; page, so the block windows and u/d scroll it.  (A raceless one, or
+;; either half of the pair alone, fits whole.)
+(let* ((m (parse-map *art* :name "test"))
+       (adept (%combat-adept))
+       (raced (%combat-adept "Ora"))
+       (g (new-game m :party (list adept raced))))
+  (setf (hero-race raced) :r-human)
+  (check "the raceless caster-singer's block fits whole" 8
+         (length (hero-summary-lines adept)))
+  (check "the raced caster-singer's block overflows" 9
+         (length (hero-summary-lines raced)))
+  (check "so it windows at the page size" '(0 8 9)
+         (progn (hero-sheet-lines g 1) *menu-scroll*))
+  (check "and d scrolls it" 1 (hero-sheet-scroll g 1 0 #\d))
+  (check "while the raceless one does not scroll" nil
+         (hero-sheet-scroll g 0 0 #\d)))
+
 ;;; ---------------------------------------------------------------------
 ;;; Save games: the whole world round-trips — every visited zone's
 ;;; knowledge, the party's packs and equipment.
