@@ -1044,8 +1044,9 @@ mechanics: casters (`define-hero-class ... :caster t`) carry **spell
 points** (2 per level plus the IQ bonus) and pay them per cast.  A
 caster **knows** every registered spell of their class at or below
 their level — no separate learning step; a fresh level's spells
-simply arrive with it, and the character sheet closes with the
-spellbook as it stands.  A
+arrive with the rise, which names each one ("Zzal learns test
+flame!"), and the character sheet closes with the spellbook as it
+stands.  A
 spell's effect is a plist over a shared vocabulary, and the keys
 **combine freely** — a restoration heals *and* cures, a batchspell
 installs five enchantments in one casting:

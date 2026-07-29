@@ -590,29 +590,36 @@ scripted tests spend a fixed number of rolls per level."
     (try (hero-lck hero) "LCK")))
 
 (defun level-up (game hero)
-  (incf (hero-level hero))
-  (say game "~A rises to level ~D!" (hero-name hero) (hero-level hero))
-  ;; hp rolls first — the new level's dice plus the CON bonus, before
-  ;; the stat gains, so a rising CON pays out from the next level on
-  ;; (and the scripted tests' first roll stays the hit die)
-  (let ((gain (max 1 (+ (roll-dice (hero-class-property (hero-class hero)
-                                                        :hp-dice))
-                        (stat-gift (hero-con hero))))))
-    (incf (hero-max-hp hero) gain)
-    (incf (hero-hp hero) gain))
-  (%maybe-raise-stats game hero)
-  ;; class AC training: one point of natural armor every :AC-PER-LEVEL
-  ;; levels beyond the first (the monk), floored at Bard's Tale's -10
-  (let ((per (hero-class-property (hero-class hero) :ac-per-level)))
-    (when (and per (zerop (mod (1- (hero-level hero)) per)))
-      (setf (hero-ac hero) (max -10 (1- (hero-ac hero))))))
-  ;; casters grow spell points like hit points: the new maximum arrives
-  ;; as fresh, ready-to-burn sp (and reads a freshly risen IQ)
-  (let ((new-sp (%hero-max-sp (hero-class hero) (hero-level hero)
-                              (hero-iq hero))))
-    (incf (hero-sp hero) (max 0 (- new-sp (hero-max-sp hero))))
-    (setf (hero-max-sp hero) new-sp))
-  (emit game :level-up hero))
+  ;; the spellbook before the rise — level-gated, so comparing it
+  ;; afterwards names exactly the spells the new level brings
+  (let ((known (spells-for-hero hero)))
+    (incf (hero-level hero))
+    (say game "~A rises to level ~D!" (hero-name hero) (hero-level hero))
+    ;; hp rolls first — the new level's dice plus the CON bonus, before
+    ;; the stat gains, so a rising CON pays out from the next level on
+    ;; (and the scripted tests' first roll stays the hit die)
+    (let ((gain (max 1 (+ (roll-dice (hero-class-property
+                                      (hero-class hero) :hp-dice))
+                          (stat-gift (hero-con hero))))))
+      (incf (hero-max-hp hero) gain)
+      (incf (hero-hp hero) gain))
+    (%maybe-raise-stats game hero)
+    ;; class AC training: one point of natural armor every :AC-PER-LEVEL
+    ;; levels beyond the first (the monk), floored at Bard's Tale's -10
+    (let ((per (hero-class-property (hero-class hero) :ac-per-level)))
+      (when (and per (zerop (mod (1- (hero-level hero)) per)))
+        (setf (hero-ac hero) (max -10 (1- (hero-ac hero))))))
+    ;; casters grow spell points like hit points: the new maximum
+    ;; arrives as fresh, ready-to-burn sp (and reads a freshly risen IQ)
+    (let ((new-sp (%hero-max-sp (hero-class hero) (hero-level hero)
+                                (hero-iq hero))))
+      (incf (hero-sp hero) (max 0 (- new-sp (hero-max-sp hero))))
+      (setf (hero-max-sp hero) new-sp))
+    ;; the spells the new level brings, named in registration order
+    (dolist (name (remove-if (lambda (n) (member n known))
+                             (spells-for-hero hero)))
+      (say game "~A learns ~A!" (hero-name hero) (spell-title name)))
+    (emit game :level-up hero)))
 
 (defun hero-level-up-pending-p (hero)
   "Has HERO banked the experience for the next level?  The rise

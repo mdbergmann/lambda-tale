@@ -3391,6 +3391,23 @@ height" d)
   (check "a plain hero's sheet carries no spellbook" nil
          (member "Spells:" (hero-summary-lines grunt) :test #'equal)))
 
+;; The rise itself names the spells it brings — the book is
+;; level-gated, so LEVEL-UP diffs it around the bump and announces
+;; each arrival; a level that brings none stays quiet about spells.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-mage))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (award-xp g h 100)
+  (with-rng () (advance-level g h))     ; level 2: no new spells
+  (check "a level without new spells stays quiet about the book" nil
+         (find-if (lambda (s) (search "learns" s)) (funcall msgs)))
+  (award-xp g h 200)
+  (with-rng () (advance-level g h))     ; level 3: test-lore arrives
+  (check-true "the rise names the arriving spell"
+              (member "Zzgo learns test lore!" (funcall msgs)
+                      :test #'equal)))
+
 ;; Cast refusals: each says why, costs nothing, returns NIL.
 (let* ((m (parse-map *art* :name "test"))
        (mage (%combat-mage))
