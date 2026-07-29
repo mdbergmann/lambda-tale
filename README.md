@@ -122,7 +122,8 @@ the Amiga) with a slim strip of active-effect icons below it, laid
 out in effect order — an effect granting a compass shows the live
 rose in its slot — and the numbered party roster (`# CHARACTER AC
 HIT PTS SPL PTS CL`, two-letter class codes, the number columns
-right-aligned under their headings) at the bottom.
+right-aligned under their headings) at the bottom, its rows set solid
+— one glyph box each, no leading — the way a printed roster reads.
 Locations (shops, taverns) and the character sheet **take over the
 message area**: their menu renders at the top of the log page with
 the trailing log lines still scrolling underneath, while the view
@@ -164,9 +165,27 @@ uses the same geometry as the custom screen, so both displays lay out
 identically; the custom screen's geometry comes from a **display
 profile** (`play-amiga`'s `:profile` argument):
 
-- **`:lores`** (the default) — 320x256 PAL lores, **32 colors**, the
-  ECS target: half the chip-RAM/DMA cost of hires and near-square
-  pixels for the art.
+- **`:lores`** (the default) — a **320x200 layout**, **32 colors**,
+  the ECS target: half the chip-RAM/DMA cost of hires and near-square
+  pixels for the art.  200 lines rather than PAL's 256 so **one layout
+  serves PAL and NTSC alike** — an NTSC machine has no 256-line mode
+  to fall back on.  That budget sizes the 120x100 viewport: the chrome
+  pads, view, plaque and the seven solid-set roster rows fill it
+  exactly — roster row 7 ends on the last usable line, with the chrome
+  ring's clearance below it.
+
+  The **screen** is a separate question from the layout, and it grows
+  to fit the display it landed on: `play-amiga` asks the display
+  database how tall the chosen mode really is
+  (`amiga.intuition:display-mode-height`) and opens the screen at that
+  height, capped by the profile's `screen-max-height` (256 here).  So
+  PAL opens 320x256 and NTSC 320x200, with the backdrop window clamped
+  to the 200-line layout either way — the game lays out identically on
+  both, and only the background below it differs.  There is no
+  PAL/NTSC test in the engine; the database answers for whatever the
+  machine actually is, RTG included.  A screen shorter than its
+  display is one an emulator's auto-zoom crops and rescales and a real
+  monitor letterboxes, which is the point of asking.
 - **`:hires`** — 640x256 PAL hires, 16 colors, the classic
   presentation with the larger 240x130 viewport.
 
@@ -463,7 +482,7 @@ The format is sniffed, not guessed from the name.  `write-deep-ilbm`
 turns any of them back into a 24-bit IFF, so art that arrived as a PNG
 becomes a source you can keep editing in DPaint.
 
-The natural size is the viewport (120×112 at `:lores`, 240×130 at
+The natural size is the viewport (120×100 at `:lores`, 240×130 at
 `:hires`), which is exactly one wall cell at the nearest plane, so
 every piece comes out of a downscale.  The perspective is pure
 geometry: front and flank slots are rectangles cut at the front slot's
@@ -1020,9 +1039,9 @@ spot and disarm a springing floor trap (the rogue's), and
 up to 7 members (`join-party`): six regular heroes plus one guest slot
 for a summoned monster or story NPC.  Combat is
 round-based, Bard's Tale style: every round opens on the **engage
-page** — *Attack Enemy or Flee*, the one choice that is the whole
+page** — *Fight or Run*, the one choice that is the whole
 party's (everyone runs or nobody does, and only at the top of the
-round; a failed flee costs a free monster round and asks again) —
+round; a failed run costs a free monster round and asks again) —
 then the **round-orders page** asks one
 hero at a time (attack, defend, cast a spell, play a song, use an
 item; `Esc` undoes the previous pick), and when

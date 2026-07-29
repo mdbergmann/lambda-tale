@@ -32,7 +32,7 @@
         "Q or Esc quit (asks first)"
         ""
         "Combat: every round opens with"
-        "        A attack / F flee (all)"
+        "        F fight / R run (all)"
         "        then each hero picks:"
         "        A attack  D defend"
         "        C cast  P play  Esc undo"

@@ -227,6 +227,12 @@ profile, not a patch.)
   class code via `hero-class-abbrev` — always **two characters**, so
   the name column keeps the room; a downed hero's name and hit
   points turn amber) — the layout must reserve room for **7 rows**.
+  Those rows are **set solid**: one glyph box each, none of the
+  leading the message log's lines carry, and the header sits a
+  couple of pixels under the plaque rather than a full line under it.
+  A roster is read column-down, not line by line, so the rows want to
+  group — and on the 200-line screen there is no room for leading
+  anyway.
   The number columns are **right-aligned** in a fixed field
   (`roster-cell`, `+roster-num-cells+`), heading included, so digits
   of different width line up down the table; a profile's
@@ -427,10 +433,12 @@ The Amiga front-end supports two displays, selected by
   with a borderless backdrop window (input + menus as usual).
 - Screen geometry, viewport, tile pack and layout tuning come from a
   **display profile** (`src/profiles.lisp`, `play-amiga`'s `:profile`
-  argument): **`:lores`** — 320x256 PAL lores, 5 bitplanes (32
+  argument): **`:lores`** — a 320x200 layout, 5 bitplanes (32
   colors), the ECS target and the default (half the chip-RAM/DMA cost
   of hires, near-square pixels for the art, the Bard's Tale
-  presentation) — and **`:hires`** — 640x256 PAL hires, 4 bitplanes
+  presentation; 200 lines so the one layout serves PAL and NTSC
+  alike, since NTSC has no 256-line mode to fall back on) — and
+  **`:hires`** — 640x256 PAL hires, 4 bitplanes
   (16 colors), the classic look with the larger 240x130 viewport.  A
   future target (say a big RTG screen) is a new profile plus an asset
   pack, not new code.
@@ -440,6 +448,17 @@ The Amiga front-end supports two displays, selected by
   and open the screen with whatever ID it returns; only fall back to a
   plain PAL request when the database has no answer.  Bitmaps and
   rendering stay behind OS calls only.
+- The **screen height is asked for too, not assumed**: the same
+  database says how tall the chosen mode's display really is
+  (`QueryOverscan`, via `amiga.intuition:display-mode-height`), and the
+  screen opens at that height clamped to the profile's
+  `screen-max-height` (`screen-height-for`).  The backdrop window stays
+  the profile's layout height, so the game lays out identically
+  wherever it lands and the surplus is background.  This is the same
+  rule as mode selection — no PAL/NTSC branch anywhere, because the
+  database answers for RTG as readily as for the chipset.  A screen
+  shorter than its display gets cropped and rescaled by an emulator's
+  auto-zoom and letterboxed by a monitor, which is what asking avoids.
 - The window and the screen share the profile's geometry — the window
   version must fit a PAL Workbench, and both displays lay out
   identically.  The layout is computed from the actual inner

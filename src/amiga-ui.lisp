@@ -170,10 +170,20 @@ click would make."
 ;;; code serves the Workbench window, a 640x256 custom screen and
 ;;; whatever an RTG driver promotes the mode to.
 
+;;; The roster is the one table that sets its rows solid — ROW-H is the
+;;; font's glyph box, with none of the one-pixel leading LH adds — and
+;;; sits close under the plaque rather than a text line under it.  A
+;;; roster is read column-down (whose points are low?), not line by
+;;; line like the log, so the rows want to group; and the 16 pixels the
+;;; tight rows save over LH are most of what buys the layout its NTSC
+;;; fit (see *LORES-PROFILE*, and +ROSTER-GAP+ in profiles.lisp for the
+;;; breathing room the saving paid for above the header).
+
 (defstruct (ui-layout (:constructor %make-ui-layout))
   bx by            ; content top-left (inside the chrome ring)
   right bottom     ; content right/bottom edges
   lh base          ; text line height / baseline (rastport font metrics)
+  row-h            ; roster row height — the glyph box, no leading
   cw               ; character cell width (rastport font metrics)
   fp-w fp-h        ; first-person view size
   log-x log-w      ; message log column
@@ -187,7 +197,7 @@ click would make."
 
 (defun %amiga-layout (win rp)
   ;; The Bard's Tale chrome (border ring, framed view, plaque, roster
-  ;; header) needs the full 256-line backdrop; a bordered Workbench
+  ;; header) needs the profile's full backdrop; a bordered Workbench
   ;; window skips the ring so the framed view still fits.
   (let* ((p *display-profile*)
          (ring-p (zerop (amiga.intuition:window-border-top win)))
@@ -200,15 +210,21 @@ click would make."
          (bottom (- (amiga.intuition:window-height win)
                     (amiga.intuition:window-border-bottom win) pad-y))
          (lh (+ (amiga.gfx:rastport-tx-height rp) 2))
+         (row-h (max 1 (amiga.gfx:rastport-tx-height rp)))
          (base (amiga.gfx:rastport-tx-baseline rp))
          (cw (max 1 (amiga.gfx:text-length rp "M")))
          ;; top-down: view, plaque, then the roster right below —
-         ;; leftover space becomes bottom margin (no status line)
+         ;; leftover space becomes bottom margin (no status line).
+         ;; BOTTOM is the last usable row, not one past it, so the
+         ;; column's budget counts it: (1+ BOTTOM) minus BY is how many
+         ;; rows there are to spend.  The off-by-one is worth a pixel,
+         ;; and on the 200-line screen the whole column is one pixel
+         ;; from exact (see *LORES-PROFILE*).
          (fp-h (min *fp-view-height*
-                    (- bottom by
-                       (+ lh 3)                 ; the plaque
-                       (+ 5 lh)                 ; roster gap + header
-                       (* lh +party-limit+))))  ; roster rows
+                    (- (1+ bottom) by
+                       (+ lh 3)                    ; the plaque
+                       (+ +roster-gap+ row-h)      ; roster gap + header
+                       (* row-h +party-limit+))))  ; roster rows
          (plaque-y (+ by fp-h 1))
          (plaque-b (+ plaque-y lh 2))   ; 2px taller than a text line so
                                         ; the glyphs clear both borders
@@ -220,10 +236,10 @@ click would make."
          (band-h (min (display-profile-band-height p) (- col-h 8)))
          (band-y (- (+ by col-h -1) band-h))
          (page-b (- band-y 4))
-         (hdr-y (+ plaque-b 5))
-         (party-y (+ hdr-y lh)))
+         (hdr-y (+ plaque-b +roster-gap+))
+         (party-y (+ hdr-y row-h)))
     (%make-ui-layout :bx bx :by by :right right :bottom bottom
-                     :lh lh :base base :cw cw
+                     :lh lh :row-h row-h :base base :cw cw
                      :fp-w *fp-view-width* :fp-h fp-h
                      :log-x log-x :log-w (- right log-x)
                      :col-h col-h
@@ -1529,19 +1545,30 @@ their digits line up down the table."
 
 (defun %amiga-party (rp game l &optional clickable)
   "Party roster table, Bard's Tale style: a header row and one numbered
-row per hero, right under the location plaque (there is no status
-line), black on the grey chrome with the current hit/spell points in
-white.  The row number is the key that opens that hero's character
-sheet; CLICKABLE non-NIL also registers each hero row as a click
-target for its digit — passed only when digits currently mean the
-roster (not while a menu model or a location eats them)."
+row per SLOT — +PARTY-LIMIT+ of them, whether the party fills them or
+not — right under the location plaque (there is no status line), black
+on the grey chrome with the current hit/spell points in white.  The
+row number is the key that opens that hero's character sheet;
+CLICKABLE non-NIL also registers each FILLED row as a click target for
+its digit — passed only when digits currently mean the roster (not
+while a menu model or a location eats them).
+
+An empty slot draws its number and nothing else.  The roster is what
+the layout is tightest against, so the rows the party has not claimed
+should be as visible as the ones it has — a six-strong party that drew
+six rows said nothing about whether the seventh still fits.
+
+Rows advance by the layout's ROW-H, the glyph box itself, so the table
+sets solid the way a printed roster does — see the note above
+UI-LAYOUT."
   (let* ((ox (ui-layout-bx l))
          (oy (ui-layout-hdr-y l))
-         (lh (ui-layout-lh l)))
+         (row-h (ui-layout-row-h l)))
     (amiga.gfx:set-a-pen rp 2)
     (amiga.gfx:rect-fill rp ox oy
                          (ui-layout-right l)
-                         (+ (ui-layout-party-y l) (* lh +party-limit+) -1))
+                         (+ (ui-layout-party-y l)
+                            (* row-h +party-limit+) -1))
     (amiga.gfx:set-a-pen rp 0)
     (let ((y (+ oy (ui-layout-base l)))
           (cw (ui-layout-cw l))
@@ -1561,15 +1588,30 @@ roster (not while a menu model or a location eats them)."
         (col (getf cols :cl)   "CL")))
     (let ((y (+ (ui-layout-party-y l) (ui-layout-base l)))
           (row-y (ui-layout-party-y l))
-          (i 0))
-      (dolist (h (game-party game))
-        (%amiga-hero-row rp game l y h i)
-        (when (and clickable (< i 9))
-          (%hotspot (digit-char (1+ i))
-                    ox row-y (ui-layout-right l) (+ row-y lh -1)))
-        (incf y lh)
-        (incf row-y lh)
-        (incf i)))
+          (party (game-party game))
+          (cw (ui-layout-cw l))
+          (cols (display-profile-roster-cols *display-profile*)))
+      (dotimes (i +party-limit+)
+        (let ((h (nth i party)))
+          (if h
+              (progn
+                (%amiga-hero-row rp game l y h i)
+                (when (and clickable (< i 9))
+                  (%hotspot (digit-char (1+ i))
+                            ox row-y (ui-layout-right l)
+                            (+ row-y row-h -1))))
+              ;; an unfilled slot still shows its number: the roster is
+              ;; the layout's tightest constraint, and a bare "7" is
+              ;; what makes the reserved row visible on a party that
+              ;; has not claimed it yet (the guest slot usually).  The
+              ;; row stays inert — no hotspot, so a click there means
+              ;; nothing rather than opening a sheet that is not there.
+              (progn
+                (amiga.gfx:set-a-pen rp 0)
+                (amiga.gfx:move-to rp (+ ox (* cw (getf cols :no))) y)
+                (amiga.gfx:gfx-text rp (format nil "~D" (1+ i))))))
+        (incf y row-h)
+        (incf row-y row-h)))
     (amiga.gfx:set-a-pen rp 1)))
 
 (defun %amiga-draw-help (rp l)
@@ -1950,8 +1992,11 @@ the pack's noon colours) and again whenever the band turns."
   "Open DISPLAY per the active *DISPLAY-PROFILE* and call FN with the
 screen and window.  :WINDOW — a window on the public (Workbench)
 screen, the development default.  :SCREEN — an own custom screen (the
-profile's nominal PAL geometry, chosen RTG-aware through
-AMIGA.GFX:BEST-MODE-ID) covered by a borderless backdrop window."
+profile's nominal geometry, chosen RTG-aware through
+AMIGA.GFX:BEST-MODE-ID) covered by a borderless backdrop window.
+Both the mode asked for and the screen actually opened go to the debug
+log, so a display that came out unexpected can be told from a layout
+that did."
   (let ((p *display-profile*))
     (ecase display
       (:window
@@ -1964,40 +2009,66 @@ AMIGA.GFX:BEST-MODE-ID) covered by a borderless backdrop window."
                   :idcmp +game-idcmp+)
            (funcall fn scr win))))
       (:screen
-       (amiga.intuition:with-screen
-           (scr :width (display-profile-screen-width p)
-                :height (display-profile-screen-height p)
-                :depth (display-profile-screen-depth p)
-                :title "Lambda's Tale"
-                :mode-id (amiga.gfx:best-mode-id
-                          :width (display-profile-screen-width p)
-                          :height (display-profile-screen-height p)
-                          :depth (display-profile-screen-depth p)))
-         (%game-screen-palette scr)
-         ;; :TITLE NIL, not merely omitted: on a backdrop window any
-         ;; WA_Title — including OPEN-WINDOW's default — still costs a
-         ;; title bar (border-top), and the screen already carries one
-         (amiga.intuition:with-window
-             (win :title nil
-                  :left 0 :top 0
-                  :width (amiga.intuition:screen-width scr)
-                  :height (amiga.intuition:screen-height scr)
-                  :screen scr
-                  :flags (logior amiga.intuition:+wflg-borderless+
-                                 amiga.intuition:+wflg-backdrop+
-                                 amiga.intuition:+wflg-activate+)
-                  :idcmp +game-idcmp+)
-           ;; the game owns the whole display: put the OS screen bar
-           ;; behind the backdrop window (Bard's Tale has no title
-           ;; bar).  This must run AFTER the window is open — ShowTitle
-           ;; rearranges the layers of the backdrop windows that exist
-           ;; at call time, and on RTG-promoted screens (Picasso96
-           ;; BestModeIDA modes) a backdrop window opened after the
-           ;; call still sat behind the bar layer: the title bar stayed
-           ;; visible in play even with SA_ShowTitle FALSE at
-           ;; OpenScreen.
-           (amiga.intuition:show-title scr nil)
-           (funcall fn scr win)))))))
+       ;; Ask the database for a mode that fits the LAYOUT, then ask
+       ;; that mode how tall its display really is and open the screen
+       ;; at that height (SCREEN-HEIGHT-FOR).  A PAL machine answers
+       ;; 256 and gets its native display; an NTSC one answers 200 and
+       ;; nothing moves.  The window below stays the layout's size
+       ;; either way, so the game is laid out identically on both and
+       ;; only the black band under it differs.  Both numbers go to the
+       ;; debug log — a display that came out unexpected is then a fact
+       ;; in the log rather than a guess.
+       (let* ((mode (amiga.gfx:best-mode-id
+                     :width (display-profile-screen-width p)
+                     :height (display-profile-screen-height p)
+                     :depth (display-profile-screen-depth p)))
+              (display-h (and mode
+                              (amiga.intuition:display-mode-height mode)))
+              (screen-h (screen-height-for p display-h)))
+         (dlog "screen: asked ~Dx~Dx~D -> mode $~:[????????~;~:*~8,'0X~], ~
+display ~:[unknown~;~:*~D~] rows, opening ~D"
+               (display-profile-screen-width p)
+               (display-profile-screen-height p)
+               (display-profile-screen-depth p)
+               mode display-h screen-h)
+         (amiga.intuition:with-screen
+             (scr :width (display-profile-screen-width p)
+                  :height screen-h
+                  :depth (display-profile-screen-depth p)
+                  :title "Lambda's Tale"
+                  :mode-id mode)
+           (dlog "screen: opened ~Dx~D"
+                 (amiga.intuition:screen-width scr)
+                 (amiga.intuition:screen-height scr))
+           (%game-screen-palette scr)
+           ;; :TITLE NIL, not merely omitted: on a backdrop window any
+           ;; WA_Title — including OPEN-WINDOW's default — still costs
+           ;; a title bar (border-top), and the screen carries one.
+           ;; The window is the LAYOUT's height, not the screen's: on a
+           ;; display with rows to spare the game sits in the top of
+           ;; the screen and the rest stays screen background.
+           (amiga.intuition:with-window
+               (win :title nil
+                    :left 0 :top 0
+                    :width (amiga.intuition:screen-width scr)
+                    :height (min (display-profile-screen-height p)
+                                 (amiga.intuition:screen-height scr))
+                    :screen scr
+                    :flags (logior amiga.intuition:+wflg-borderless+
+                                   amiga.intuition:+wflg-backdrop+
+                                   amiga.intuition:+wflg-activate+)
+                    :idcmp +game-idcmp+)
+             ;; the game owns the whole display: put the OS screen bar
+             ;; behind the backdrop window (Bard's Tale has no title
+             ;; bar).  This must run AFTER the window is open —
+             ;; ShowTitle rearranges the layers of the backdrop windows
+             ;; that exist at call time, and on RTG-promoted screens
+             ;; (Picasso96 BestModeIDA modes) a backdrop window opened
+             ;; after the call still sat behind the bar layer: the
+             ;; title bar stayed visible in play even with
+             ;; SA_ShowTitle FALSE at OpenScreen.
+             (amiga.intuition:show-title scr nil)
+             (funcall fn scr win))))))))
 
 ;;; ---------------------------------------------------------------------
 ;;; The game proper

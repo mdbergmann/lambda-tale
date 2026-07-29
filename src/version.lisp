@@ -19,7 +19,7 @@
 ;;; The engine's version
 
 (defconstant +engine-version-major+ 0)
-(defconstant +engine-version-minor+ 20)
+(defconstant +engine-version-minor+ 21)
 (defconstant +engine-version-patch+ 0)
 
 (defparameter *engine-name* "Lambda's Tale"

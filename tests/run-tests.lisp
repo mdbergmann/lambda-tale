@@ -373,23 +373,24 @@ messages so far (oldest first)."
                              (<= (+ x w) 240) (<= (+ y h) 130))))
                     (wall-piece-names))))
 
-;; the same slots at the lores profile's 120x112 viewport (2/5 of the
-;; 320px screen's content span goes to the view, 3/5 to the log)
-(let ((planes (view-planes 120 112)))
-  (check "lores view-planes plane 1" '(24 22 95 89) (aref planes 1))
-  (check "lores front slot at depth 0" '(24 22 72 68)
+;; the same slots at the lores profile's 120x100 viewport (2/5 of the
+;; 320px screen's content span goes to the view, 3/5 to the log; the
+;; 100px height is what keeps the whole layout inside NTSC's 200 lines)
+(let ((planes (view-planes 120 100)))
+  (check "lores view-planes plane 1" '(24 20 95 79) (aref planes 1))
+  (check "lores front slot at depth 0" '(24 20 72 60)
          (wall-piece-rect planes '(:front 0)))
-  (check "lores left side slot spans the full column" '(0 0 25 112)
+  (check "lores left side slot spans the full column" '(0 0 25 100)
          (wall-piece-rect planes '(:side 0 :l)))
   (check "lores left flank slot is the side band at wall height"
-         '(0 22 25 68)
+         '(0 20 25 60)
          (wall-piece-rect planes '(:flank 0 :l)))
   (check "lores piece slots lie inside the viewport" nil
          (remove-if (lambda (piece)
                       (destructuring-bind (x y w h)
                           (wall-piece-rect planes piece)
                         (and (<= 0 x) (<= 0 y) (< 0 w) (< 0 h)
-                             (<= (+ x w) 120) (<= (+ y h) 112))))
+                             (<= (+ x w) 120) (<= (+ y h) 100))))
                     (wall-piece-names))))
 
 ;; The blit list mirrors the display-list wall logic: same map spots as
@@ -429,10 +430,10 @@ messages so far (oldest first)."
 ;;; front of it (FLANK-VISIBLE-X), and the blit record's SX says where
 ;;; in the piece the visible part starts.
 
-(let ((planes (view-planes 120 112)))
+(let ((planes (view-planes 120 100)))
   ;; depth 0: a whole cell is wider than the viewport edge allows, so
   ;; the slot stays the side band — the old geometry, unchanged
-  (check "lores flank slot at depth 0 fills the side band" '(0 22 25 68)
+  (check "lores flank slot at depth 0 fills the side band" '(0 20 25 60)
          (wall-piece-rect planes '(:flank 0 :l)))
   ;; deeper in, the slot is one cell wide at the wall's own distance
   (dotimes (d +view-depth+)
@@ -465,7 +466,7 @@ height" d)
 + + +-+
 |   | |
 +-+-+-+" :name "flank-open"))
-       (planes (view-planes 120 112))
+       (planes (view-planes 120 100))
        (blits (view-blit-list (compute-view m 0 0 :east) planes))
        (flank (find '(:flank 1 :r) blits :key #'first :test #'equal)))
   (check "nothing is drawn where the near side opens on open ground"
@@ -486,7 +487,7 @@ height" d)
 +-+ +-+
 |   | |
 +-+-+-+" :name "flank-blocked"))
-       (planes (view-planes 120 112))
+       (planes (view-planes 120 100))
        (blits (view-blit-list (compute-view m 0 0 :east) planes))
        (flank (find '(:flank 1 :r) blits :key #'first :test #'equal)))
   (check-true "a flank behind a walled near side is still drawn" flank)
@@ -510,7 +511,7 @@ height" d)
 +-+ +-+
 |@    |
 +-+-+-+" :name "flank-left"))
-       (planes (view-planes 120 112))
+       (planes (view-planes 120 100))
        (blits (view-blit-list (compute-view m 0 1 :east) planes))
        (flank (find '(:flank 1 :l) blits :key #'first :test #'equal)))
   (check-true "a left flank behind a near wall is drawn" flank)
@@ -707,7 +708,7 @@ height" d)
 ;; The view sees it: walking the street, both blocks keep their style
 ;; at every depth the party looks along.
 (let* ((m (parse-map *street-art* :name "street-view"))
-       (planes (view-planes 120 112))
+       (planes (view-planes 120 100))
        (blits (view-blit-list (compute-view m 0 1 :east) planes))
        (left (remove-if-not (lambda (r) (eq :l (third (first r)))) blits))
        (right (remove-if-not (lambda (r) (eq :r (third (first r)))) blits)))
@@ -724,9 +725,9 @@ height" d)
   (check "ceiling backdrop slot" '(0 0 240 65) ceiling)
   (check "floor backdrop slot" '(0 65 240 65) floor))
 
-(destructuring-bind (ceiling floor) (backdrop-rects (view-planes 120 112))
-  (check "lores ceiling backdrop slot" '(0 0 120 56) ceiling)
-  (check "lores floor backdrop slot" '(0 56 120 56) floor))
+(destructuring-bind (ceiling floor) (backdrop-rects (view-planes 120 100))
+  (check "lores ceiling backdrop slot" '(0 0 120 50) ceiling)
+  (check "lores floor backdrop slot" '(0 50 120 50) floor))
 
 ;; the two slots tile any viewport exactly, split at the horizon
 (destructuring-bind (ceiling floor) (backdrop-rects (view-planes 33 17))
@@ -817,6 +818,84 @@ height" d)
 
 (check "the default profile's draw depth is the default draw depth"
        (display-profile-draw-depth *display-profile*) *draw-depth*)
+
+;; :lores opens 200 lines, not PAL's 256, so one screen serves PAL and
+;; NTSC alike — an NTSC machine has no 256-line mode to fall back on.
+;; The window mode must match it: both displays are meant to lay out
+;; identically, and %AMIGA-LAYOUT is the same code for both.
+(check ":lores is a 320x200 screen, NTSC and PAL alike"
+       '(320 200)
+       (list (display-profile-screen-width *lores-profile*)
+             (display-profile-screen-height *lores-profile*)))
+(dolist (p *display-profiles*)
+  (check (format nil "~S's window matches its screen"
+                 (display-profile-name p))
+         (list (display-profile-screen-width p)
+               (display-profile-screen-height p))
+         (list (display-profile-win-width p)
+               (display-profile-win-height p))))
+;; SCREEN-HEIGHT-FOR: the layout height is fixed, the screen grows to
+;; the display it landed on.  The display database answers with the
+;; mode's real height (AMIGA.INTUITION:DISPLAY-MODE-HEIGHT), so there
+;; is no PAL/NTSC branch to test — just the clamp, which is pure
+;; arithmetic and belongs here rather than on the Amiga.
+(check ":lores on a PAL display opens the full 256" 256
+       (screen-height-for *lores-profile* 256))
+(check ":lores on an NTSC display opens 200" 200
+       (screen-height-for *lores-profile* 200))
+(check ":lores never grows past its cap on a tall RTG display" 256
+       (screen-height-for *lores-profile* 480))
+(check ":lores never shrinks below its layout" 200
+       (screen-height-for *lores-profile* 128))
+(check ":lores falls back to the layout when the database is silent" 200
+       (screen-height-for *lores-profile* nil))
+;; :hires is already the full PAL height and declares no cap, so it
+;; opens its own size whatever the display says
+(dolist (h '(200 256 480 nil))
+  (check (format nil ":hires ignores a ~A-row display" h)
+         256 (screen-height-for *hires-profile* h)))
+;; whatever comes back, the layout must still fit inside it — that is
+;; the invariant the window relies on when it clamps to the layout
+(dolist (p *display-profiles*)
+  (dolist (h '(200 256 480 128 nil))
+    (check-true (format nil "~S's layout fits its screen on a ~A-row display"
+                        (display-profile-name p) h)
+                (<= (display-profile-screen-height p)
+                    (screen-height-for p h)))))
+
+;; The viewport and the furniture under it have to fit that screen: the
+;; chrome pad, the view at its full asset height, the plaque, and the
+;; roster's header plus +PARTY-LIMIT+ solid-set rows, ending on or
+;; above the layout's last usable row.  Overshoot and the layout does
+;; not shrink gracefully — it drops the view to the wireframe (see
+;; *LORES-PROFILE*).  Topaz 8 is the game's own font
+;; (%WITH-GAME-FONT), so its 8px glyph box and 10px leaded line are
+;; known here rather than measured.
+;;
+;; This walks the same top-down chain %AMIGA-LAYOUT does, in the same
+;; inclusive pixel rows, so the two cannot disagree: the Amiga suite
+;; checks the live layout against these very numbers.
+(let* ((row-h 8) (line-h 10)
+       (p *lores-profile*)
+       (by (display-profile-pad-y p))          ; content top row
+       (bottom (- (display-profile-screen-height p)
+                  (display-profile-pad-y p)))  ; last usable row
+       (plaque-y (+ by (display-profile-fp-height p) 1))
+       (plaque-b (+ plaque-y line-h 2))
+       (party-y (+ plaque-b +roster-gap+ row-h))
+       (last-row (+ party-y (* row-h +party-limit+) -1)))
+  (check-true (format nil ":lores fills its 200 lines without overflowing ~
+(roster ends on row ~D of ~D)" last-row bottom)
+              (<= last-row bottom))
+  ;; and it is not wasteful either: one more roster row would not fit,
+  ;; so nothing above the roster is quietly hogging pixels
+  (check-true ":lores leaves no room for another roster row"
+              (> (+ last-row row-h) bottom))
+  ;; the column comes out exact — row 7 lands ON the last usable row.
+  ;; If this ever loosens, the pixel went somewhere; find out where
+  ;; before spending it.
+  (check ":lores roster row 7 ends on the last usable row"
+         bottom last-row))
 
 ;; Every profile must declare a draw distance the plane set can serve.
 (dolist (p *display-profiles*)
@@ -3269,7 +3348,7 @@ height" d)
        (msgs (watch-messages g))
        (view (make-combat-orders)))
   (start-combat g '(("test rat" 1)))
-  (combat-orders-act g view #\a)        ; the party engages
+  (combat-orders-act g view #\f)        ; the party engages
   (dotimes (i 3) (combat-orders-act g view #\a))
   (check "the back-rank hero is at hand" "D"
          (hero-name (combat-orders-hero g view)))
@@ -5166,7 +5245,7 @@ height" d)
               (find "-- Round 2 --" (funcall msgs) :test #'equal)))
 
 ;; The round-orders model: the fight opens on the party-level engage
-;; page — Attack Enemy or Flee, the one choice that is the whole
+;; page — Fight or Run, the one choice that is the whole
 ;; party's — then the page asks ONE hero at a time, and the last pick
 ;; raises the review page — the round waits there for Y.
 (let* ((m (parse-map *art* :name "test"))
@@ -5178,7 +5257,7 @@ height" d)
   (check "a fresh round's orders are not engaged" nil
          (combat-orders-engaged view))
   (check "the engage page carries the party's choice"
-         '("Attack Enemy" "Flee")
+         '("Fight" "Run")
          (last (menu-texts (combat-orders-lines g view)) 2))
   (check-true "the engage page shows the coming round"
               (find-if (lambda (s) (search "Round 1" s))
@@ -5191,7 +5270,7 @@ height" d)
          (combat-orders-act g view #\d))
   (check "the engage page took no hero pick" nil
          (combat-orders-chosen view))
-  (check "a engages the party" nil (combat-orders-act g view #\a))
+  (check "f engages the party" nil (combat-orders-act g view #\f))
   (check-true "this round's orders are engaged"
               (combat-orders-engaged view))
   (check "orders ask the first hero" grunt (combat-orders-hero g view))
@@ -5260,7 +5339,7 @@ height" d)
          (g (new-game m :party (list grunt mage)))
          (view (make-combat-orders)))
     (start-combat g '(("test rat" 1)))
-    (combat-orders-act g view #\a)      ; the party engages
+    (combat-orders-act g view #\f)      ; the party engages
     (combat-orders-act g view #\a)
     (combat-orders-act g view #\d)
     (check-true "the review is up" (combat-orders-review view))
@@ -5272,9 +5351,9 @@ height" d)
     (check "and the first hero is asked again" grunt
            (combat-orders-hero g view))))
 
-;; Fleeing is the engage page's alone — the whole party runs or
+;; Running is the engage page's alone — the whole party runs or
 ;; nobody, and only at the top of a round.  Once the party engages,
-;; F answers nowhere for the rest of the round: not on a hero's page,
+;; R answers nowhere for the rest of the round: not on a hero's page,
 ;; not on the review.  The pace keys keep answering on every page.
 (let* ((m (parse-map *art* :name "test"))
        (g (new-game m :party (list (%combat-hero))))
@@ -5284,11 +5363,11 @@ height" d)
   (check "+ sets the pace on the engage page" nil
          (combat-orders-act g view #\+))
   (check "and it took" 4 *combat-speed*)
-  (check "f flees from the engage page" :flee
-         (combat-orders-act g view #\f))
-  (combat-orders-act g view #\a)        ; the party engages instead
-  (check "f does nothing on a hero's page" nil
-         (combat-orders-act g view #\f))
+  (check "r runs from the engage page" :flee
+         (combat-orders-act g view #\r))
+  (combat-orders-act g view #\f)        ; the party engages instead
+  (check "r does nothing on a hero's page" nil
+         (combat-orders-act g view #\r))
   (check "no pick was recorded by it" nil (combat-orders-chosen view))
   (combat-orders-act g view #\a)
   (check-true "the review is up" (combat-orders-review view))
@@ -5296,11 +5375,11 @@ height" d)
          (combat-orders-act g view #\+))
   (check "and it took again" 5 *combat-speed*)
   (check "the review is still up" t (combat-orders-review view))
-  (check "f does nothing on the review" nil
-         (combat-orders-act g view #\f))
+  (check "r does nothing on the review" nil
+         (combat-orders-act g view #\r))
   (check-true "the review still stands" (combat-orders-review view)))
 
-;; The choice returns at the top of EVERY round: after a failed flee
+;; The choice returns at the top of EVERY round: after a failed run
 ;; (the monsters took their free round) and after a fought round
 ;; alike, the next round's fresh orders view opens on it again.
 (let* ((m (parse-map *art* :name "test"))
@@ -5308,24 +5387,24 @@ height" d)
        (view (make-combat-orders)))
   (start-combat g '(("test rat" 2)))    ; 3 hp each
   (check "the engage page offers the run" :flee
-         (combat-orders-act g view #\f))
-  (check "the flee fails and the fight goes on" :ongoing
+         (combat-orders-act g view #\r))
+  (check "the run fails and the fight goes on" :ongoing
          (with-rng (60 0 11 1) (attempt-flee g)))
   (let ((fresh (make-combat-orders)))
-    (check "after the failed flee the choice stands again"
-           '("Attack Enemy" "Flee")
+    (check "after the failed run the choice stands again"
+           '("Fight" "Run")
            (last (menu-texts (combat-orders-lines g fresh)) 2))
     ;; engage, fight a round that leaves a rat standing (the hero
     ;; misses, the rat misses back) — the fight goes on
-    (combat-orders-act g fresh #\a)
+    (combat-orders-act g fresh #\f)
     (check "the fought round goes on" :ongoing
            (with-rng (0 0 0) (combat-round g)))
     (let ((next (make-combat-orders)))
       (check "the next round opens on the choice again"
-             '("Attack Enemy" "Flee")
+             '("Fight" "Run")
              (last (menu-texts (combat-orders-lines g next)) 2))
-      (check "and f still runs there" :flee
-             (combat-orders-act g next #\f)))))
+      (check "and r still runs there" :flee
+             (combat-orders-act g next #\r)))))
 
 ;; A hero's page costs a fixed handful of rows: a seven-strong party
 ;; asks seven pages, none of them longer than a two-strong party's.
@@ -5339,8 +5418,8 @@ height" d)
        (v7 (make-combat-orders)))
   (start-combat two '(("test rat" 1)))
   (start-combat seven '(("test rat" 1)))
-  (combat-orders-act two v2 #\a)        ; both parties engage
-  (combat-orders-act seven v7 #\a)
+  (combat-orders-act two v2 #\f)        ; both parties engage
+  (combat-orders-act seven v7 #\f)
   (check "the hero page does not grow with the party"
          (length (combat-orders-lines two v2))
          (length (combat-orders-lines seven v7))))
@@ -5389,7 +5468,7 @@ height" d)
                            (<= (length (remove "" lines :test #'equal))
                                rows)))))
       (fits "engage page")
-      (combat-orders-act g view #\a)    ; the party engages
+      (combat-orders-act g view #\f)    ; the party engages
       (fits "hero page")
       ;; attack is a front-rank pick; the back ranks defend (reach)
       (dotimes (i +party-limit+)
@@ -5478,7 +5557,7 @@ height" d)
        (g (new-game m :party (list grunt mage)))
        (view (make-combat-orders)))
   (start-combat g '(("test rat" 2)))    ; 3 hp each
-  (combat-orders-act g view #\a)        ; the party engages
+  (combat-orders-act g view #\f)        ; the party engages
   (combat-orders-act g view #\a)        ; the grunt attacks
   (check "c opens the mage's spell pick" nil (combat-orders-act g view #\c))
   (check-true "the pick page is the mage's cast menu"
@@ -5508,7 +5587,7 @@ height" d)
        (g (new-game m :party (list grunt mage)))
        (view (make-combat-orders)))
   (start-combat g '(("test rat" 1)))
-  (combat-orders-act g view #\a)        ; the party engages
+  (combat-orders-act g view #\f)        ; the party engages
   (combat-orders-act g view #\a)
   (combat-orders-act g view #\c)
   (combat-orders-act g view #\2)        ; test-mend: heal, pick a target
@@ -5530,7 +5609,7 @@ height" d)
        (g (new-game m :party (list grunt bard)))
        (view (make-combat-orders)))
   (start-combat g '(("test rat" 1)))
-  (combat-orders-act g view #\a)        ; the party engages
+  (combat-orders-act g view #\f)        ; the party engages
   (combat-orders-act g view #\a)
   (check "p opens the bard's song pick" nil (combat-orders-act g view #\p))
   (check "the song pick completes the orders" nil
@@ -5548,7 +5627,7 @@ height" d)
        (view (make-combat-orders)))
   (give-item g grunt 'test-bomb)
   (start-combat g '(("test rat" 1)))    ; 3 hp
-  (combat-orders-act g view #\a)        ; the party engages
+  (combat-orders-act g view #\f)        ; the party engages
   (check "u opens the use pick" nil (combat-orders-act g view #\u))
   (check-true "the pick page lists the bomb"
               (find-if (lambda (s) (search "Test Bomb" s))
@@ -5574,7 +5653,7 @@ height" d)
        (msgs (watch-messages g))
        (view (make-combat-orders)))
   (start-combat g '(("test rat" 1)))
-  (combat-orders-act g view #\a)        ; the party engages
+  (combat-orders-act g view #\f)        ; the party engages
   (check "c on a non-caster stays put" nil (combat-orders-act g view #\c))
   (check-true "and says who cannot cast"
               (find "Alva cannot cast." (funcall msgs) :test #'equal))
@@ -8742,7 +8821,7 @@ brick grid" d side)
 (let ((palette (art-pack-palette '((200 0 0) (0 200 0)) 5)))
   (check "the pack palette is 2^depth entries" 32 (length palette))
   (check "pens 0-4 are the fixed contract"
-         '((0 0 0) (255 255 255) (136 136 136) (255 170 51) (0 0 0))
+         '((0 0 0) (255 255 255) (170 170 170) (255 170 51) (0 0 0))
          (coerce (subseq palette 0 5) 'list))
   (check "pen 5 is the sky, pen 6 the ground"
          (list *default-sky* *default-ground*)
@@ -9299,10 +9378,11 @@ never its own"
                     (+ (ui-layout-plaque-y l) (ui-layout-lh l) 2)
                     (ui-layout-plaque-b l))
              (check "roster header sits right under the plaque"
-                    (+ (ui-layout-plaque-b l) 5) (ui-layout-hdr-y l))
+                    (+ (ui-layout-plaque-b l) +roster-gap+)
+                    (ui-layout-hdr-y l))
              (check-true "seven roster rows fit above the bottom edge"
                          (<= (+ (ui-layout-party-y l)
-                                (* (ui-layout-lh l) +party-limit+))
+                                (* (ui-layout-row-h l) +party-limit+) -1)
                              (ui-layout-bottom l)))
              (check "the log page ends a gap above the effect strip"
                     (ui-layout-band-y l) (+ (ui-layout-page-b l) 4))
@@ -9457,7 +9537,7 @@ never its own"
                (check "roster: an empty row is not a target" nil
                       (%hotspot-at (+ (ui-layout-bx l) 3)
                                    (+ (ui-layout-party-y l)
-                                      (ui-layout-lh l) 2))))
+                                      (ui-layout-row-h l) 2))))
              (let ((*hotspots* '()))
                (%amiga-party rp g l)
                (check "roster: not clickable unless asked" nil
@@ -9675,28 +9755,39 @@ never its own"
        (g (new-game m))
        (log (attach-message-log g)))
   (say g "Custom screen smoke test.")
-  (check "amiga-ui draws on an own custom screen" t
+  ;; The same path %CALL-WITH-GAME-WINDOW takes: a mode for the layout,
+  ;; the screen at the height that mode's display can actually show,
+  ;; and the backdrop window clamped back to the layout.  Reproducing
+  ;; it here is the point — the layout invariants below are only worth
+  ;; anything if they hold on the window the game really opens, which
+  ;; on a PAL machine sits in the top 200 rows of a 256-row screen.
+  (let* ((mode (amiga.gfx:best-mode-id
+                :width (display-profile-screen-width *display-profile*)
+                :height (display-profile-screen-height *display-profile*)
+                :depth (display-profile-screen-depth *display-profile*)))
+         (display-h (and mode (amiga.intuition:display-mode-height mode)))
+         (screen-h (screen-height-for *display-profile* display-h)))
+   (check "amiga-ui draws on an own custom screen" t
          (amiga.intuition:with-screen
              (scr :width (display-profile-screen-width *display-profile*)
-                  :height (display-profile-screen-height *display-profile*)
+                  :height screen-h
                   :depth (display-profile-screen-depth *display-profile*)
                   :title "Lambda's Tale Test"
-                  :mode-id (amiga.gfx:best-mode-id
-                            :width (display-profile-screen-width
-                                    *display-profile*)
-                            :height (display-profile-screen-height
-                                     *display-profile*)
-                            :depth (display-profile-screen-depth
-                                    *display-profile*)))
+                  :mode-id mode)
            (%game-screen-palette scr)
            (check "custom screen reports its width"
                   (display-profile-screen-width *display-profile*)
                   (amiga.intuition:screen-width scr))
+           (check "the screen is at least the layout tall"
+                  t (>= (amiga.intuition:screen-height scr)
+                        (display-profile-screen-height *display-profile*)))
            (amiga.intuition:with-window
                (win :title nil          ; the game's backdrop is untitled
                     :left 0 :top 0
                     :width (amiga.intuition:screen-width scr)
-                    :height (amiga.intuition:screen-height scr)
+                    :height (min (display-profile-screen-height
+                                  *display-profile*)
+                                 (amiga.intuition:screen-height scr))
                     :screen scr
                     :flags (logior amiga.intuition:+wflg-borderless+
                                    amiga.intuition:+wflg-backdrop+
@@ -9704,11 +9795,78 @@ never its own"
                     :idcmp amiga.intuition:+idcmp-closewindow+)
              (let* ((rp (amiga.intuition:window-rastport win))
                     (l (%amiga-layout win rp)))
+               ;; Layout invariants on the game's own presentation: the
+               ;; taller plaque, the roster set solid right under it
+               ;; (no status line, no leading between rows).
+               (check "plaque is two pixels taller than a text line"
+                      (+ (ui-layout-plaque-y l) (ui-layout-lh l) 2)
+                      (ui-layout-plaque-b l))
+               (check "roster header sits right under the plaque"
+                      (+ (ui-layout-plaque-b l) +roster-gap+)
+                      (ui-layout-hdr-y l))
+               (check "roster rows carry no leading"
+                      (- (ui-layout-lh l) 2) (ui-layout-row-h l))
+               (check "the header row is one roster row tall"
+                      (+ (ui-layout-hdr-y l) (ui-layout-row-h l))
+                      (ui-layout-party-y l))
+               ;; The viewport gets its full asset height and the column
+               ;; ends exactly on the last usable row — the live
+               ;; counterpart of the ":lores fills its 200 lines" test
+               ;; above, measured here with the real font.  Miss either
+               ;; and a US NTSC machine loses its wall graphics:
+               ;; %AMIGA-COMPOSE-FP only blits pieces at their full
+               ;; size and falls back to the wireframe below it (see
+               ;; *LORES-PROFILE*).
+               (check "the viewport keeps its full asset height"
+                      *fp-view-height* (ui-layout-fp-h l))
+               (let ((last-row (+ (ui-layout-party-y l)
+                                  (* (ui-layout-row-h l) +party-limit+)
+                                  -1)))
+                 (check-true "seven roster rows fit above the bottom edge"
+                             (<= last-row (ui-layout-bottom l)))
+                 (check "roster row 7 ends on the last usable row"
+                        (ui-layout-bottom l) last-row)
+                 ;; the ornate ring is drawn 6 pixels in from the window
+                 ;; edge (%CHROME-BG), so the roster must clear it — the
+                 ;; bottom pad is what stands between the two
+                 (check-true "the roster clears the chrome ring"
+                             (< last-row
+                                (- (amiga.intuition:window-height win)
+                                   1 6))))
                (%amiga-draw-fp rp g (ui-layout-bx l) (ui-layout-by l)
                                (ui-layout-fp-w l) (ui-layout-fp-h l))
                (%amiga-draw-band rp g l)
                (%amiga-draw-log rp log l)
+               ;; G is a bare walkabout, so this draws a roster of
+               ;; nothing but slot numbers — the empty-slot path
                (%amiga-party rp g l)
+               ;; A part-filled roster: the claimed rows carry heroes
+               ;; and click as their digits, the slots below them show
+               ;; their number and nothing else, and clicking one of
+               ;; those does nothing (there is no sheet to open).  The
+               ;; numbered empty rows are the point — they are what
+               ;; shows on screen that the seventh row really fits.
+               (let ((party-g (new-game (parse-map *art* :name "roster")
+                                        :party (list (%combat-hero "A")
+                                                     (%combat-hero "B"))))
+                     (row-h (ui-layout-row-h l))
+                     (py (ui-layout-party-y l))
+                     (px (+ (ui-layout-bx l) 3)))
+                 (let ((*hotspots* '()))
+                   (%amiga-party rp party-g l t)
+                   (check "roster: a filled row clicks as its digit" #\1
+                          (%hotspot-at px (+ py 2)))
+                   (check "roster: the second filled row too" #\2
+                          (%hotspot-at px (+ py row-h 2)))
+                   (check "roster: an empty slot is not a click target" nil
+                          (%hotspot-at px (+ py (* 2 row-h) 2)))
+                   (check "roster: nor is the last slot" nil
+                          (%hotspot-at px (+ py (* (1- +party-limit+) row-h)
+                                             2))))
+                 (let ((*hotspots* '()))
+                   (%amiga-party rp party-g l)
+                   (check "roster: not clickable unless asked" nil
+                          (%hotspot-at px (+ py 2)))))
                ;; the map page (all small-face type) and the
                ;; save/load page draw on the custom screen too
                (%amiga-draw-map-page rp g l nil)
@@ -9871,14 +10029,17 @@ never its own"
             (amiga.gfx:read-pixel
              (ffi:make-foreign-pointer
               (+ (ffi:foreign-pointer-address scr) 84))
-             25 1)))))
+             25 1))))))
 
 ;; Wall-piece assets (M3): each profile's pack ILBMs load into
 ;; offscreen bitmaps and the first-person view composits them with
-;; real OS blits.  Runs on the game's own custom screen — the
-;; profile's nominal PAL geometry guarantees the layout keeps the full
-;; asset-size viewport (the FS-UAE Workbench can be shorter than 256
-;; lines, where the view correctly falls back to the wireframe).
+;; real OS blits.  Runs on the game's own custom screen at the
+;; profile's LAYOUT height, which is what guarantees the full
+;; asset-size viewport (a Workbench window can be shorter, where the
+;; view correctly falls back to the wireframe).  The play path opens
+;; the screen taller where the display allows — see SCREEN-HEIGHT-FOR
+;; — but that only adds background below the layout, so the viewport
+;; question is settled at the layout height either way.
 ;; Read-back probes, dead end at (0,0) facing north: the front wall
 ;; piece's top row is the white edge highlight.  The probe map has no
 ;; zone form, so it is an OUTDOOR zone: since the day-and-night sky the
@@ -10184,7 +10345,8 @@ pieces need a mask" pname)
 ;; the view's walk zones, a roster row (opens that character sheet)
 ;; and the sheet's click-anywhere-else Esc.  The lores custom screen
 ;; lays out deterministically (borderless backdrop, pads 10/10, the
-;; 120x112 view at 10,10; topaz-8 rows put party row 1 at y=150), so
+;; 120x100 view at 10,10; the solid-set topaz-8 roster puts party row
+;; 1 at y=133..140), so
 ;; the script clicks absolute pixels.  The quit confirmation is modal
 ;; for the mouse too: while it is up the only click targets are its own
 ;; rows and the page-wide "no" behind them, so the click at the far
@@ -10193,10 +10355,10 @@ pieces need a mask" pname)
 (check "amiga-ui autoplay drives the game by mouse clicks" :done
        (let ((*autoplay* (list '(:click 90 60)   ; view middle: forward
                                '(:click 20 60)   ; left quarter: turn
-                               '(:click 15 152)  ; roster row 1: sheet
+                               '(:click 15 136)  ; roster row 1: sheet
                                '(:click 90 60)   ; off-target: Esc back
                                #\q
-                               '(:click 15 152)  ; beside the box: no
+                               '(:click 15 136)  ; beside the box: no
                                #\q #\y)))
          (play-amiga "tests/world/crypt.map" :display :screen
                                              :gfx-dir (engine-path "data/gfx/"))

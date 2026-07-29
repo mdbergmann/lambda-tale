@@ -73,10 +73,13 @@ outlines.  Distinct from pen 0 so it blits as black, not as a hole.")
   "First pen a pack's art may fill; 0-6 are spoken for.")
 
 (defparameter *ui-pens*
-  '((0 (0 0 0)) (1 (255 255 255)) (2 (136 136 136)) (3 (255 170 51))
+  '((0 (0 0 0)) (1 (255 255 255)) (2 (170 170 170)) (3 (255 170 51))
     (4 (0 0 0)))
   "(PEN (R G B)) of the fixed UI pens — text and wireframe stay
-readable in any pack, so no pack may move them.")
+readable in any pack, so no pack may move them.  Pen 2 is the chrome
+grey the whole screen sits on: the Bard's Tale light grey ($AAA on the
+Amiga's 12-bit grid), bright enough that the black roster text and the
+white picture frames both read against it.")
 
 ;;; Pens 17-19 are the mouse pointer's: the hardware sprite shares
 ;;; those color registers on the 32-color screen, and the front end

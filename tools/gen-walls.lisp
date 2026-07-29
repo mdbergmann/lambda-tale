@@ -31,9 +31,13 @@
 ;;; backdrop shows through it), so opaque black inside a wall — mortar,
 ;;; joints, door frames — is drawn with pen 4, not pen 0.  The backdrops
 ;;; (ceiling/floor) are opaque and keep pen 0 as plain black.
+;;; Pens 0-4 are the engine's fixed UI colours, so they are taken from
+;;; *UI-PENS* rather than repeated here — a CMAP that drifted from them
+;;; would claim a colour the screen does not actually hold.
 (defparameter *wall-palette*
-  #((0 0 0) (255 255 255) (136 136 136) (255 170 51)
-    (0 0 0) (85 85 85) (51 51 51) (34 34 34)))
+  (vector (fixed-pen-color 0) (fixed-pen-color 1) (fixed-pen-color 2)
+          (fixed-pen-color 3) (fixed-pen-color 4)
+          '(85 85 85) '(51 51 51) '(34 34 34)))
 
 (defconstant +pen-bg+ 0)      ; transparent key in wall pieces
 (defconstant +pen-edge+ 1)
@@ -563,8 +567,9 @@ floor as one flat mid grey (no distance shading)."
   "Effects-band icons are square, this many pixels a side.")
 
 (defparameter *effect-icon-palette*
-  #((0 0 0) (255 255 255) (136 136 136) (255 170 51)
-    (0 0 0) (0 0 0) (0 0 0) (0 0 0))
+  (vector (fixed-pen-color 0) (fixed-pen-color 1) (fixed-pen-color 2)
+          (fixed-pen-color 3) (fixed-pen-color 4)
+          '(0 0 0) '(0 0 0) '(0 0 0))
   "CMAP for the icon files: the UI pens 0-3 plus opaque black at 4.")
 
 (defun draw-effect-icon (kind &optional (frame 0))
@@ -624,7 +629,8 @@ whatever FRAME says."
 ;;; whatever tile pack is active (packs may only recolor pens 4+).
 
 (defparameter *picture-palette*
-  #((0 0 0) (255 255 255) (136 136 136) (255 170 51))
+  (vector (fixed-pen-color 0) (fixed-pen-color 1)
+          (fixed-pen-color 2) (fixed-pen-color 3))
   "CMAP for pictures and portraits: the fixed UI pens.")
 
 (defun %img-ellipse (img cx cy rx ry fill &optional edge)

@@ -516,11 +516,11 @@ strike back.  The round costs one clock tick.  Returns :victory,
 ;;; the first hero.
 ;;;
 ;;; Before any hero is asked, every round opens on the one party-level
-;;; choice — Attack Enemy or Flee.  Fleeing is all-or-nothing (the
-;;; whole party runs or nobody does) and only stands there, at the top
-;;; of the round: A commits the party for THIS round's orders (the
-;;; view's ENGAGED flag; each round's fresh view asks anew), and a
-;;; failed flee costs the free round the monsters just took — the next
+;;; choice — Fight or Run.  Running is all-or-nothing (the whole party
+;;; runs or nobody does) and only stands there, at the top of the
+;;; round: F commits the party for THIS round's orders (the view's
+;;; ENGAGED flag; each round's fresh view asks anew), and a failed
+;;; flight costs the free round the monsters just took — the next
 ;;; round opens on the same choice.
 ;;;
 ;;; The model collects (HERO . ACTION) pairs in party order; C,
@@ -540,7 +540,7 @@ strike back.  The round costs one clock tick.  Returns :victory,
 (defstruct (combat-orders (:constructor %make-combat-orders))
   engaged             ; T once the party chose to stand and fight this
                       ; round — until then the page offers the one
-                      ; party-level choice, Attack Enemy or Flee
+                      ; party-level choice, Fight or Run
   chosen              ; (HERO . ACTION) pairs picked so far, party order
   sub                 ; CAST-VIEW/SING-VIEW picking for the hero at hand
   review)             ; T once every hero has picked: the review page,
@@ -592,8 +592,8 @@ at hand, and the actions — one per row, first letter as the key (no
 bracket noise), and only the actions this hero can actually take: an
 :ATTACK out of reach, a Cast for the spell-less, a Play for the
 song-less or a Use from an empty pack would only draw the refusal the
-key handler keeps for scripted input.  Defend always stands; Flee is
-not a hero's to give — it is the party's choice at the top of the
+key handler keeps for scripted input.  Defend always stands; running
+is not a hero's to give — it is the party's choice at the top of the
 round, and this round's went when the party engaged.
 The navigation keys (Esc undo, +/- speed) are common knowledge and
 live on the help screen instead.  The page draws in the message
@@ -625,8 +625,8 @@ orders view asks anew — see COMBAT-ORDERS-ENGAGED)."
   (append
    (%orders-head-lines game)
    (list ""
-         "Attack Enemy"
-         "Flee")))
+         "Fight"
+         "Run")))
 
 (defun %orders-review-lines (game view)
   "The review page: every hero with the order it gave, and the
@@ -650,7 +650,7 @@ about."
 (defun combat-orders-lines (game view)
   "The round-orders page as menu lines (the SHOP-LINES pattern): the
 party-level engage page while the fight waits on its opening choice
-(Attack Enemy or Flee), then the page asking the hero at hand for its
+(Fight or Run), then the page asking the hero at hand for its
 order, or — once every hero has one — the review page listing them
 all under \"Is this OK?\".  While a cast/sing/use pick is open, its
 page shows instead."
@@ -712,13 +712,13 @@ again from the first hero, +/- still set the pace."
     (t nil)))
 
 (defun %orders-engage-act (game view char)
-  "Apply key CHAR to the engage page: A commits the party to this
-round's orders (the choice returns at the top of the next round), F
+  "Apply key CHAR to the engage page: F commits the party to this
+round's orders (the choice returns at the top of the next round), R
 runs — the whole party or nobody — and +/- set the pace as
 everywhere else."
   (case (char-downcase char)
-    (#\a (setf (combat-orders-engaged view) t) nil)
-    (#\f :flee)
+    (#\f (setf (combat-orders-engaged view) t) nil)
+    (#\r :flee)
     (#\+ (adjust-combat-speed game 1) nil)
     (#\- (adjust-combat-speed game -1) nil)
     (t nil)))
@@ -771,7 +771,7 @@ engage page (ATTEMPT-FLEE; the choice only stands there), else NIL."
 (defun attempt-flee (game)
   "Try to run from combat — the whole party or nobody.  Success (even
 odds) ends the fight; failure gives the monsters a free round, and
-the next round's orders open on the same Attack-or-Flee choice.
+the next round's orders open on the same Fight-or-Run choice.
 Returns :fled, :defeat or :ongoing.  The orders pages only offer the
 run on the engage page at the top of a round, but a scripted caller
 may try it any time."

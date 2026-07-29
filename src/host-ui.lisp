@@ -5,8 +5,8 @@
 ;;;       1-7=character sheet  S=save  L=load  q=quit
 ;;; In the map view: m/Esc=back  f=toggle omniscient (debug)  q=quit
 ;;; In the help page: h/Esc=back  q=quit
-;;; In combat every round opens on the party-level choice — a=attack
-;;; the enemy, f=flee (the whole party or nobody; only offered
+;;; In combat every round opens on the party-level choice — f=fight,
+;;; r=run (the whole party or nobody; only offered
 ;;; there) — then the round-orders page asks one hero at a time:
 ;;; a=attack  d=defend  c=cast  p=play  u=use  Esc=undo the previous
 ;;; pick; +/-=transcript speed.  When the last
