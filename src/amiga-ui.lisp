@@ -2037,7 +2037,8 @@ map/help/sheet pages close on a click outside a target — see
          (mode :play)       ; :play, :map (full map view), :sheet or :help
          (full nil)         ; omniscient map (debug), map mode only
          (sheet-hero 0)     ; party index shown in :sheet mode
-         (sheet-top 0)      ; sheet scroll offset (u/d)
+         (sheet-top 0)      ; current sheet page's scroll offset (u/d)
+         (magic nil)        ; sheet: the spells/songs page is showing
          (ordering nil)     ; sheet: picking the hero's new slot (o)
          (equipv nil)       ; EQUIP-VIEW while the pack page is open
          (tradev nil)       ; TRADE-VIEW while the trade page is open
@@ -2218,18 +2219,30 @@ map/help/sheet pages close on a click outside a target — see
                           (fresh-play))
                         (open-sheet (i)
                           ;; '1'-'7' from play: show that roster slot if
-                          ;; it holds a hero, else stay put
+                          ;; it holds a hero, else stay put — the
+                          ;; carousel starts over on its stat page
                           (when (nth i (game-party game))
                             (setf sheet-hero i
                                   sheet-top 0
+                                  magic nil
                                   equipv nil
                                   tradev nil
                                   ordering nil
                                   mode :sheet)
                             (redraw)))
+                        (sheet-next ()
+                          ;; the carousel's page turn off the pack
+                          ;; page: to the spells/songs page when the
+                          ;; hero has one, else back to the stat block
+                          (let ((hero (nth sheet-hero
+                                           (game-party game))))
+                            (setf equipv nil
+                                  magic (and hero (hero-magic-p hero))
+                                  sheet-top 0)))
                         (leave-sheet ()
                           ;; the sheet lives in the panes (takeover +
                           ;; portrait) — no chrome to repair
+                          (setf magic nil)
                           (setf equipv nil)
                           (setf tradev nil)
                           (setf ordering nil)
@@ -2421,6 +2434,10 @@ map/help/sheet pages close on a click outside a target — see
                                                (equip-lines game equipv))
                                               (tradev
                                                (trade-lines game tradev))
+                                              (magic
+                                               (hero-magic-lines
+                                                game sheet-hero
+                                                sheet-top))
                                               (t
                                                (hero-sheet-lines
                                                 game sheet-hero
@@ -2640,7 +2657,9 @@ map/help/sheet pages close on a click outside a target — see
                                               (case (equip-act game equipv
                                                                key)
                                                 (:cancelled
-                                                 (setf equipv nil))))
+                                                 (setf equipv nil))
+                                                (:next
+                                                 (sheet-next))))
                                             (redraw))
                                           nil)
                                          (tradev
@@ -2686,6 +2705,33 @@ map/help/sheet pages close on a click outside a target — see
                                                  (setf ordering nil)
                                                  (redraw)))
                                           nil)
+                                         (magic
+                                          ;; the spells/songs page: n
+                                          ;; (or Esc) turns back to the
+                                          ;; stat block, u/d scroll a
+                                          ;; long book, digits switch
+                                          ;; to another hero's sheet
+                                          (cond ((or (eql lc #\n)
+                                                     (eql c :esc))
+                                                 (setf magic nil
+                                                       sheet-top 0)
+                                                 (redraw))
+                                                ((and (characterp c)
+                                                      (digit-char-p c)
+                                                      (<= 1
+                                                          (digit-char-p c)
+                                                          +party-limit+))
+                                                 (open-sheet
+                                                  (1- (digit-char-p c))))
+                                                ((characterp c)
+                                                 (let ((top
+                                                         (hero-magic-scroll
+                                                          game sheet-hero
+                                                          sheet-top c)))
+                                                   (when top
+                                                     (setf sheet-top top)
+                                                     (redraw)))))
+                                          nil)
                                          ((eql c :esc) (leave-sheet) nil)
                                          ((and (characterp c)
                                                (digit-char-p c)
@@ -2693,14 +2739,17 @@ map/help/sheet pages close on a click outside a target — see
                                                    +party-limit+))
                                           (open-sheet (1- (digit-char-p c)))
                                           nil)
-                                         ((eql lc #\i)
-                                          ;; open the sheet hero's pack
+                                         ((or (eql lc #\n) (eql lc #\i))
+                                          ;; NEXT turns the carousel to
+                                          ;; the pack page ('i' stays
+                                          ;; as the old shortcut there)
                                           (let ((hero (nth sheet-hero
                                                            (game-party
                                                             game))))
                                             (when hero
                                               (setf equipv
-                                                    (make-equip-view hero))
+                                                    (make-equip-view hero)
+                                                    sheet-top 0)
                                               (redraw)))
                                           nil)
                                          ((eql lc #\p)

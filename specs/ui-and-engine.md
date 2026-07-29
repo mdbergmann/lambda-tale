@@ -292,6 +292,19 @@ with pictures in the view column.)
   header, the roster pane already shows who is who); the host UI shows it as
   its `:sheet` mode under the same keys (`1`-`7` switch, `u`/`d`
   scroll a long stat block, `Esc` back).
+- The sheet is a **carousel** (2026-07-29): a `NEXT` row — the `n`
+  key, the word centered on the lores takeover column
+  (`menu-next-option`), the whole row a click target — closes each of
+  its pages and turns to the next: the stat block (name, then `Race
+  Class` spelled out under it, for a raced hero), the pack page
+  (`equip-lines`, whose `equip-act` answers `n` with `:next`), a
+  caster's or singer's **spells/songs page** (`hero-magic-lines` /
+  `hero-magic-scroll`, gated by `hero-magic-p`: the spellbook and the
+  songbook under `Spells:`/`Songs:` heads, windowed at
+  `+sheet-page-size+`), and from the last page back around to the
+  stat block.  The stat block's old `Inventory` row is gone — `NEXT`
+  is the way to the pack now (`i` stays as a keyboard shortcut) — and
+  the spellbook left the stat block for the new page.
 
 ## Full map view (`m`)
 
@@ -473,7 +486,9 @@ The Amiga front-end supports two displays, selected by
   bare keywords, and the full `cast-lines`/`cast-act` key walk — out
   of combat, in combat (one caster casts, the rest attack) and the
   Esc unwind.
-- Takeovers: `hero-sheet-lines` (header, summary block, key hints);
+- Takeovers: `hero-sheet-lines` (summary block, key hints, the
+  carousel's `NEXT` row) and `hero-magic-lines` (the spells/songs
+  page: sections, windowing, the `NEXT` close);
   `location-image`/`location-image-path` and the class portraits
   resolve map-relative, absent ones NIL; generated scenes/portraits
   size to order and keep to the fixed UI pens; Amiga smoke: the

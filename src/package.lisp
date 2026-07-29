@@ -74,7 +74,8 @@
    #:log-length #:log-since #:expire-messages #:*message-ttl*
    #:wrap-text #:wrap-message
    ;; structured menu lines (option rows carry their pick key)
-   #:menu-option #:menu-numbered #:menu-line-text #:menu-line-key
+   #:menu-option #:menu-numbered #:menu-next-option
+   #:menu-line-text #:menu-line-key
    #:menu-texts #:wrap-menu-line #:menu-key-spans
    #:hint-line-p #:wrap-hint-line #:fit-menu-lines
    ;; menu scrolling (long lists window with u/d + the scrollbar)
@@ -100,6 +101,7 @@
    #:hero-extra-attacks #:hero-trap-skill
    #:hero-class-title #:hero-class-abbrev #:hero-summary-lines
    #:hero-image #:hero-image-path #:hero-sheet-lines #:hero-sheet-scroll
+   #:hero-magic-p #:hero-magic-lines #:hero-magic-scroll
    #:+party-limit+ #:party-full-p #:join-party #:move-hero
    #:damage-hero #:heal-hero #:stat-bonus #:stat-gift #:saving-throw
    #:award-xp #:xp-for-level

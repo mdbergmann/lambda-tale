@@ -178,6 +178,20 @@ past 9 stay plain text — no key reaches them (the models only accept
 single-digit picks)."
   (if (<= 1 i 9) (menu-option (digit-char i) text) text))
 
+(defconstant +takeover-columns+ 27
+  "Character cells of the narrowest (lores) message-area takeover
+column.  The takeover generators design their lines against this
+width; MENU-NEXT-OPTION centers on it.")
+
+(defun menu-next-option ()
+  "The NEXT row that pages the character-sheet carousel (sheet, pack,
+spells/songs — 'n' or a click): the word centered on the lores
+takeover column, standing alone on the page's last row.  An option
+line's click target is its whole row, so the padding clicks too."
+  (menu-option #\n (format nil "~v@A"
+                           (floor (+ +takeover-columns+ 4) 2)
+                           "NEXT")))
+
 (defun menu-line-text (line)
   "The display text of a menu line (string or (TEXT . KEY))."
   (if (consp line) (car line) line))

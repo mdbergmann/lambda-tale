@@ -454,12 +454,16 @@ the item picked on the inspect page)."
                 ;; the letter keys ride the first window only, the
                 ;; shop-footer rule: a scrolled window gives its rows
                 ;; to the pack (the keys keep working, u brings the
-                ;; rows back)
+                ;; rows back).  NEXT closes the page: the sheet
+                ;; carousel turns on to the spells/songs page (or back
+                ;; to the stat block) — see HERO-SHEET-LINES.
                 (t (when (zerop (equip-view-top view))
                      (list ""
                            (menu-option #\p "Pass an item")
                            (menu-option #\i "Inspect an item")
-                           (menu-option #\t "Throw away an item")))))))))))
+                           (menu-option #\t "Throw away an item")
+                           ""
+                           (menu-next-option)))))))))))
 
 (defun equip-act (game view char)
   "Apply key CHAR to the pack page.  On the pack itself a digit toggles
@@ -474,7 +478,8 @@ and the page stays open for the next card.  On the throw-away page a
 digit picks the item and y then destroys it (DISCARD-ITEM) while n
 keeps it — the page stays open for the next item.  Esc steps back one
 page at a time (SHOP-ACT's pattern).  Returns :CANCELLED on Esc at
-the pack page, else NIL."
+the pack page, :NEXT on n there — the sheet carousel's page turn, the
+front-end closes the pack and opens the next page — else NIL."
   (let ((hero (equip-view-hero view))
         (mode (equip-view-mode view))
         (digit (digit-char-p char)))
@@ -580,6 +585,7 @@ the pack page, else NIL."
            (setf (equip-view-mode view) :toss)
            (say game "~A has nothing to throw away." (hero-name hero)))
        nil)
+      ((member char '(#\n #\N)) :next)
       ((eql char #\Escape) :cancelled)
       (t
        (let ((top (menu-scroll (equip-view-top view) char

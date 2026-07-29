@@ -2236,16 +2236,21 @@ height" d)
          (first lines))
   ;; the sheet names only its own keys, bracket-free, each row a
   ;; clickable option with a blank line between them; the digit pick,
-  ;; scrolling and Esc live on the help screen
+  ;; scrolling and Esc live on the help screen.  The page closes with
+  ;; the carousel's NEXT row — the pack lost its Inventory row to it
   (check "sheet page ends with the sheet's own keys, aired one per row"
-         (list (menu-option #\i "Inventory")
-               ""
-               (menu-option #\p "Pool gold")
+         (list (menu-option #\p "Pool gold")
                ""
                (menu-option #\t "Trade gold")
                ""
-               (menu-option #\o "Order party"))
+               (menu-option #\o "Order party")
+               ""
+               (menu-next-option))
          (last lines 7))
+  ;; the NEXT row centers its word on the lores takeover column
+  (check "the NEXT row is the n key, centered"
+         (menu-option #\n "           NEXT")
+         (menu-next-option))
   ;; ORDERING true is the marching-order pick: the hints give way to
   ;; the where-to prompt
   (check "ordering sheet asks where to move the hero"
@@ -2258,23 +2263,23 @@ height" d)
          (list ""
                (menu-option #\l "Level up")
                ""
-               (menu-option #\i "Inventory")
-               ""
                (menu-option #\p "Pool gold")
                ""
                (menu-option #\t "Trade gold")
                ""
-               (menu-option #\o "Order party"))
+               (menu-option #\o "Order party")
+               ""
+               (menu-next-option))
          (last (hero-sheet-lines g 1) 10))
   (setf (hero-xp (second (game-party g))) 0)
   (check "the l key leaves with the flag"
-         (list (menu-option #\i "Inventory")
-               ""
-               (menu-option #\p "Pool gold")
+         (list (menu-option #\p "Pool gold")
                ""
                (menu-option #\t "Trade gold")
                ""
-               (menu-option #\o "Order party"))
+               (menu-option #\o "Order party")
+               ""
+               (menu-next-option))
          (last (hero-sheet-lines g 1) 7)))
 
 ;; Class portraits: DEFINE-HERO-CLASS :IMAGE resolves map-relative
@@ -2346,16 +2351,16 @@ height" d)
 (check "race-title hyphenates half-elf" "Half-Elf" (race-title :half-elf))
 (check "race-title capitalizes dwarf"   "Dwarf"    (race-title :dwarf))
 
-;; The character sheet names the race on the name line and steps the
-;; class onto its own line — "Name the Race Class" could overrun the
-;; lores takeover column; a raceless hero stays "Name the Class" on
-;; one line.  (:tester is a registered class, so HERO-SUMMARY-LINES
-;; can read its caster/singer flags.)
+;; The character sheet spells out "Race Class" under the bare name —
+;; "Name the Race Class" on one line could overrun the lores takeover
+;; column; a raceless hero stays "Name the Class" on one line.
+;; (:tester is a registered class, so HERO-SUMMARY-LINES can read its
+;; caster/singer flags.)
 (let ((lines (hero-summary-lines
               (%make-hero :name "Grod" :race :dwarf :class :tester))))
-  (check "sheet names the race on the name line" "Grod the Dwarf"
+  (check "sheet opens on the bare name" "Grod"
          (first lines))
-  (check "the raced hero's class steps onto its own line" "Tester"
+  (check "race and class share the second line" "Dwarf Tester"
          (second lines)))
 (check "sheet names the class when there is no race" "Nym the Tester"
        (first (hero-summary-lines
@@ -3373,23 +3378,36 @@ height" d)
          '(test-bolt test-mend test-shield test-flame test-lore test-needle)
          (spells-for-hero mage)))
 
-;; The caster's sheet closes with the spellbook — SPELLS-FOR-HERO
-;; verbatim, titles indented one cell under a Spells: head.  There is
-;; no learning step: a fresh level's spells simply appear with the
-;; rise, and a plain hero's sheet carries no book at all.
-(let ((mage (%combat-mage))
-      (grunt (%combat-hero)))
-  (check "the sheet spellbook is the known spells verbatim"
-         '(" test bolt" " test mend" " test shield" " test flame"
-           " test needle")
-         (rest (member "Spells:" (hero-summary-lines mage)
-                       :test #'equal)))
+;; The spellbook lives on the sheet carousel's spells/songs page
+;; (HERO-MAGIC-LINES) — SPELLS-FOR-HERO verbatim, titles indented one
+;; cell under a Spells: head, the carousel's NEXT row closing the
+;; page.  There is no learning step: a fresh level's spells simply
+;; appear with the rise.  A plain hero has no such page at all
+;; (HERO-MAGIC-P gates it in the front-ends), and the stat block
+;; itself stays book-free.
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (grunt (%combat-hero))
+       (g (new-game m :party (list mage grunt))))
+  (check-true "the caster has a spells/songs page" (hero-magic-p mage))
+  (check-true "the plain hero has none" (not (hero-magic-p grunt)))
+  (check "the stat block carries no spellbook" nil
+         (member "Spells:" (hero-summary-lines mage) :test #'equal))
+  (check "the page is the known spells under their head"
+         '("Spells:" " test bolt" " test mend" " test shield"
+           " test flame" " test needle")
+         (butlast (hero-magic-lines g 0) 2))
+  (check "the page closes with the NEXT row"
+         (list "" (menu-next-option))
+         (last (hero-magic-lines g 0) 2))
   (setf (hero-level mage) 3)
-  (check-true "a new level's spells appear on the sheet"
-              (member " test lore" (hero-summary-lines mage)
+  (check-true "a new level's spells appear on the page"
+              (member " test lore" (menu-texts (hero-magic-lines g 0))
                       :test #'equal))
-  (check "a plain hero's sheet carries no spellbook" nil
-         (member "Spells:" (hero-summary-lines grunt) :test #'equal)))
+  ;; six spells known at level 3: the book fits +SHEET-PAGE-SIZE+
+  ;; whole (7 rows with its head), so it does not scroll
+  (check "a short book does not scroll" nil
+         (hero-magic-scroll g 0 0 #\d)))
 
 ;; The rise itself names the spells it brings — the book is
 ;; level-gated, so LEVEL-UP diffs it around the bump and announces
@@ -5044,6 +5062,43 @@ height" d)
                   (combat-orders-review view))
       (fits "review page"))))
 
+;; The spells/songs page for singers: the songbook under its own head
+;; (a singer is a HERO-MAGIC-P hero too), and a hero who both casts
+;; and sings stacks the two sections with a blank row between.  A
+;; book past +SHEET-PAGE-SIZE+ rows windows and scrolls — the stat
+;; block's u/d contract — so the adept gets two more spells to grow
+;; on (class-gated to :t-adept, invisible to the :t-mage checks).
+(define-spell 'test-adept-glow :cost 1 :level 1 :classes '(:t-adept)
+  :light t :duration 5)
+(define-spell 'test-adept-ward :cost 2 :level 3 :classes '(:t-adept)
+  :buff-ac 1 :duration 5)
+(let* ((m (parse-map *art* :name "test"))
+       (bard (with-rng () (make-hero "Mel" :t-bard)))
+       (adept (%combat-adept))
+       (g (new-game m :party (list bard adept))))
+  (check-true "the singer has a spells/songs page" (hero-magic-p bard))
+  (check "the singer's page is the songbook under its head"
+         '("Songs:" " test march" " test gleam" " test road")
+         (menu-texts (butlast (hero-magic-lines g 0) 2)))
+  (check "the adept's page stacks both sections"
+         '("Spells:" " test adept bolt" " test adept glow" ""
+           "Songs:" " test march" " test gleam" " test road")
+         (menu-texts (butlast (hero-magic-lines g 1) 2)))
+  (check "the adept's short book does not scroll" nil
+         (hero-magic-scroll g 1 0 #\d))
+  ;; level 3 grows the book past the window: ward and dirge arrive,
+  ;; ten body rows against the eight-row page
+  (setf (hero-level adept) 3)
+  (check "the grown book windows at the page size" '(0 8 10)
+         (progn (hero-magic-lines g 1)
+                *menu-scroll*))
+  (check "d scrolls the spells/songs page" 2
+         (hero-magic-scroll g 1 0 #\d))
+  (check "n does not scroll it" nil
+         (hero-magic-scroll g 1 0 #\n))
+  (check "an empty slot has no page" nil
+         (hero-magic-scroll g 5 0 #\d)))
+
 ;; C during orders opens the spell pick for the hero at hand; the pick
 ;; lands as that hero's round action instead of fighting a round.
 (let* ((m (parse-map *art* :name "test"))
@@ -5535,12 +5590,18 @@ height" d)
               (find-if (lambda (s) (search "2) T Mail (u)" s))
                        (menu-texts (equip-lines g view))))
   ;; the pack page names only its own keys, bracket-free, each row a
-  ;; clickable option (digit picks and Esc live on the help screen)
+  ;; clickable option (digit picks and Esc live on the help screen);
+  ;; the carousel's NEXT row closes the page — 'n' turns to the
+  ;; spells/songs page or back to the stat block (EQUIP-ACT's :NEXT)
   (check "pack page ends with its own keys, one option per row"
          (list (menu-option #\p "Pass an item")
                (menu-option #\i "Inspect an item")
-               (menu-option #\t "Throw away an item"))
-         (last (equip-lines g view) 3))
+               (menu-option #\t "Throw away an item")
+               ""
+               (menu-next-option))
+         (last (equip-lines g view) 5))
+  (check "n on the pack page turns the carousel" :next
+         (equip-act g view #\n))
   (check "a digit equips the item" nil (equip-act g view #\1))
   (check "equipped through the page" 't-sword (equipped-of-kind h :weapon))
   (check-true "the worn item is starred"
@@ -7035,13 +7096,13 @@ height" d)
          (find-if (lambda (s) (search "Pack" s))
                   (menu-texts (hero-sheet-lines g 0))))
   (check "the sheet keeps its own keys, aired one per row"
-         (list (menu-option #\i "Inventory")
-               ""
-               (menu-option #\p "Pool gold")
+         (list (menu-option #\p "Pool gold")
                ""
                (menu-option #\t "Trade gold")
                ""
-               (menu-option #\o "Order party"))
+               (menu-option #\o "Order party")
+               ""
+               (menu-next-option))
          (last (hero-sheet-lines g 0) 7))
   (check "the sheet does not scroll" nil
          (hero-sheet-scroll g 0 0 #\d))
@@ -8677,8 +8738,8 @@ never its own"
                    (find-if (lambda (s) (search "save" s)) lines)))
   (check-true "help mentions pooling gold"
               (find-if (lambda (s) (search "pool gold" s)) lines))
-  (check-true "help mentions the gear page"
-              (find-if (lambda (s) (search "equip" s)) lines))
+  (check-true "help mentions the sheet carousel's next page"
+              (find-if (lambda (s) (search "next page" s)) lines))
   (check-true "help mentions the marching order"
               (find-if (lambda (s) (search "marching order" s)) lines))
   (check-true "help mentions taking a level"

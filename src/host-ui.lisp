@@ -103,7 +103,8 @@ engine has no default world; the game names its starting map."
          (mode :play)        ; :play, :map (full-map view), :help or :sheet
          (full nil)          ; omniscient automap (debug), map mode only
          (sheet-hero 0)      ; party index shown in :sheet mode
-         (sheet-top 0)       ; sheet scroll offset (u/d)
+         (sheet-top 0)       ; current sheet page's scroll offset (u/d)
+         (magic nil)         ; sheet: the spells/songs page is showing
          (ordering nil)      ; sheet: picking the hero's new slot (o)
          (equip nil)         ; EQUIP-VIEW while the pack page is open
          (trade nil)         ; TRADE-VIEW while the trade page is open
@@ -252,6 +253,8 @@ engine has no default world; the game names its starting map."
              (draw-sheet-page ()
                (dolist (line (cond (equip (equip-lines game equip))
                                    (trade (trade-lines game trade))
+                                   (magic (hero-magic-lines game sheet-hero
+                                                            sheet-top))
                                    (t (hero-sheet-lines game sheet-hero
                                                         sheet-top
                                                         ordering))))
@@ -348,27 +351,40 @@ engine has no default world; the game names its starting map."
                  ((#\q #\Q) :quit)
                  (t nil)))
              (open-sheet (i)
-               ;; '1'-'7': show that roster slot if it holds a hero
+               ;; '1'-'7': show that roster slot if it holds a hero —
+               ;; the carousel starts over on its stat page
                (when (nth i (game-party game))
                  (setf sheet-hero i
                        sheet-top 0
+                       magic nil
                        equip nil
                        trade nil
                        ordering nil
                        mode :sheet))
+               nil)
+             (sheet-next ()
+               ;; the carousel's page turn off the pack page: to the
+               ;; spells/songs page when the hero has one, else back
+               ;; around to the stat block
+               (let ((hero (nth sheet-hero (game-party game))))
+                 (setf equip nil
+                       magic (and hero (hero-magic-p hero))
+                       sheet-top 0))
                nil)
              (sheet-act (c)
                (cond
                  (equip
                   ;; the pack page: the shared model eats the keys
                   ;; (digits toggle or pick, p opens the give flow,
-                  ;; u/d scroll, Esc backs out a page at a time and
-                  ;; finally to the sheet) — Q still quits
+                  ;; u/d scroll, n turns the carousel's page, Esc
+                  ;; backs out a page at a time and finally to the
+                  ;; sheet) — Q still quits
                   (if (member c '(#\q #\Q))
                       :quit
                       (progn
                         (case (equip-act game equip c)
-                          (:cancelled (setf equip nil)))
+                          (:cancelled (setf equip nil))
+                          (:next (sheet-next)))
                         nil)))
                  (trade
                   ;; the trade page: the shared model eats the keys
@@ -395,6 +411,22 @@ engine has no default world; the game names its starting map."
                           ((eql c #\Escape) (setf ordering nil) nil)
                           ((member c '(#\q #\Q)) :quit)
                           (t nil))))
+                 (magic
+                  ;; the spells/songs page: n (or Esc) turns back to
+                  ;; the stat block, u/d scroll a long book, digits
+                  ;; switch to another hero's sheet
+                  (let ((digit (digit-char-p c))
+                        (top (hero-magic-scroll game sheet-hero
+                                                sheet-top c)))
+                    (cond ((and digit (<= 1 digit +party-limit+))
+                           (open-sheet (1- digit)))
+                          (top (setf sheet-top top) nil)
+                          ((member c '(#\n #\N #\Escape))
+                           (setf magic nil
+                                 sheet-top 0)
+                           nil)
+                          ((member c '(#\q #\Q)) :quit)
+                          (t nil))))
                  (t
                   (let ((digit (digit-char-p c))
                         (top (hero-sheet-scroll game sheet-hero
@@ -402,11 +434,14 @@ engine has no default world; the game names its starting map."
                     (cond ((and digit (<= 1 digit +party-limit+))
                            (open-sheet (1- digit)))
                           (top (setf sheet-top top) nil)
-                          ((member c '(#\i #\I))
+                          ((member c '(#\n #\N #\i #\I))
+                           ;; NEXT turns the carousel to the pack page
+                           ;; ('i' stays as the old shortcut there)
                            (let ((hero (nth sheet-hero
                                             (game-party game))))
                              (when hero
-                               (setf equip (make-equip-view hero))))
+                               (setf equip (make-equip-view hero)
+                                     sheet-top 0)))
                            nil)
                           ((member c '(#\p #\P))
                            (let ((hero (nth sheet-hero

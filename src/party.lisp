@@ -227,29 +227,29 @@ first two words of a multi-word class, else the first two letters —
          (subseq name 0 (min 2 (length name)))))))
 
 (defun hero-summary-lines (hero &optional game)
-  "The character sheet as a list of text lines — the stat block a
-player sees when they open a roster slot.  The pack is not in it: that
-lists on its own page (EQUIP-LINES, the sheet's 'i').  The armor class
-is the one the roster prints — HERO-EFFECTIVE-AC, equipment and the
-DEX gift included, and the party's :AC effects when GAME is given —
-never the bare base slot: the sheet draws right beside the roster,
-and a base 'AC 8' next to the roster's equipped 'AC 2' reads as a
-stale, unequipped hero (most jarringly right after loading a save).
-Every line stays within 20 character cells at worst-case values
-(three-digit hit/spell points, a negative AC), well inside the lores
-message-area takeover's 27 small-face cells, so the block never wraps
-mid-figure; a raced hero's class steps onto its own line for the same
-reason.  A caster's block closes with the spellbook — the spells
-known right now, one indented title per line — so a campaign's spell
-titles must respect the same width.  Pure (no I/O), so both the
-Amiga sheet view and the tests render from the same source."
+  "The character sheet's first page as a list of text lines — the stat
+block a player sees when they open a roster slot.  The pack is not in
+it (that lists on the carousel's pack page — EQUIP-LINES), and
+neither is the spellbook (the spells/songs page — HERO-MAGIC-LINES).
+The armor class is the one the roster prints — HERO-EFFECTIVE-AC,
+equipment and the DEX gift included, and the party's :AC effects when
+GAME is given — never the bare base slot: the sheet draws right
+beside the roster, and a base 'AC 8' next to the roster's equipped
+'AC 2' reads as a stale, unequipped hero (most jarringly right after
+loading a save).  Every line stays within 20 character cells at
+worst-case values (three-digit hit/spell points, a negative AC), well
+inside the lores message-area takeover's +TAKEOVER-COLUMNS+
+small-face cells, so the block never wraps mid-figure; a raced hero's
+race-and-class line steps under the name for the same reason.  Pure
+(no I/O), so both the Amiga sheet view and the tests render from the
+same source."
   (append
-   ;; "Name the Race" with the class under it — or "Name the Class"
-   ;; on one line when the hero is raceless
+   ;; the name, with "Race Class" spelled out under it — or "Name the
+   ;; Class" on one line when the hero is raceless
    (if (hero-race-title hero)
-       (list (format nil "~A the ~A" (hero-name hero)
-                     (hero-race-title hero))
-             (hero-class-title hero))
+       (list (hero-name hero)
+             (format nil "~A ~A" (hero-race-title hero)
+                     (hero-class-title hero)))
        (list (format nil "~A the ~A" (hero-name hero)
                      (hero-class-title hero))))
    (list (format nil "Level ~D  XP ~D" (hero-level hero) (hero-xp hero))
@@ -265,15 +265,7 @@ Amiga sheet view and the tests render from the same source."
                  (hero-str hero) (hero-dex hero) (hero-iq hero))
          (format nil "CON ~D LCK ~D" (hero-con hero) (hero-lck hero))
          (format nil "Gold ~D gp~@[ ~A~]" (hero-gold hero)
-                 (unless (hero-alive-p hero) "(down)")))
-   ;; a caster's sheet closes with the spellbook — the spells known
-   ;; right now (SPELLS-FOR-HERO: class + level), titles indented one
-   ;; cell under their head; a long book scrolls the sheet's window
-   (when (hero-caster-p hero)
-     (cons "Spells:"
-           (mapcar (lambda (name)
-                     (format nil " ~A" (spell-title name)))
-                   (spells-for-hero hero))))))
+                 (unless (hero-alive-p hero) "(down)")))))
 
 (defun hero-image (hero)
   "HERO's portrait file name (the class's :IMAGE), or NIL."
@@ -287,10 +279,11 @@ current map file's directory — or NIL when the class has none."
       (%resolve-map-path (dungeon-map-name (game-map game)) image))))
 
 (defconstant +sheet-page-size+ 8
-  "Body rows the character-sheet page shows at once; a longer stat
-block scrolls with u/d — see MENU-WINDOW.  The pack lists on its own
-page (EQUIP-LINES), but a caster's spellbook closes the block, so a
-hero with a few spells already overflows and scrolls.")
+  "Body rows a character-sheet carousel page shows at once; a longer
+block scrolls with u/d — see MENU-WINDOW.  The spells/songs page only
+overflows for a hero who both casts and sings; HERO-MAGIC-LINES
+windows it the same way the stat block windows with
+HERO-SHEET-SCROLL.")
 
 (defun hero-sheet-lines (game index &optional (top 0) ordering)
   "The character-sheet page for roster slot INDEX as text lines: the
@@ -299,9 +292,12 @@ hero's stat block (windowed at scroll offset TOP when it overflows
 own key hints, a blank line between the two — no header; the roster
 pane already shows who is who.  The front-ends draw these verbatim
 (the SHOP-LINES pattern) and feed u/d through HERO-SHEET-SCROLL.
-ORDERING true is the marching-order pick ('o'): the hints give way to
-the where-to prompt, a digit there moves the hero (MOVE-HERO) and Esc
-cancels."
+The page is the first stop of the sheet carousel: the closing NEXT
+row (MENU-NEXT-OPTION, 'n' or a click) turns to the hero's pack page,
+from there to a caster's or singer's spells/songs page, and from the
+last page back here.  ORDERING true is the marching-order pick ('o'):
+the hints give way to the where-to prompt, a digit there moves the
+hero (MOVE-HERO) and Esc cancels."
   (let* ((hero (nth index (game-party game)))
          (body (when hero (hero-summary-lines hero game))))
     (append
@@ -314,7 +310,8 @@ cancels."
      ;; the sheet's own letter keys stay on the page (first letter
      ;; picks), a blank line between them so the short page breathes;
      ;; the digit pick, u/d scrolling and Esc are common knowledge —
-     ;; the help screen carries those
+     ;; the help screen carries those.  The pack lost its row to the
+     ;; carousel: NEXT (below) is the way there now.
      (if (and hero ordering)
          (list ""
                (format nil "Move ~A where?" (hero-name hero)))
@@ -325,13 +322,13 @@ cancels."
           (when (and hero (hero-level-up-pending-p hero))
             (list (menu-option #\l "Level up")
                   ""))
-          (list (menu-option #\i "Inventory")
-                ""
-                (menu-option #\p "Pool gold")
+          (list (menu-option #\p "Pool gold")
                 ""
                 (menu-option #\t "Trade gold")
                 ""
-                (menu-option #\o "Order party")))))))
+                (menu-option #\o "Order party")
+                ""
+                (menu-next-option)))))))
 
 (defun hero-sheet-scroll (game index top char)
   "The sheet page's scroll offset after key CHAR (u/d — see
@@ -339,6 +336,59 @@ MENU-SCROLL), or NIL when CHAR does not scroll or slot INDEX is empty."
   (let ((hero (nth index (game-party game))))
     (when hero
       (menu-scroll top char (length (hero-summary-lines hero game))
+                   +sheet-page-size+))))
+
+(defun hero-magic-p (hero)
+  "True when HERO has a spells/songs page on the sheet carousel — the
+hero casts or sings."
+  (or (hero-caster-p hero) (hero-singer-p hero)))
+
+(defun %hero-magic-body (hero)
+  "The spells/songs page's body rows: the spellbook (SPELLS-FOR-HERO:
+class + level) and the songbook (SONGS-FOR-HERO), each under its own
+head with the titles indented one cell — so a campaign's spell and
+song titles must respect the stat block's width.  NIL for a hero with
+neither."
+  (append
+   (when (hero-caster-p hero)
+     (cons "Spells:"
+           (mapcar (lambda (name)
+                     (format nil " ~A" (spell-title name)))
+                   (spells-for-hero hero))))
+   (when (hero-singer-p hero)
+     (append
+      (when (hero-caster-p hero) (list ""))
+      (cons "Songs:"
+            (mapcar (lambda (name)
+                      (format nil " ~A" (song-title name)))
+                    (songs-for-hero hero)))))))
+
+(defun hero-magic-lines (game index &optional (top 0))
+  "The sheet carousel's spells/songs page for roster slot INDEX as
+text lines: the hero's spellbook and songbook (%HERO-MAGIC-BODY,
+windowed at scroll offset TOP when it overflows +SHEET-PAGE-SIZE+
+rows — see *MENU-SCROLL*) and the closing NEXT row that turns the
+carousel back to the stat block.  The front-ends draw these verbatim
+and feed u/d through HERO-MAGIC-SCROLL; they only open the page for a
+HERO-MAGIC-P hero."
+  (let ((hero (nth index (game-party game))))
+    (append
+     (when hero
+       (menu-scrolled-lines (%hero-magic-body hero) top
+                            (lambda (i line)
+                              (declare (ignore i))
+                              line)
+                            +sheet-page-size+))
+     (list ""
+           (menu-next-option)))))
+
+(defun hero-magic-scroll (game index top char)
+  "The spells/songs page's scroll offset after key CHAR (u/d — see
+MENU-SCROLL), or NIL when CHAR does not scroll or slot INDEX is
+empty."
+  (let ((hero (nth index (game-party game))))
+    (when hero
+      (menu-scroll top char (length (%hero-magic-body hero))
                    +sheet-page-size+))))
 
 (defun party-full-p (game)

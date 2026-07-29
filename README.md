@@ -694,7 +694,10 @@ attack action is out of reach and the orders page says so.  A weapon
 defined `:two-handed` fills both hands, D&D-style: it will not go on
 beside a shield, nor a shield beside it, and the pack and shop pages
 mark it `(2H)`.  Equipment is managed
-from the character sheet: `i` opens the hero's **pack page** (Inventory), where a
+from the character sheet: the `NEXT` row (`n`, or a click — the sheet
+pages as a carousel: stat block, pack, a caster's or singer's
+spells/songs page, back around) turns to the hero's **pack page**,
+where a
 digit puts a pack item on or takes it off again; items a hero's class
 cannot use are marked `(u)` there, on the sheet and in the shop (the
 item card spells the full `(unfit)` out) — the shop still sells them
@@ -1045,8 +1048,8 @@ points** (2 per level plus the IQ bonus) and pay them per cast.  A
 caster **knows** every registered spell of their class at or below
 their level — no separate learning step; a fresh level's spells
 arrive with the rise, which names each one ("Zzal learns test
-flame!"), and the character sheet closes with the spellbook as it
-stands.  A
+flame!"), and the character sheet's spells/songs page carries the
+spellbook as it stands.  A
 spell's effect is a plist over a shared vocabulary, and the keys
 **combine freely** — a restoration heals *and* cures, a batchspell
 installs five enchantments in one casting:
