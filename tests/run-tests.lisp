@@ -529,6 +529,102 @@ height" d)
                  (- px0 fx) sx))))))
 
 ;;; ---------------------------------------------------------------------
+;;; Flank RUNS (*DRAW-FLANKS*): a distant row of houses spans many
+;;; cells, but the slice model knew only the corridor's immediate
+;;; neighbors — three houses on a horizon with room for sixteen.  The
+;;; runs walk outward from the corridor while the sides stay open and
+;;; repeat the flank piece one cell width per step; the knob says how
+;;; far, and it is a RENDERING knob like *DRAW-DEPTH*.
+
+;; A market square: a row of seven houses, a gap splitting off the
+;; westmost (two buildings), a door in the middle mass, and the party
+;; three cells back on open ground.
+(defparameter *row-art*
+"+-+-+-+-+-+-+-+
+| | | | | | | |
++-+ +-+-+D+-+-+
+|             |
++ + + + + + + +
+|             |
++ + + + + + + +
+|      @      |
++-+-+-+-+-+-+-+")
+
+(let* ((m (parse-map *row-art* :name "row"))
+       (a (%wall-style m 0 0))          ; the lone west house
+       (b (%wall-style m 2 0))          ; the long mass with the door
+       (v (compute-view m 3 3 :north +view-depth+ 8))
+       (s (third v)))
+  (check "row: the view stops at the house row" 3 (length v))
+  ;; the runs read the row: house, gap, house to the left; door and
+  ;; two more cells of the same mass to the right, ending at the edge
+  (check "row: left run fronts" '(:wall :open :wall)
+         (mapcar #'car (view-slice-left-fronts s)))
+  (check "row: left run styles" (list b nil a)
+         (mapcar #'cdr (view-slice-left-fronts s)))
+  (check "row: right run fronts" '(:door :wall :wall)
+         (mapcar #'car (view-slice-right-fronts s)))
+  (check "row: one mass, one style along the run" (list b b b)
+         (mapcar #'cdr (view-slice-right-fronts s)))
+  ;; FLANKS bounds the walk; the scalar fields never depend on it
+  (let ((short (third (compute-view m 3 3 :north +view-depth+ 2))))
+    (check "a shorter walk cuts the run" 2
+           (length (view-slice-left-fronts short))))
+  (let ((none (third (compute-view m 3 3 :north +view-depth+ 0))))
+    (check "no walk, no run" nil (view-slice-left-fronts none))
+    (check "the immediate neighbor fields survive a zero walk" '(2 1 :wall)
+           (list (view-slice-lx none) (view-slice-ly none)
+                 (view-slice-left-front none))))
+  ;; the blit list deals the run out as repeated flank pieces, the
+  ;; outermost first, each shifted one cell width and cut at the
+  ;; viewport edge (SX mapping the cut into the piece bitmap)
+  (let ((planes (view-planes 240 130)))
+    (check "row: the run fills the horizon"
+           (list (list '(:flank 2 :l) a 0 54 23 22 17)
+                 (list '(:flank 2 :l) b 61 54 40 22 0)
+                 (list '(:flank 2 :r) b 217 54 23 22 0)
+                 (list '(:flank 2 :r) b 178 54 40 22 0)
+                 (list '(:flank-door 2 :r) b 139 54 40 22 0)
+                 (list '(:front 2) b 100 54 40 22 0))
+           (view-blit-list v planes))
+    ;; the default knob is the classic single neighbor — the same
+    ;; three-house skyline as before the runs existed
+    (check "the default draw width shows the classic three houses"
+           '((:flank 2 :l) (:flank-door 2 :r) (:front 2))
+           (mapcar #'first
+                   (view-blit-list (compute-view m 3 3 :north) planes)))
+    ;; 0 is the original Bard's Tale look: the one house dead ahead
+    (let ((*draw-flanks* 0))
+      (check "draw width 0 leaves the lone far house"
+             '((:front 2))
+             (mapcar #'first
+                     (view-blit-list (compute-view m 3 3 :north) planes))))
+    ;; the wireframe draws from the same runs
+    (check-true "the wireframe view draws the run too"
+                (> (length (view-display-list v planes))
+                   (length (view-display-list
+                            (compute-view m 3 3 :north +view-depth+ 0)
+                            planes))))))
+
+;; A closed side ends the walk: the run never slips through a wall.
+(let* ((m (parse-map *art* :name "run-stop"))
+       (s (first (compute-view m 0 0 :north +view-depth+ 8))))
+  (check "a wall beside the corridor leaves no run" nil
+         (view-slice-left-fronts s))
+  (check "a closed side one cell out ends the run" 1
+         (length (view-slice-right-fronts s))))
+
+;; The knob is a RENDERING knob: however wide the machine draws, the
+;; automap learns only what OBSERVE always recorded — corridor cells
+;; and their immediate neighbors.
+(let* ((*draw-flanks* 8)
+       (g (new-game (parse-map *row-art* :name "row-map"))))
+  (check-true "the immediate neighbor's front is mapped"
+              (wall-known-p (game-knowledge g) 2 1 +north+))
+  (check "a drawn run cell is never mapped" nil
+         (wall-known-p (game-knowledge g) 0 1 +north+)))
+
+;;; ---------------------------------------------------------------------
 ;;; Wall styles: the blitted view varies tile-pack piece variants per
 ;;; building (%WALL-STYLE / the STYLE field of the blit records)
 
@@ -736,6 +832,20 @@ height" d)
 (check ":hires gives up its deepest level" 3
        (display-profile-draw-depth *hires-profile*))
 
+;; Draw width follows the same profile-default scheme.
+(check "the default profile's draw width is the default draw width"
+       (display-profile-draw-flanks *display-profile*) *draw-flanks*)
+(dolist (p *display-profiles*)
+  (check-true (format nil "~S declares a sane draw width"
+                      (display-profile-name p))
+              (let ((w (display-profile-draw-flanks p)))
+                (and (integerp w) (<= 0 w +view-flanks+)))))
+;; both ship the classic single flank; the knob buys the wider street
+(check ":lores draws the classic single flank" 1
+       (display-profile-draw-flanks *lores-profile*))
+(check ":hires draws the classic single flank" 1
+       (display-profile-draw-flanks *hires-profile*))
+
 ;; The roster's number columns are right-aligned: ROSTER-CELL pushes
 ;; short values towards the field's right edge so the digits (and the
 ;; heading over them) line up down the table.
@@ -773,7 +883,8 @@ height" d)
 
 (let ((outer-w *fp-view-width*)
       (outer-dir *gfx-dir*)
-      (outer-depth *draw-depth*))
+      (outer-depth *draw-depth*)
+      (outer-flanks *draw-flanks*))
   (with-display-profile (:hires)
     (check "with-display-profile binds the profile" :hires
            (display-profile-name *display-profile*))
@@ -782,19 +893,25 @@ height" d)
     (check "with-display-profile binds the pack dir"
            (display-profile-gfx-dir *hires-profile*) *gfx-dir*)
     (check "with-display-profile binds the draw depth"
-           (display-profile-draw-depth *hires-profile*) *draw-depth*))
+           (display-profile-draw-depth *hires-profile*) *draw-depth*)
+    (check "with-display-profile binds the draw width"
+           (display-profile-draw-flanks *hires-profile*) *draw-flanks*))
   (check "with-display-profile restores the viewport"
          outer-w *fp-view-width*)
   (check "with-display-profile restores the pack dir"
          outer-dir *gfx-dir*)
   (check "with-display-profile restores the draw depth"
-         outer-depth *draw-depth*))
+         outer-depth *draw-depth*)
+  (check "with-display-profile restores the draw width"
+         outer-flanks *draw-flanks*))
 
 ;; The profile supplies the DEFAULT only: a binding made inside the
 ;; macro is what PLAY-AMIGA's :DRAW-DEPTH does, and it wins.
 (with-display-profile (:hires)
   (let ((*draw-depth* 2))
-    (check "a draw depth bound inside the profile wins" 2 *draw-depth*)))
+    (check "a draw depth bound inside the profile wins" 2 *draw-depth*))
+  (let ((*draw-flanks* 8))
+    (check "a draw width bound inside the profile wins" 8 *draw-flanks*)))
 
 (with-display-profile (:hires)
   (let ((manifest (with-output-to-string (s) (print-tile-manifest s))))
@@ -1866,6 +1983,14 @@ height" d)
   (let ((*draw-depth* 99))
     (check "a draw depth above +view-depth+ is capped" +view-depth+
            (render-view-depth g))))
+
+;; Draw width degrades the same way — but 0 is a VALID setting (no
+;; flanks at all), where draw depth must keep its one cell.
+(let ((*draw-flanks* -3))
+  (check "a draw width below none draws none" 0 (%draw-flanks)))
+(let ((*draw-flanks* 99))
+  (check "a draw width past the viewport edge is capped" +view-flanks+
+         (%draw-flanks)))
 
 ;; The knob is a RENDERING cap: the automap must record everything the
 ;; light allows, whatever the machine draws.  NEW-GAME's first OBSERVE

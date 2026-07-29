@@ -39,6 +39,11 @@ absolute path under *ENGINE-DIR*."
                               ; Only a DEFAULT — the profile describes
                               ; a screen, not a CPU, and PLAY-AMIGA's
                               ; :DRAW-DEPTH overrides it per machine
+  draw-flanks                 ; default *DRAW-FLANKS*: how many cells
+                              ; sideways the view draws of a facing
+                              ; house row (see view.lisp); a default
+                              ; like DRAW-DEPTH, overridden per machine
+                              ; by PLAY-AMIGA's :DRAW-FLANKS
   pad-x pad-y                 ; chrome ring pads (full-screen backdrop)
   view-gap                    ; px between the view column and the log
   band-height                 ; effects + compass band at the log's foot
@@ -86,6 +91,9 @@ its column rather than backing up into the column before it."
    ;; — an 8x8 front wall — so it is the cheapest thing to give up.
    ;; Raise it with :DRAW-DEPTH 4 on a machine that can afford it.
    :draw-depth 3
+   ;; The classic single flank per side; :DRAW-FLANKS up to 8 fills a
+   ;; distant street with houses on a machine with blit headroom.
+   :draw-flanks 1
    :pad-x 12 :pad-y 10 :view-gap 12 :band-height 20
    :roster-cols '(:no 0 :name 2 :ac 22 :hit 27 :hpts 32
                   :spl 38 :spts 43 :cl 48)))
@@ -106,6 +114,8 @@ its column rather than backing up into the column before it."
    :gfx-dir (engine-path "data/gfx/")
    :draw-depth 4                        ; the full view — the smaller
                                         ; viewport can afford it
+   :draw-flanks 1                       ; the classic single flank; see
+                                        ; the hires profile's note
    :pad-x 10 :pad-y 10 :view-gap 12 :band-height 20
    :roster-cols '(:no 0 :name 2 :ac 15 :hit 19 :hpts 23
                   :spl 27 :spts 31 :cl 35)))
@@ -132,18 +142,20 @@ profile from *DISPLAY-PROFILES*."
 
 (defmacro with-display-profile ((designator) &body body)
   "Run BODY with *DISPLAY-PROFILE* and the viewport/pack/draw-distance
-specials (*FP-VIEW-WIDTH*, *FP-VIEW-HEIGHT*, *GFX-DIR*, *DRAW-DEPTH*)
-bound from DESIGNATOR's profile, so the layout, the asset
-loader/generator and the manifest all agree on one target.
+specials (*FP-VIEW-WIDTH*, *FP-VIEW-HEIGHT*, *GFX-DIR*, *DRAW-DEPTH*,
+*DRAW-FLANKS*) bound from DESIGNATOR's profile, so the layout, the
+asset loader/generator and the manifest all agree on one target.
 
-*DRAW-DEPTH* is bound to the profile's DEFAULT, so a caller that wants
-its own draw distance must rebind it INSIDE this macro (PLAY-AMIGA's
-:DRAW-DEPTH does) — an outer binding would be overwritten here."
+*DRAW-DEPTH* and *DRAW-FLANKS* are bound to the profile's DEFAULTS, so
+a caller that wants its own draw distance or width must rebind them
+INSIDE this macro (PLAY-AMIGA's :DRAW-DEPTH/:DRAW-FLANKS do) — an
+outer binding would be overwritten here."
   (let ((p (gensym "PROFILE")))
     `(let* ((,p (find-display-profile ,designator))
             (*display-profile* ,p)
             (*fp-view-width* (display-profile-fp-width ,p))
             (*fp-view-height* (display-profile-fp-height ,p))
             (*gfx-dir* (display-profile-gfx-dir ,p))
-            (*draw-depth* (display-profile-draw-depth ,p)))
+            (*draw-depth* (display-profile-draw-depth ,p))
+            (*draw-flanks* (display-profile-draw-flanks ,p)))
        ,@body)))

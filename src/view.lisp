@@ -17,6 +17,12 @@
 
 (defconstant +view-depth+ 4)    ; cells visible ahead, including standing cell
 
+;; Lateral cells per open side the flank runs can ever cover (see
+;; COMPUTE-VIEW): at the deepest plane one cell is ~6% of the viewport
+;; width and half the viewport is 50%, so eight cells reach the edge —
+;; a longer run could only draw off-screen.
+(defconstant +view-flanks+ 8)
+
 ;;; The first-person viewport size shared by the Amiga front-end, the
 ;;; wall-art generator and the tests: the wall-piece assets are drawn
 ;;; for exactly these planes, so the three must agree.  Initialized
@@ -49,6 +55,25 @@ this, so an out-of-range setting degrades instead of indexing past the
 planes vector."
   (max 1 (min *draw-depth* +view-depth+)))
 
+;;; Draw width: *DRAW-DEPTH*'s sideways twin.  How many cells to each
+;;; open side the view draws of a facing row of buildings — the flank
+;;; runs of COMPUTE-VIEW.  1 (the default) is the classic single
+;;; neighbor; more fills a distant street with the houses that stand
+;;; there, each further cell one more blit of an already-loaded flank
+;;; piece per frame — a pack ships nothing extra for it; 0 draws no
+;;; neighbor houses at all (the Bard's Tale skyline: one lone house on
+;;; the horizon).
+;;;
+;;; A RENDERING knob like *DRAW-DEPTH*: what the party SEES and the
+;;; automap records (OBSERVE) never depends on it — OBSERVE reads only
+;;; the slice fields that are filled regardless of the runs.
+(defparameter *draw-flanks* (display-profile-draw-flanks *display-profile*))
+
+(defun %draw-flanks ()
+  "*DRAW-FLANKS* clamped to what can ever show: no less than none, no
+more than the +VIEW-FLANKS+ cells that reach the viewport edge."
+  (max 0 (min *draw-flanks* +view-flanks+)))
+
 (defstruct (view-slice (:constructor %make-view-slice))
   (depth 0)
   cx cy               ; center cell coordinates
@@ -59,7 +84,15 @@ planes vector."
   left-style          ; when that surface is no wall) — see %WALL-STYLE;
   right-style         ; the blitted view picks tile-pack piece variants
   left-front-style    ; with these, so a street reads as a row of
-  right-front-style)  ; different houses
+  right-front-style   ; different houses
+  left-fronts         ; the flank RUNS: per side, a list of
+  right-fronts)       ; (FRONT . STYLE) for the 1st, 2nd, ... cell
+                      ; outward while the sides stay open — FRONT that
+                      ; cell's facing wall (:open marks a gap in the
+                      ; row), STYLE its building (NIL when FRONT is no
+                      ; wall).  Entry 1 restates LEFT-FRONT/RIGHT-FRONT;
+                      ; the renderers draw flanks from these lists, cut
+                      ; to *DRAW-FLANKS* by COMPUTE-VIEW's FLANKS
 
 ;;; Buildings: the mass behind a wall.
 ;;;
@@ -149,23 +182,48 @@ pack without variants renders every style the same."
       (%location-style map x y)
       (%coord-style x y)))
 
-(defun compute-view (map x y facing &optional (depth +view-depth+))
+(defun compute-view (map x y facing &optional (depth +view-depth+)
+                                      (flanks (%draw-flanks)))
   "List of VIEW-SLICEs visible from (X,Y) looking FACING, nearest first.
 Stops at a solid or door front wall, an off-map edge, or DEPTH cells
-\(default +VIEW-DEPTH+; darkness passes 1 — see GAME-VIEW-DEPTH)."
+\(default +VIEW-DEPTH+; darkness passes 1 — see GAME-VIEW-DEPTH).
+FLANKS is how many cells outward each slice's flank runs walk
+\(LEFT-FRONTS/RIGHT-FRONTS) — it defaults to the *DRAW-FLANKS*
+rendering knob and bounds only those lists; the scalar side fields
+\(LX/LEFT-FRONT and mirrors) are filled regardless, so OBSERVE's
+automap records never depend on a machine's draw settings."
   (let* ((f (dir-index facing))
          (ldir (turn-dir f -1))
          (rdir (turn-dir f 1))
          (slices '())
          (cx x)
          (cy y))
-    (flet ((style-behind (x y dir)
-             ;; the building is the cell on the far side of the wall;
-             ;; a map-edge wall (no far cell) styles from the near one
-             (multiple-value-bind (nx ny) (neighbor map x y dir)
-               (if nx
-                   (%wall-style map nx ny)
-                   (%wall-style map x y)))))
+    (labels ((style-behind (x y dir)
+               ;; the building is the cell on the far side of the wall;
+               ;; a map-edge wall (no far cell) styles from the near one
+               (multiple-value-bind (nx ny) (neighbor map x y dir)
+                 (if nx
+                     (%wall-style map nx ny)
+                     (%wall-style map x y))))
+             (flank-run (sx sy dir)
+               ;; the cells to DIR of corridor cell (SX,SY), outward
+               ;; while the sides between them stay open: what a row of
+               ;; house fronts at this distance shows beside the
+               ;; corridor
+               (let ((run '()))
+                 (dotimes (k flanks (nreverse run))
+                   (declare (ignorable k))
+                   (unless (eq (cell-wall map sx sy dir) :open)
+                     (return (nreverse run)))
+                   (multiple-value-bind (nx ny) (neighbor map sx sy dir)
+                     (unless nx
+                       (return (nreverse run)))
+                     (let ((front (cell-wall map nx ny f)))
+                       (push (cons front
+                                   (when (member front '(:wall :door))
+                                     (style-behind nx ny f)))
+                             run))
+                     (setf sx nx sy ny))))))
       (dotimes (d depth)
         (let ((front (cell-wall map cx cy f))
               (left (cell-wall map cx cy ldir))
@@ -185,6 +243,8 @@ Stops at a solid or door front wall, an off-map edge, or DEPTH cells
                  :front front :left left :right right
                  :lx lx :ly ly :left-front lf
                  :rx rx :ry ry :right-front rf
+                 :left-fronts (flank-run cx cy ldir)
+                 :right-fronts (flank-run cx cy rdir)
                  :front-style (when (member front '(:wall :door))
                                 (style-behind cx cy f))
                  :left-style (when (member left '(:wall :door))
@@ -246,16 +306,29 @@ primitives, ordered back to front."
                            (max 1 (floor (- x1 x0) 6))
                            (max 1 (floor (- y1 y0) 4)))
                      prims))
-             (flank (s side kind)
-               ;; the neighbor's front wall through an open side, at
-               ;; the perspective width the blitted view gives it
+             (flank (s side kind lateral)
+               ;; a front wall through an open side, at the perspective
+               ;; width the blitted view gives it; past the immediate
+               ;; neighbor the slot may be empty (off-screen or hidden)
                (multiple-value-bind (x y w h sx)
                    (visible-flank-rect slices planes
-                                       (list kind (view-slice-depth s) side))
+                                       (list kind (view-slice-depth s) side)
+                                       lateral)
                  (declare (ignore sx))
-                 (rect x y (+ x w -1) (+ y h -1))
-                 (when (eq kind :flank-door)
-                   (door-mark x y (+ x w -1) (+ y h -1)))))
+                 (when (plusp w)
+                   (rect x y (+ x w -1) (+ y h -1))
+                   (when (eq kind :flank-door)
+                     (door-mark x y (+ x w -1) (+ y h -1))))))
+             (flank-run (s side)
+               ;; the side's whole run, outermost first so the nearer
+               ;; flanks draw over the farther ones' shared edge column
+               (let ((fronts (if (eq side :l)
+                                 (view-slice-left-fronts s)
+                                 (view-slice-right-fronts s))))
+                 (loop for k from (length fronts) downto 1
+                       do (case (car (nth (1- k) fronts))
+                            (:wall (flank s side :flank k))
+                            (:door (flank s side :flank-door k))))))
              (draw-slice (s)
                (let ((p (aref planes (view-slice-depth s)))
                      (q (aref planes (1+ (view-slice-depth s)))))
@@ -270,10 +343,7 @@ primitives, ordered back to front."
                         (line qx0 qy0 qx0 qy1)
                         (when (eq (view-slice-left s) :door)
                           (door-mark px0 qy0 qx0 qy1)))
-                       (:open
-                        (case (view-slice-left-front s)
-                          (:wall (flank s :l :flank))
-                          (:door (flank s :l :flank-door)))))
+                       (:open (flank-run s :l)))
                      ;; right side (mirrored)
                      (case (view-slice-right s)
                        ((:wall :door)
@@ -283,10 +353,7 @@ primitives, ordered back to front."
                         (line qx1 qy0 qx1 qy1)
                         (when (eq (view-slice-right s) :door)
                           (door-mark qx1 qy0 px1 qy1)))
-                       (:open
-                        (case (view-slice-right-front s)
-                          (:wall (flank s :r :flank))
-                          (:door (flank s :r :flank-door)))))
+                       (:open (flank-run s :r)))
                      ;; front wall
                      (when (member (view-slice-front s) '(:wall :door))
                        (rect qx0 qy0 qx1 qy1)
@@ -375,19 +442,46 @@ blocks exactly the same band."
           do (return (%plane-edge planes (1+ k) side))
         finally (return (%plane-edge planes 0 side))))
 
-(defun visible-flank-rect (slices planes piece)
+(defun visible-flank-rect (slices planes piece &optional (lateral 1))
   "PIECE's slot cropped to what the walls in front of it leave visible:
 \(VALUES X Y W H SX), SX the x offset into the piece bitmap X starts
 at.  Both renderers place a flank with this, so the wireframe and the
-blitted view draw the same wall."
+blitted view draw the same wall.
+
+LATERAL is the flank's distance from the corridor in cells (its
+position in the slice's flank run): 1 is the immediate neighbor —
+PIECE's own slot — and each cell beyond shifts that slot one cell
+width further out, where the SAME piece bitmap is blitted again (a
+row of houses repeats the slot at a one-cell stride).  Past 1 the
+result may be empty (W <= 0) — the slot has left the viewport, or a
+nearer wall hides all of it — and the caller skips the draw."
   (destructuring-bind (kind depth &optional side) piece
     (declare (ignore kind))
-    (destructuring-bind (x y w h) (wall-piece-rect planes piece)
-      (let ((edge (flank-visible-x slices planes depth side)))
-        (if (eq side :l)
-            (let ((nx (max x (min edge (+ x w -1)))))
-              (values nx y (- (+ x w) nx) h (- nx x)))
-            (values x y (1+ (- (max x (min edge (+ x w -1))) x)) h 0))))))
+    (let ((edge (flank-visible-x slices planes depth side)))
+      (if (= lateral 1)
+          (destructuring-bind (x y w h) (wall-piece-rect planes piece)
+            (if (eq side :l)
+                (let ((nx (max x (min edge (+ x w -1)))))
+                  (values nx y (- (+ x w) nx) h (- nx x)))
+                (values x y (1+ (- (max x (min edge (+ x w -1))) x)) h 0)))
+          (destructuring-bind (qx0 qy0 qx1 qy1) (aref planes (1+ depth))
+            (destructuring-bind (vx0 vy0 vx1 vy1) (aref planes 0)
+              (declare (ignore vy0 vy1))
+              (let ((cell (- qx1 qx0))
+                    (h (1+ (- qy1 qy0))))
+                (if (eq side :l)
+                    ;; slot [qx0 - LATERAL*cell, qx0 - (LATERAL-1)*cell],
+                    ;; visible from the viewport edge and the occlusion
+                    ;; edge rightward; SX maps the cut into the bitmap
+                    (let* ((left (- qx0 (* lateral cell)))
+                           (right (- qx0 (* (1- lateral) cell)))
+                           (nx (max left vx0 edge)))
+                      (values nx qy0 (1+ (- right nx)) h (- nx left)))
+                    ;; mirrored: cut from the right, blit from x 0
+                    (let* ((left (+ qx1 (* (1- lateral) cell)))
+                           (right (+ qx1 (* lateral cell)))
+                           (nx1 (min right vx1 edge)))
+                      (values left qy0 (1+ (- nx1 left)) h 0))))))))))
 
 (defun wall-piece-names (&optional (depth +view-depth+))
   "All piece keys the view can ever ask for (the asset set).
@@ -426,20 +520,40 @@ it is 0 whenever the pack ships no variants.  SX is the x offset into
 the piece bitmap the blit starts at: 0 for every piece drawn whole,
 non-zero only for a left flank the walls in front of it hide part of
 (see WALL-PIECE-RECT and FLANK-VISIBLE-X) — X/W are that visible part,
-so the piece is never stretched, only cropped."
+so the piece is never stretched, only cropped.
+An open side blits its slice's whole flank RUN (see COMPUTE-VIEW and
+*DRAW-FLANKS*): the same flank piece repeated one cell width further
+out per run cell, each with its own building's style, so a distant
+row of houses fills the horizon instead of stopping at the corridor's
+immediate neighbors."
   (let ((blits '()))
-    (labels ((blit (kind depth style &optional side)
+    (labels ((blit (kind depth style &optional side (lateral 1))
                (let ((piece (if side
                                 (list kind depth side)
                                 (list kind depth))))
                  (if (member kind '(:flank :flank-door))
-                     ;; crop to what the walls in front leave visible
+                     ;; crop to what the walls in front leave visible;
+                     ;; a run slot past the viewport or wholly hidden
+                     ;; comes back empty and blits nothing
                      (multiple-value-bind (x y w h sx)
-                         (visible-flank-rect slices planes piece)
-                       (push (list piece (or style 0) x y w h sx) blits))
+                         (visible-flank-rect slices planes piece lateral)
+                       (when (plusp w)
+                         (push (list piece (or style 0) x y w h sx) blits)))
                      (destructuring-bind (x y w h)
                          (wall-piece-rect planes piece)
                        (push (list piece (or style 0) x y w h 0) blits)))))
+             (flank-run (s d side)
+               ;; the side's whole run, outermost first so the nearer
+               ;; flanks blit over the farther ones' shared edge column
+               (let ((fronts (if (eq side :l)
+                                 (view-slice-left-fronts s)
+                                 (view-slice-right-fronts s))))
+                 (loop for k from (length fronts) downto 1
+                       do (destructuring-bind (front . style)
+                              (nth (1- k) fronts)
+                            (case front
+                              (:wall (blit :flank d style side k))
+                              (:door (blit :flank-door d style side k)))))))
              (draw-slice (s)
                (let ((d (view-slice-depth s)))
                  ;; sides first, then the front wall on top of their seams
@@ -449,20 +563,11 @@ so the piece is never stretched, only cropped."
                                    (view-slice-right s)))
                          (wall-style (if (eq side :l)
                                          (view-slice-left-style s)
-                                         (view-slice-right-style s)))
-                         (beyond (if (eq side :l)
-                                     (view-slice-left-front s)
-                                     (view-slice-right-front s)))
-                         (beyond-style (if (eq side :l)
-                                           (view-slice-left-front-style s)
-                                           (view-slice-right-front-style s))))
+                                         (view-slice-right-style s))))
                      (case wall
                        (:wall (blit :side d wall-style side))
                        (:door (blit :side-door d wall-style side))
-                       (:open
-                        (case beyond
-                          (:wall (blit :flank d beyond-style side))
-                          (:door (blit :flank-door d beyond-style side)))))))
+                       (:open (flank-run s d side)))))
                  (case (view-slice-front s)
                    (:wall (blit :front d (view-slice-front-style s)))
                    (:door (blit :front-door d

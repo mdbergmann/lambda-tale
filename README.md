@@ -207,6 +207,29 @@ Note that `:draw-depth` is the only way in: binding `tale:*draw-depth*`
 around `play-amiga` has no effect, because `with-display-profile`
 rebinds it from the profile on the way in.
 
+### Draw width (faster machines)
+
+`:draw-depth`'s sideways twin, **`:draw-flanks`** (0-8, default 1),
+sets how many cells to each *open side* the view draws of a facing row
+of houses.  The classic view shows at most the corridor's immediate
+neighbors — three houses where a whole street front stands (the
+original Bard's Tale drew just the one).  Raising the knob repeats the
+already-loaded flank pieces one cell width further out per step, each
+with its own building's style, until the row, the viewport edge or a
+nearer wall ends it:
+
+```lisp
+(tale:play-amiga "mygame/village.map" :draw-flanks 8)  ; fill the horizon
+(tale:play-amiga "mygame/village.map" :draw-flanks 0)  ; the lone BT house
+```
+
+Each step costs one more blit per visible row cell per frame and
+nothing else — no extra piece files, no load time, so a tile pack is
+again unaffected.  Like draw depth it is a **rendering** knob only:
+the automap records the same walls whatever the machine draws.  Each
+display profile carries the default (both ship 1, today's look), and
+`play-amiga`'s argument overrides it per machine.
+
 Both profiles give the first-person view about **2/5** of the screen
 and the message log the other **3/5** — the text carries the game.
 The split is a profile knob, not engine code: the view column is

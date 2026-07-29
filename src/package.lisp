@@ -27,7 +27,8 @@
    #:make-map-knowledge #:know-cell #:know-wall #:know-found
    #:cell-explored-p #:cell-found-p #:wall-known-p
    ;; first-person view geometry
-   #:+view-depth+ #:*draw-depth* #:compute-view #:view-planes
+   #:+view-depth+ #:*draw-depth* #:+view-flanks+ #:*draw-flanks*
+   #:compute-view #:view-planes
    #:view-display-list
    #:view-blit-list #:wall-piece-rect #:wall-piece-names #:wall-piece-file
    #:wall-piece-variant-file
@@ -36,6 +37,7 @@
    #:view-slice-front #:view-slice-left #:view-slice-right
    #:view-slice-lx #:view-slice-ly #:view-slice-left-front
    #:view-slice-rx #:view-slice-ry #:view-slice-right-front
+   #:view-slice-left-fronts #:view-slice-right-fronts
    #:compass-points
    ;; game state / movement
    #:new-game #:game-map #:game-knowledge #:game-x #:game-y #:game-facing

@@ -1920,7 +1920,7 @@ AMIGA.GFX:BEST-MODE-ID) covered by a borderless backdrop window."
 
 (defun play-amiga (map-file
                    &key (display :screen) (profile *display-profile*)
-                     gfx-dir draw-depth)
+                     gfx-dir draw-depth draw-flanks)
   "Interactive walkabout on MAP-FILE.  Loads the campaign.lisp next to
 the map file (classes, monsters, items, party) when present — a
 designer's own world directory brings its own campaign; the engine has
@@ -1943,6 +1943,15 @@ fewer wall blits per frame and ten fewer piece files at load time; the
 corridor then ends that much nearer, in the backdrop.  It changes only
 what is DRAWN — the automap still records everything the party could
 see, and darkness still overrides it downward.
+DRAW-FLANKS is the matching sideways knob: how many cells to each
+open side the view draws of a facing row of houses (0 to +VIEW-FLANKS+
+\(8), defaulting to the profile's own — 1, the classic immediate
+neighbor).  Raising it fills a distant street's horizon with the
+houses that stand there, one more blit per drawn cell per frame;
+the flank pieces are reused, so it costs no load time and no pack
+files.  0 draws no neighbor houses at all — the original Bard's
+Tale's lone far house.  Like DRAW-DEPTH it changes only what is
+drawn, never what the automap records.
 Keys: W forward, S back-step, A/D turn, M map mode (M/Esc leaves it,
 F toggles the debug full view there), H or ? the help page (the key
 reference — H/Esc leaves), 1-7 open a party member's character sheet
@@ -1983,6 +1992,7 @@ map/help/sheet pages close on a click outside a target — see
    ;; and these arguments override those defaults.
    (let* ((*gfx-dir* (or gfx-dir *gfx-dir*))
           (*draw-depth* (or draw-depth *draw-depth*))
+          (*draw-flanks* (or draw-flanks *draw-flanks*))
          (map (load-map-file map-file))
          (game nil)
          (log nil)
@@ -2014,9 +2024,9 @@ map/help/sheet pages close on a click outside a target — see
          (anim-ticks 0)     ; INTUITICKS since the last animation step
                             ; (see +ANIM-TICKS-PER-STEP+)
          (over nil))
-    (dlog "play-amiga ~A display ~S profile ~S draw-depth ~D"
+    (dlog "play-amiga ~A display ~S profile ~S draw-depth ~D draw-flanks ~D"
           map-file display (display-profile-name *display-profile*)
-          (%draw-depth))
+          (%draw-depth) (%draw-flanks))
     (labels ((wire (g)
                (setf log (attach-message-log g))
                (attach-sounds g)
