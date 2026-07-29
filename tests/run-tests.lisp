@@ -2250,7 +2250,32 @@ height" d)
   ;; the where-to prompt
   (check "ordering sheet asks where to move the hero"
          '("" "Move B where?")
-         (last (hero-sheet-lines g 1 0 t) 2)))
+         (last (hero-sheet-lines g 1 0 t) 2))
+  ;; a banked level puts the rise on the sheet — 'l' heads the keys,
+  ;; and only while one is actually due
+  (setf (hero-xp (second (game-party g))) 100)
+  (check "a banked level heads the sheet keys with l"
+         (list ""
+               (menu-option #\l "Level up")
+               ""
+               (menu-option #\i "Inventory")
+               ""
+               (menu-option #\p "Pool gold")
+               ""
+               (menu-option #\t "Trade gold")
+               ""
+               (menu-option #\o "Order party"))
+         (last (hero-sheet-lines g 1) 10))
+  (setf (hero-xp (second (game-party g))) 0)
+  (check "the l key leaves with the flag"
+         (list (menu-option #\i "Inventory")
+               ""
+               (menu-option #\p "Pool gold")
+               ""
+               (menu-option #\t "Trade gold")
+               ""
+               (menu-option #\o "Order party"))
+         (last (hero-sheet-lines g 1) 7)))
 
 ;; Class portraits: DEFINE-HERO-CLASS :IMAGE resolves map-relative
 ;; (the effect-icon rule); a class without one has no portrait.
@@ -2581,19 +2606,45 @@ height" d)
   (let ((pane (%party-pane g)))
     (check-true "roster shows armor class" (search "AC  8" pane))
     (check-true "roster shows spell points" (search "SP   0/  0" pane))
-    (check-true "roster shows gold" (search "42 gp" pane))))
+    (check-true "roster shows gold" (search "42 gp" pane))
+    (check-true "no level banked, no flag" (search "1 Ann" pane)))
+  ;; the banked-level flag: ^ in the spare column before the name
+  ;; (the Amiga table's white up-arrow)
+  (setf (hero-xp h) 100)
+  (check-true "a banked level raises the ^ flag"
+              (search "1^Ann" (%party-pane g))))
 
-;; Leveling: crossing a threshold rolls the class hit dice again.
+;; Leveling: xp only banks — crossing a threshold announces the
+;; readiness and raises the roster flag, and the rise itself waits
+;; for ADVANCE-LEVEL (the character sheet's 'l'), one level per call.
 (let* ((m (parse-map *art* :name "test"))
        (h (with-rng (5) (make-hero "A" :tester)))  ; 8 max hp
        (g (new-game m :party (list h)))
        (msgs (watch-messages g)))
-  (with-rng (4) (award-xp g h 100))
-  (check "level after 100 xp" 2 (hero-level h))
+  (check-true "a fresh hero has no level banked"
+              (not (hero-level-up-pending-p h)))
+  (check "no rise due: advance-level declines" nil (advance-level g h))
+  (award-xp g h 100)
+  (check "xp banks, the level waits" 1 (hero-level h))
+  (check-true "the threshold raises the flag" (hero-level-up-pending-p h))
+  (check-true "the readiness is announced"
+              (search "ready for the next level" (first (funcall msgs))))
+  (with-rng (4) (advance-level g h))
+  (check "advance-level takes the level" 2 (hero-level h))
   (check "level-up adds rolled hp" 15 (hero-max-hp h))
-  (check-true "level-up message" (search "level 2" (first (funcall msgs))))
-  (with-rng (4 4) (award-xp g h 500))   ; 600 xp: levels 3 and 4
-  (check "multiple level-ups in one award" 4 (hero-level h)))
+  (check-true "level-up message"
+              (find-if (lambda (s) (search "level 2" s)) (funcall msgs)))
+  (check-true "the flag drops with the rise"
+              (not (hero-level-up-pending-p h)))
+  (award-xp g h 500)                    ; 600 xp: levels 3 and 4 banked
+  (check "a doubly-crossed threshold announces once, not twice"
+         2 (count-if (lambda (s) (search "ready for the next level" s))
+                     (funcall msgs)))
+  (with-rng (4) (advance-level g h))
+  (check "one level per call" 3 (hero-level h))
+  (check-true "the second level still waits" (hero-level-up-pending-p h))
+  (check "the next call takes the next one" 4
+         (with-rng (4) (advance-level g h))))
 
 ;; Bard's Tale stat growth: each level-up draws a d18 per stat in
 ;; str dex iq con lck order after the hit die — the score rises when
@@ -2604,7 +2655,8 @@ height" d)
        (msgs (watch-messages g)))
   ;; hit die 4, then str 17 (rises), dex 0 (stays), iq 3 (rises),
   ;; con 2 (stays), lck 17 (rises)
-  (with-rng (4 17 0 3 2 17) (award-xp g h 100))
+  (award-xp g h 100)
+  (with-rng (4 17 0 3 2 17) (advance-level g h))
   (check "str rose on the level-up" 4 (hero-str h))
   (check "dex stayed" 3 (hero-dex h))
   (check "iq rose" 4 (hero-iq h))
@@ -2614,7 +2666,8 @@ height" d)
               (member "B's STR rises to 4!" (funcall msgs) :test #'equal))
   ;; the cap: a d18 draws 0-17, so a score of 18 can never rise
   (setf (hero-str h) 18)
-  (with-rng (0 17 0 0 0 0) (award-xp g h 200))     ; to level 3
+  (award-xp g h 200)                               ; to level 3
+  (with-rng (0 17 0 0 0 0) (advance-level g h))
   (check "a score of 18 never rises" 18 (hero-str h)))
 
 ;; STAT-GIFT is the Bard's Tale kindness: high scores reward hit
@@ -2629,7 +2682,8 @@ height" d)
        (g (new-game m :party (list h))))
   (check "con 18" 18 (hero-con h))
   (check "creation hp carry the con gift" 12 (hero-max-hp h))
-  (with-rng (4) (award-xp g h 100))
+  (award-xp g h 100)
+  (with-rng (4) (advance-level g h))
   (check "the level's hp gain carries it too" 23 (hero-max-hp h)))
 
 ;; DEX pays into the effective armor class.
@@ -2647,12 +2701,16 @@ height" d)
        (h (with-rng (5) (make-hero "M" :t-monk)))
        (g (new-game m :party (list h))))
   (check "the monk starts at the class ac" 7 (hero-ac h))
-  (with-rng () (award-xp g h 100))
+  (award-xp g h 100)
+  (with-rng () (advance-level g h))
   (check "each level tightens the monk's guard" 6 (hero-ac h))
-  (with-rng () (award-xp g h 500))      ; levels 3 and 4
+  (award-xp g h 500)                    ; levels 3 and 4
+  (with-rng () (advance-level g h))
+  (with-rng () (advance-level g h))
   (check "every level, not every other" 4 (hero-ac h))
   (setf (hero-ac h) -10)
-  (with-rng () (award-xp g h 400))      ; level 5
+  (award-xp g h 400)                    ; level 5
+  (with-rng () (advance-level g h))
   (check "natural armor floors at -10" -10 (hero-ac h)))
 
 ;;; ---------------------------------------------------------------------
@@ -3271,7 +3329,8 @@ height" d)
        (h (%combat-mage))
        (g (new-game m :party (list h))))
   (setf (hero-sp h) 1)
-  (with-rng (2) (award-xp g h 100))     ; level 2: max-sp 2*2+4 = 8
+  (award-xp g h 100)
+  (with-rng (2) (advance-level g h))    ; level 2: max-sp 2*2+4 = 8
   (check "level-up raises max sp" 8 (hero-max-sp h))
   (check "level-up adds the growth to current sp" 3 (hero-sp h)))
 
@@ -3313,6 +3372,24 @@ height" d)
   (check "known spells in registration order"
          '(test-bolt test-mend test-shield test-flame test-lore test-needle)
          (spells-for-hero mage)))
+
+;; The caster's sheet closes with the spellbook — SPELLS-FOR-HERO
+;; verbatim, titles indented one cell under a Spells: head.  There is
+;; no learning step: a fresh level's spells simply appear with the
+;; rise, and a plain hero's sheet carries no book at all.
+(let ((mage (%combat-mage))
+      (grunt (%combat-hero)))
+  (check "the sheet spellbook is the known spells verbatim"
+         '(" test bolt" " test mend" " test shield" " test flame"
+           " test needle")
+         (rest (member "Spells:" (hero-summary-lines mage)
+                       :test #'equal)))
+  (setf (hero-level mage) 3)
+  (check-true "a new level's spells appear on the sheet"
+              (member " test lore" (hero-summary-lines mage)
+                      :test #'equal))
+  (check "a plain hero's sheet carries no spellbook" nil
+         (member "Spells:" (hero-summary-lines grunt) :test #'equal)))
 
 ;; Cast refusals: each says why, costs nothing, returns NIL.
 (let* ((m (parse-map *art* :name "test"))
@@ -8586,7 +8663,9 @@ never its own"
   (check-true "help mentions the gear page"
               (find-if (lambda (s) (search "equip" s)) lines))
   (check-true "help mentions the marching order"
-              (find-if (lambda (s) (search "marching order" s)) lines)))
+              (find-if (lambda (s) (search "marching order" s)) lines))
+  (check-true "help mentions taking a level"
+              (find-if (lambda (s) (search "take a level" s)) lines)))
 
 ;;; ---------------------------------------------------------------------
 ;;; The roster's class codes and column plists.
@@ -10045,6 +10124,7 @@ yielding the cues played so far, oldest first."
            (funcall cues)))
   (with-cues (cues)
     (award-xp g h 200)                  ; past level 2's 100 xp
+    (advance-level g h)
     (check "rising a level cues level" '(level) (funcall cues))))
 
 ;; Gold changing hands cues COIN — the sell side exercises the emit.

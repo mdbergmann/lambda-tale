@@ -239,8 +239,10 @@ Every line stays within 20 character cells at worst-case values
 (three-digit hit/spell points, a negative AC), well inside the lores
 message-area takeover's 27 small-face cells, so the block never wraps
 mid-figure; a raced hero's class steps onto its own line for the same
-reason.  Pure (no I/O), so both the Amiga sheet view and the tests
-render from the same source."
+reason.  A caster's block closes with the spellbook — the spells
+known right now, one indented title per line — so a campaign's spell
+titles must respect the same width.  Pure (no I/O), so both the
+Amiga sheet view and the tests render from the same source."
   (append
    ;; "Name the Race" with the class under it — or "Name the Class"
    ;; on one line when the hero is raceless
@@ -263,7 +265,15 @@ render from the same source."
                  (hero-str hero) (hero-dex hero) (hero-iq hero))
          (format nil "CON ~D LCK ~D" (hero-con hero) (hero-lck hero))
          (format nil "Gold ~D gp~@[ ~A~]" (hero-gold hero)
-                 (unless (hero-alive-p hero) "(down)")))))
+                 (unless (hero-alive-p hero) "(down)")))
+   ;; a caster's sheet closes with the spellbook — the spells known
+   ;; right now (SPELLS-FOR-HERO: class + level), titles indented one
+   ;; cell under their head; a long book scrolls the sheet's window
+   (when (hero-caster-p hero)
+     (cons "Spells:"
+           (mapcar (lambda (name)
+                     (format nil " ~A" (spell-title name)))
+                   (spells-for-hero hero))))))
 
 (defun hero-image (hero)
   "HERO's portrait file name (the class's :IMAGE), or NIL."
@@ -279,8 +289,8 @@ current map file's directory — or NIL when the class has none."
 (defconstant +sheet-page-size+ 8
   "Body rows the character-sheet page shows at once; a longer stat
 block scrolls with u/d — see MENU-WINDOW.  The pack lists on its own
-page (EQUIP-LINES), so today's block fits; the window guards the
-sheet against a future longer one.")
+page (EQUIP-LINES), but a caster's spellbook closes the block, so a
+hero with a few spells already overflows and scrolls.")
 
 (defun hero-sheet-lines (game index &optional (top 0) ordering)
   "The character-sheet page for roster slot INDEX as text lines: the
@@ -308,14 +318,20 @@ cancels."
      (if (and hero ordering)
          (list ""
                (format nil "Move ~A where?" (hero-name hero)))
-         (list ""
-               (menu-option #\i "Inventory")
-               ""
-               (menu-option #\p "Pool gold")
-               ""
-               (menu-option #\t "Trade gold")
-               ""
-               (menu-option #\o "Order party"))))))
+         (append
+          (list "")
+          ;; a banked level heads the keys — the rise happens here,
+          ;; and only while one is actually due
+          (when (and hero (hero-level-up-pending-p hero))
+            (list (menu-option #\l "Level up")
+                  ""))
+          (list (menu-option #\i "Inventory")
+                ""
+                (menu-option #\p "Pool gold")
+                ""
+                (menu-option #\t "Trade gold")
+                ""
+                (menu-option #\o "Order party")))))))
 
 (defun hero-sheet-scroll (game index top char)
   "The sheet page's scroll offset after key CHAR (u/d — see
@@ -598,9 +614,29 @@ scripted tests spend a fixed number of rolls per level."
     (setf (hero-max-sp hero) new-sp))
   (emit game :level-up hero))
 
+(defun hero-level-up-pending-p (hero)
+  "Has HERO banked the experience for the next level?  The rise
+itself is manual — ADVANCE-LEVEL, the character sheet's 'l' — so the
+roster flags the readiness (the up-arrow beside the name) until the
+player takes it."
+  (>= (hero-xp hero) (xp-for-level (1+ (hero-level hero)))))
+
+(defun advance-level (game hero)
+  "Raise HERO one level when the experience is banked — the character
+sheet's 'l'.  One level per call, so a doubly-crossed threshold takes
+two presses and every rise gets its own moment.  Returns the new
+level, or NIL when none is due."
+  (when (hero-level-up-pending-p hero)
+    (level-up game hero)
+    (hero-level hero)))
+
 (defun award-xp (game hero amount)
-  "Grant HERO experience, leveling up as thresholds are crossed."
-  (incf (hero-xp hero) amount)
-  (loop while (>= (hero-xp hero) (xp-for-level (1+ (hero-level hero))))
-        do (level-up game hero))
+  "Grant HERO experience.  The level is never taken automatically:
+crossing a threshold announces the readiness once, and the rise waits
+for ADVANCE-LEVEL on the character sheet (Bard's Tale sent the party
+home to the Review Board; here the sheet is the board)."
+  (let ((was-ready (hero-level-up-pending-p hero)))
+    (incf (hero-xp hero) amount)
+    (when (and (not was-ready) (hero-level-up-pending-p hero))
+      (say game "~A is ready for the next level!" (hero-name hero))))
   (hero-xp hero))

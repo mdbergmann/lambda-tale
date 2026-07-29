@@ -18,7 +18,8 @@
 ;;;   on/off, class-unfit items are marked; p=hand an item to another
 ;;;   party member — 1-9 the item, then 1-7 who receives it)
 ;;;   p=pool the party's gold onto the hero
-;;;   o=marching order (a digit moves the hero to that slot)  Esc=back
+;;;   o=marching order (a digit moves the hero to that slot)
+;;;   l=take a banked level (the roster's ^ marker)  Esc=back
 ;;; In a location (shop): 1-9=choose  s/b=sell/buy page  p=pool gold
 ;;;   onto the shopper  Esc=back/leave
 ;;; In the cast menu: 1-9=choose caster/spell/target  Esc=back/cancel
@@ -50,14 +51,16 @@ those); only a refused step speaks."
 
 (defun %party-pane (game)
   "The party roster, Bard's Tale columns like the Amiga table: armor
-class (with equipment and spell effects), hit and spell points, gold."
+class (with equipment and spell effects), hit and spell points, gold.
+A ^ before the name is the banked-level flag (the Amiga table's white
+up-arrow) — the character sheet's 'l' takes the rise."
   (with-output-to-string (s)
     (let ((i 0))
       (dolist (h (game-party game))
         (incf i)
-        (format s "~D ~12A ~10A Lv~2D  AC ~2D  HP ~3D/~3D  SP ~3D/~3D  ~
+        (format s "~D~A~12A ~10A Lv~2D  AC ~2D  HP ~3D/~3D  SP ~3D/~3D  ~
                    ~5D gp~A~%"
-                i (hero-name h)
+                i (if (hero-level-up-pending-p h) "^" " ") (hero-name h)
                 (string-downcase (symbol-name (hero-class h)))
                 (hero-level h) (hero-effective-ac h game)
                 (hero-hp h) (hero-max-hp h)
@@ -421,6 +424,13 @@ engine has no default world; the game names its starting map."
                           ((member c '(#\o #\O))
                            (when (rest (game-party game))
                              (setf ordering t))
+                           nil)
+                          ((member c '(#\l #\L))
+                           ;; a banked level rises here — one per press
+                           (let ((hero (nth sheet-hero
+                                            (game-party game))))
+                             (when hero
+                               (advance-level game hero)))
                            nil)
                           ((eql c #\Escape) (setf mode :play) nil)
                           ((member c '(#\q #\Q)) :quit)

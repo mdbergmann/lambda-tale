@@ -103,6 +103,7 @@
    #:+party-limit+ #:party-full-p #:join-party #:move-hero
    #:damage-hero #:heal-hero #:stat-bonus #:stat-gift #:saving-throw
    #:award-xp #:xp-for-level
+   #:hero-level-up-pending-p #:advance-level
    #:pool-gold #:trade-gold
    ;; trading gold ('t' on the character sheet)
    #:make-trade-view #:trade-view-hero #:trade-view-to

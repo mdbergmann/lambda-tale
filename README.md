@@ -991,7 +991,10 @@ at all.
 ## Party and combat
 
 Heroes have Bard's Tale-ish stats (str/dex/iq/con/lck, descending AC,
-hit dice per class) and level up on xp thresholds.  A level-up rolls
+hit dice per class) and bank experience toward xp thresholds; a
+crossed threshold flags the hero in the roster (a white up-arrow
+beside the name) and the rise itself is taken by hand on the
+character sheet — `l`, one level per press.  A level-up rolls
 the class hit dice again (plus the CON bonus) and gives every ability
 a Bard's Tale chance to rise by one — a d18 per stat, the score rises
 when the draw lands at or above it, so gains thin out toward the cap
@@ -1039,6 +1042,10 @@ goes through
 Spells are campaign data (`define-spell`); the engine knows the
 mechanics: casters (`define-hero-class ... :caster t`) carry **spell
 points** (2 per level plus the IQ bonus) and pay them per cast.  A
+caster **knows** every registered spell of their class at or below
+their level — no separate learning step; a fresh level's spells
+simply arrive with it, and the character sheet closes with the
+spellbook as it stands.  A
 spell's effect is a plist over a shared vocabulary, and the keys
 **combine freely** — a restoration heals *and* cures, a batchspell
 installs five enchantments in one casting:

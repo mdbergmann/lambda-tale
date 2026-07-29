@@ -1499,6 +1499,16 @@ their digits line up down the table."
              (num (cell pen text)          ; right-aligned number column
                (col (roster-cell cell text) pen text)))
       (col (getf cols :no) 0 (format nil "~D" (1+ index)))
+      ;; a banked level: a white up-arrow in the spare cell between
+      ;; the number and the name, standing until the sheet's 'l'
+      ;; takes the rise — topaz has no arrow glyph, so the row
+      ;; draws its own (tip and head over a straight shaft)
+      (when (hero-level-up-pending-p hero)
+        (let ((mid (+ ox (* cw (1+ (getf cols :no))) (floor cw 2))))
+          (amiga.gfx:set-a-pen rp 1)
+          (amiga.gfx:rect-fill rp mid (- y 6) mid (1- y))
+          (amiga.gfx:rect-fill rp (1- mid) (- y 5) (1+ mid) (- y 5))
+          (amiga.gfx:rect-fill rp (- mid 2) (- y 4) (+ mid 2) (- y 4))))
       (col (getf cols :name) 0
            (let ((name (hero-name hero)))
              (if (> (length name) name-w) (subseq name 0 name-w) name)))
@@ -2723,6 +2733,17 @@ map/help/sheet pages close on a click outside a target — see
                                           (when (rest (game-party game))
                                             (setf ordering t)
                                             (redraw))
+                                          nil)
+                                         ((eql lc #\l)
+                                          ;; a banked level rises here —
+                                          ;; one level per press
+                                          (let ((hero (nth sheet-hero
+                                                           (game-party
+                                                            game))))
+                                            (when (and hero
+                                                       (advance-level
+                                                        game hero))
+                                              (redraw)))
                                           nil)
                                          ((characterp c)
                                           ;; u/d scroll a long stat block
