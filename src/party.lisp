@@ -354,6 +354,10 @@ hero casts or sings."
 (defstruct (magic-view (:constructor %make-magic-view))
   hero                ; the hero whose book this is
   pending             ; the entry whose card is showing, or NIL on the list
+  refusal             ; why the showing card's spell will not go off
+                      ; right now (SPELL-REFUSAL), or NIL — the card
+                      ; says so on the page, since the takeover hides
+                      ; the log that the cast menu would speak through
   (top 0))            ; scroll offset into the entry list
 
 (defun make-magic-view (hero)
@@ -393,6 +397,10 @@ casting key.  Either way the carousel's NEXT row has the last word."
          (if (eq (car pending) :spell)
              (spell-card-lines hero (cdr pending))
              (song-card-lines hero (cdr pending)))
+         ;; a refused cast puts its reason on the card — the page has
+         ;; no log under it to speak through
+         (when (magic-view-refusal view)
+           (list "" (magic-view-refusal view)))
          (list ""
                (if (eq (car pending) :spell)
                    (menu-option #\c "Cast it")
@@ -427,7 +435,10 @@ casting key.  Either way the carousel's NEXT row has the last word."
   "Apply key CHAR to the spells/songs page.  On the list a digit opens
 that entry's card, u/d scroll a long book, n turns the carousel and
 Esc leaves the page.  On a card c casts the spell (or p plays the
-song), Esc goes back to the list and n turns the carousel.  Returns
+song), Esc goes back to the list and n turns the carousel.  A cast the
+caster cannot manage right now keeps the card up with the reason on it
+(SPELL-REFUSAL — the cast menu logs its refusal, but nothing under
+this page shows the log) and answers NIL.  Returns
 :NEXT when the carousel should turn, :CANCELLED when the page should
 give way to the stat block, :DONE when a cast or a tune resolved — the
 front-end closes the sheet then, so the log can be read — (:CAST VIEW)
@@ -436,6 +447,9 @@ with that CAST-VIEW, else NIL."
   (let ((hero (magic-view-hero view))
         (pending (magic-view-pending view))
         (digit (digit-char-p char)))
+    ;; last press's refusal has been read by now — any new key clears
+    ;; it, and the one that earns a fresh one sets it again below
+    (setf (magic-view-refusal view) nil)
     (cond
       ;; a card is showing
       (pending
@@ -445,13 +459,16 @@ with that CAST-VIEW, else NIL."
           (setf (magic-view-pending view) nil)
           nil)
          ((and (eq (car pending) :spell) (member char '(#\c #\C)))
-          (if (spell-castable-p game hero (cdr pending))
-              (let ((cast (begin-cast game hero (cdr pending))))
-                (if cast (list :cast cast) :done))
-              (progn
-                (say game "~A cannot cast ~A now."
-                     (hero-name hero) (spell-title (cdr pending)))
-                nil)))
+          ;; a refusal keeps the card up and says why ON it: closing
+          ;; the sheet to log the reason would lose the player's place,
+          ;; and staying silent would tell them nothing
+          (let ((refusal (spell-refusal game hero (cdr pending))))
+            (cond (refusal
+                   (setf (magic-view-refusal view) refusal)
+                   nil)
+                  (t
+                   (let ((cast (begin-cast game hero (cdr pending))))
+                     (if cast (list :cast cast) :done))))))
          ((and (eq (car pending) :song) (member char '(#\p #\P)))
           (sing-song game hero (cdr pending))
           :done)

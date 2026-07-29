@@ -329,6 +329,14 @@ with pictures in the view column.)
   one.  `magic-act` reports these as `:done` (the front-end closes
   the sheet, so the log can be read — the takeover owns the whole
   page) and `(:cast VIEW)`.
+- A cast the caster **cannot manage** right now keeps the card up and
+  puts the reason *on the page* (`spell-refusal` → `magic-view`'s
+  `refusal` slot: "Not enough spell points.", "Only in a fight."),
+  cleared by the next key press.  The cast menu logs its refusal
+  instead, and can: it has the log beneath it.  This page does not —
+  the takeover owns the whole area — so a logged line would go unread,
+  while closing the sheet to show one would lose the player's place.
+  The rule generalises: **a takeover cannot speak through the log.**
 - **Effect prose** (`effect-summary-lines` in game.lisp, beside the
   vocabulary it reads): an effect spec in player's words, one phrase
   per key from `*effect-phrases*` plus the timed run, dice quoted as

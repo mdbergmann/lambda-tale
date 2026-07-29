@@ -107,7 +107,7 @@
    ;; the sheet carousel's spells/songs page (a digit opens the card,
    ;; the card casts or plays)
    #:hero-magic-p #:make-magic-view #:magic-view-hero
-   #:magic-view-pending #:magic-view-top
+   #:magic-view-pending #:magic-view-refusal #:magic-view-top
    #:magic-entries #:magic-lines #:magic-act
    #:+party-limit+ #:party-full-p #:join-party #:move-hero
    #:damage-hero #:heal-hero #:stat-bonus #:stat-gift #:saving-throw
@@ -146,7 +146,7 @@
    ;; spells
    #:define-spell #:find-spell-type #:spell-title
    #:spell-code #:spell-range #:spell-duration-text #:spell-target-kind
-   #:spell-description #:spell-card-lines #:begin-cast
+   #:spell-description #:spell-card-lines #:begin-cast #:spell-refusal
    #:spell-known-p #:spell-castable-p #:spells-for-hero #:cast-spell
    #:make-cast-view #:cast-view-hero #:cast-view-spell #:cast-view-top
    #:cast-view-dir #:cast-view-distance

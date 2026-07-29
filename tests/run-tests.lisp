@@ -3504,10 +3504,63 @@ height" d)
               (find-if (lambda (s) (search "cannot cast" s))
                        (funcall msgs))))
 
+(define-spell 'test-warp :cost 1 :level 1 :classes '(:t-mage)
+  :teleport 3)
+
+;; A refusal on the card keeps the card up and puts the reason ON it:
+;; the takeover owns the whole page, so a logged line would go unread,
+;; and closing the sheet to show it would lose the player's place.
+;; SPELL-REFUSAL names the reason in card-width words.
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (v (make-magic-view mage)))
+  (check "a castable spell has no refusal" nil
+         (spell-refusal g mage 'test-flame))
+  (setf (hero-sp mage) 0)
+  (check "an empty purse names itself" "Not enough spell points."
+         (spell-refusal g mage 'test-flame))
+  ;; test-bolt is a damage spell: it wants a fight
+  (setf (hero-sp mage) 6)
+  (check "a battle spell wants a fight" "Only in a fight."
+         (spell-refusal g mage 'test-bolt))
+  ;; test-lore is level 3; a level-1 mage never learned it
+  (check "an unlearned spell names itself" "Not in the book."
+         (spell-refusal g mage 'test-lore))
+  ;; test-warp is a real (integer) teleport: mid-fight there is no
+  ;; walking away through folded space
+  (start-combat g '(("test rat" 1)))
+  (check "a real teleport wants no fight" "Not in a fight."
+         (spell-refusal g mage 'test-warp))
+  (setf (game-combat g) nil)
+  ;; the card carries it, and the page stays put
+  (setf (hero-sp mage) 0)
+  (magic-act g v #\4)                   ; test-flame's card
+  (check "the refused cast keeps the card" nil (magic-act g v #\c))
+  (check "the card is still up" '(:spell . test-flame)
+         (magic-view-pending v))
+  (check "with the reason on it" "Not enough spell points."
+         (magic-view-refusal v))
+  (check-true "and the page shows it"
+              (member "Not enough spell points."
+                      (menu-texts (magic-lines g v)) :test #'equal))
+  (check "no points were spent" 0 (hero-sp mage))
+  ;; the next key clears it — the reason has been read
+  (magic-act g v #\Escape)
+  (check "a later press clears the reason" nil (magic-view-refusal v))
+  ;; with points again the same card casts
+  (setf (hero-sp mage) 6)
+  (magic-act g v #\4)
+  (check "the affordable cast goes off" :done (magic-act g v #\c))
+  (check-true "and it cost the points" (< (hero-sp mage) 6)))
+
 ;; MAGIC-ACT's card-level 'c' must not confuse BEGIN-CAST's two NIL
-;; outcomes: a refusal (unaffordable, etc.) has to keep the card open
-;; so the player reads why and tries another spell, not fall through
-;; to :DONE and close the whole sheet as if a cast had resolved.
+;; outcomes: a refusal has to keep the card open so the player reads
+;; why and tries another spell, not fall through to :DONE and close
+;; the whole sheet as if a cast had resolved.  The refusal reaches
+;; them on the card rather than through the log — the check above
+;; covers the whole path; what matters here is that the page stays
+;; quiet, since a line logged under a takeover is a line never seen.
 (let* ((m (parse-map *art* :name "test"))
        (mage (%combat-mage))
        (g (new-game m :party (list mage)))
@@ -3519,8 +3572,10 @@ height" d)
          (magic-act g v #\c))
   (check "the card is still showing" '(:spell . test-flame)
          (magic-view-pending v))
-  (check-true "and the refusal is logged"
-              (find-if (lambda (s) (search "cannot cast" s)) (funcall msgs)))
+  (check "the refusal does not go to the unread log" nil
+         (find-if (lambda (s) (search "cannot cast" s)) (funcall msgs)))
+  (check "it stands on the card instead" "Not enough spell points."
+         (magic-view-refusal v))
   (check "no points were spent" 0 (hero-sp mage)))
 
 ;; The rise itself names the spells it brings — the book is
@@ -4171,6 +4226,86 @@ height" d)
 ;;; The extended effect vocabulary: spell metadata, combined effects,
 ;;; the new instant kinds and the new timed payloads (the vocabulary
 ;;; the Closure canon speaks).
+
+;;; Reading an effect spec back out in player's words — the cards'
+;;; text, derived so it cannot drift from the mechanics.  Dice first:
+;;; a span, and a bare number where the spec can only land on one.
+(check "dice-range spans the roll" '(4 16)
+       (multiple-value-list (dice-range "4d4")))
+(check "a bonus rides both ends" '(3 10)
+       (multiple-value-list (dice-range "1d8+2")))
+(check "a constant is its own span" '(8 8)
+       (multiple-value-list (dice-range 8)))
+(check "dice-range-text writes the span" "4-16" (dice-range-text "4d4"))
+(check "a constant writes as one number" "8" (dice-range-text 8))
+(check "and so does a one-faced die" "3" (dice-range-text "3d1"))
+
+;; Every phrase in the vocabulary, against its exact words.  A key
+;; that grows a phrase must grow a row here — the table below is the
+;; specification of what a player reads.
+(dolist (case '(;; instant
+                ((:damage "2d6")            "Damage 2-12")
+                ((:damage-per-level "1d4")  "Damage 1-4 a level")
+                ((:damage-group "5d4")      "Group damage 5-20")
+                ((:damage-all "10d4")       "Damage 10-40 to all")
+                ((:slay 5)                  "Fells a foe (5%)")
+                ((:push-foes t)             "Hurls the foes back")
+                ((:halt-foes t)             "Freezes the foes")
+                ((:calm t)                  "Soothes the foes")
+                ((:heal "4d4")              "Heals 4-16")
+                ((:heal :full)              "Heals fully")
+                ((:heal-party "10d4")       "Heals all 10-40")
+                ((:heal-party :full)        "Heals all fully")
+                ((:resurrect t)             "Raises the fallen")
+                ((:cure (:poison))          "Cures poison")
+                ((:cure (:poison :insanity)) "Cures poison, insanity")
+                ((:scry t)                  "Tells where you are")
+                ((:disarm-traps 3)          "Disarms traps (3 sq)")
+                ((:teleport 9)              "Folds space (9 sq)")
+                ((:teleport t)              "Folds space")
+                ((:summon "wolf")           "Summons wolf")
+                ;; timed — each needs a duration to be a legal spec,
+                ;; so the run is checked separately below
+                ((:buff-ac 2 :duration 10)       "AC 2 better")
+                ((:light t :duration 10)         "Light")
+                ((:night-vision t :duration 10)  "Sight in the dark")
+                ((:reveal t :duration 10)        "Magical sight")
+                ((:compass t :duration 10)       "Shows your facing")
+                ((:levitate t :duration 10)      "Floats over traps")
+                ((:buff-damage 2 :duration 10)   "Damage +2")
+                ((:save-bonus 2 :duration 10)    "Saving rolls +2")
+                ((:regen-sp 2 :duration 10)      "SP return x2")
+                ((:extra-attacks 1 :duration 10) "+1 strike a round")
+                ((:combat-heal "1d4" :duration 10) "Heals 1-4 a round")
+                ((:foes-ac 2 :duration 10)       "Foes easier to hit")
+                ((:foes-attack 2 :duration 10)   "Foes hit less often")))
+  (destructuring-bind (spec expected) case
+    (check (format nil "~S reads as its phrase" (first spec))
+           expected
+           (first (effect-summary-lines spec)))))
+;; every key the vocabulary knows has a phrase — a new key must not
+;; slip onto a card as silence
+(check "no effect key is left speechless" '()
+       (remove-if (lambda (key) (assoc key *effect-phrases*))
+                  (mapcar #'first (append *instant-effect-keys*
+                                          *timed-effect-keys*))))
+;; the timed run closes the reading
+(check "minutes read as minutes" "for 60 minutes"
+       (effect-duration-text '(:light t :duration 60)))
+(check "a single minute is not plural" "for a minute"
+       (effect-duration-text '(:light t :duration 1)))
+(check "an endless effect says so" "until dispelled"
+       (effect-duration-text '(:light t :duration :indefinite)))
+(check "an instant spec has no run" nil
+       (effect-duration-text '(:damage "1d4")))
+(check "the run closes the summary"
+       '("AC 2 better" "Light" "for 30 minutes")
+       (effect-summary-lines '(:buff-ac 2 :light t :duration 30)))
+(check "combined keys each get their line, instants first"
+       '("Heals 4-16" "Saving rolls +2" "for 20 minutes")
+       (effect-summary-lines '(:heal "4d4" :save-bonus 2 :duration 20)))
+(check "a spec naming nothing says nothing" '()
+       (effect-summary-lines '()))
 
 ;; Spell metadata rides along untouched by the mechanics.
 (define-spell 'test-canon :code "TSTC" :range "1 foe (10')"

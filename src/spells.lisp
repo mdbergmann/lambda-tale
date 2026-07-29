@@ -158,18 +158,32 @@ rule items follow too)."
   (remove-if-not (lambda (name) (spell-known-p hero name))
                  *spell-names*))
 
-(defun spell-castable-p (game hero name)
-  "Can HERO cast NAME right now?  Known, affordable, for a spell that
+(defun spell-refusal (game hero name)
+  "Why HERO cannot cast NAME right now, as a short line for the spell
+card — or NIL when they can: known, affordable, for a spell that
 needs a fight (the damage family and the foe-handling keys) in
 combat — and for a real (integer) teleport NOT in combat: mid-fight
-there is no walking away through folded space."
+there is no walking away through folded space.  SPELL-CASTABLE-P
+answers the yes/no of the same rule; the card is +TAKEOVER-COLUMNS+
+wide, so the reasons stay short.  The cast menu keeps its own one-line
+refusal (it has the log under it to say more); the card has no log
+beneath, so the reason has to stand on the page itself."
   (let ((type (find-spell-type name)))
-    (and (spell-known-p hero name)
-         (>= (hero-sp hero) (spell-type-cost type))
-         (or (not (effect-spec-combat-only-p (spell-type-effect type)))
-             (and (game-combat game) t))
-         (not (and (game-combat game)
-                   (integerp (getf (spell-type-effect type) :teleport)))))))
+    (cond ((not (spell-known-p hero name)) "Not in the book.")
+          ((< (hero-sp hero) (spell-type-cost type))
+           "Not enough spell points.")
+          ((and (effect-spec-combat-only-p (spell-type-effect type))
+                (not (game-combat game)))
+           "Only in a fight.")
+          ((and (game-combat game)
+                (integerp (getf (spell-type-effect type) :teleport)))
+           "Not in a fight.")
+          (t nil))))
+
+(defun spell-castable-p (game hero name)
+  "Can HERO cast NAME right now?  SPELL-REFUSAL decides; this just
+asks whether it had anything to say."
+  (not (spell-refusal game hero name)))
 
 (defun spell-card-lines (hero name)
   "The spell card for NAME — the facts a caster wants before spending
@@ -205,7 +219,7 @@ wants a target (a heal's hero, a teleport's heading and count) answers
 with a CAST-VIEW the front-end goes on with, exactly the model the C
 menu drives from there; one that needs no aiming resolves on the spot
 and answers NIL.  A spell the caster cannot manage right now answers
-NIL too, having said why (SPELL-CASTABLE-P's rules — unaffordable, a
+NIL too, having said why (SPELL-REFUSAL's rules — unaffordable, a
 battle spell out of a fight, a teleport inside one)."
   (cond
     ((not (spell-castable-p game hero name))
