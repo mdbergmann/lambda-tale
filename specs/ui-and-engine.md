@@ -56,9 +56,15 @@ campaign data, never as code that knows about "the" town.
   and `:energy` mechanics, campaigns script other kinds via events.
 - A **temple** (`:temple`, 2026-07-26) heals for gold: `:price` gold
   per missing hit point (default 2) plus a flat `:raise` fee (default
-  50) to bring a fallen hero back — a digit on its menu makes that
-  hero whole, paid from their own purse (`temple-lines`/`temple-act`,
-  the tavern's shape).  An **energy fount** (`:energy`) refills a
+  50) to bring a fallen hero back.  Its menu asks twice (2026-07-29):
+  *Who wishes healing?* — a digit per hurt hero — then *Who will
+  pay?* — any purse in the party, the patient's own included.  A purse
+  short of the whole job buys what it can, wound by wound (a raising
+  asks the fee plus the first wound); one that buys nothing leaves
+  **Not enough Gold** as the menu's last line
+  (`temple-lines`/`temple-act` over a `temple-view`, the shop's
+  stateful shape — front-ends get the right view per kind from
+  `make-location-view`).  An **energy fount** (`:energy`) refills a
   caster's spell points at `:price` gold apiece (default 3), living
   casters only (`energy-lines`/`energy-act`).  Both emit `:coin` on
   payment, plus `:temple-heal`/`:energy-restored`.

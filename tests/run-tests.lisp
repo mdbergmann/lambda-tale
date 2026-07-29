@@ -3480,17 +3480,21 @@ height" d)
 (delete-file "tests/tmp-down.map")
 
 ;; Temples: healers for hire — so many gold per missing hit point,
-;; a flat fee on top to raise the fallen; the healed hero pays from
-;; their own purse.
+;; a flat fee on top to raise the fallen.  The menu asks twice: who
+;; wishes healing, then who will pay — any purse may cover any
+;; patient, and a short purse buys wound by wound what it can.
 (let* ((m (parse-map *art* :name "test"))
        (a (%combat-hero "Ava"))            ; 8 max hp
        (b (%combat-hero "Bo"))
        (g (new-game m :party (list a b)))
-       (msgs (watch-messages g)))
+       (msgs (watch-messages g))
+       (v nil))
   (setf (hero-gold a) 100
-        (hero-gold b) 3)
+        (hero-gold b) 2)                   ; short of even one wound
   (damage-hero g a 5)                      ; 3/8 — five wounds
   (enter-location g '("The Test Chapel" :temple :price 3 :raise 40))
+  (setf v (make-location-view g))
+  (check-true "the temple gets a temple view" (temple-view-p v))
   (check "the rates are the location's" '(3 40)
          (list (temple-price (game-location g))
                (temple-raise-fee (game-location g))))
@@ -3499,63 +3503,148 @@ height" d)
   (check "an unhurt hero costs nothing" 0
          (temple-cost (game-location g) b))
   (check "location-lines serves the temple menu"
-         (menu-texts (temple-lines g))
-         (menu-texts (location-lines g nil)))
+         (menu-texts (temple-lines g v))
+         (menu-texts (location-lines g v)))
   (check-true "the menu shows the rates"
               (find-if (lambda (s)
                          (search "Healing 3 gold a wound; 40 to raise" s))
-                       (menu-texts (temple-lines g))))
+                       (menu-texts (temple-lines g v))))
+  (check-true "the menu asks who wishes healing"
+              (find "Who wishes healing?" (menu-texts (temple-lines g v))
+                    :test #'equal))
   ;; the roster pane already shows health and purse — a temple row
   ;; carries only who and what the priests ask
   (check-true "a hurt hero's row shows the cost alone"
               (find-if (lambda (s) (search "1) Ava  costs 15" s))
-                       (menu-texts (temple-lines g))))
+                       (menu-texts (temple-lines g v))))
   (check "an unhurt hero earns no row" nil
          (find-if (lambda (s) (search "Bo" s))
-                  (menu-texts (temple-lines g))))
+                  (menu-texts (temple-lines g v))))
   (check "a hero row carries its digit" #\1
          (menu-line-key
           (find-if (lambda (line)
                      (search "Ava" (menu-line-text line)))
-                   (temple-lines g))))
-  (check-true "a digit heals through the menu"
-              (progn (temple-act g #\1) (= (hero-hp a) 8)))
-  (check "the priests were paid" 85 (hero-gold a))
+                   (temple-lines g v))))
+  ;; picking the patient turns the page to the payer question
+  (temple-act g v #\1)
+  (check "the digit picks the patient" a (temple-view-patient v))
+  (check-true "the menu asks who will pay, naming the cost"
+              (find-if (lambda (s) (search "Who will pay Ava's 15 gold?" s))
+                       (menu-texts (temple-lines g v))))
+  (check-true "every purse gets a payer row"
+              (and (find-if (lambda (s) (search "1) Ava  100 gp" s))
+                            (menu-texts (temple-lines g v)))
+                   (find-if (lambda (s) (search "2) Bo  2 gp" s))
+                            (menu-texts (temple-lines g v)))))
+  (check-true "Esc backs off the payer page"
+              (progn (temple-act g v #\Escape)
+                     (null (temple-view-patient v))))
+  (check "backing off healed nothing" 3 (hero-hp a))
+  ;; a payer too poor for even one wound: the notice, not a heal
+  (temple-act g v #\1)                     ; Ava wishes healing
+  (temple-act g v #\2)                     ; Bo's 2 gp buy no 3-gold wound
+  (check-true "a purse short of one wound leaves the notice last"
+              (equal "Not enough Gold"
+                     (first (last (menu-texts (temple-lines g v))))))
+  (check "the notice keeps the gold" 2 (hero-gold b))
+  (check "and the wounds" 3 (hero-hp a))
+  (check-true "the notice keeps the payer page open"
+              (temple-view-patient v))
+  (check-true "the next key clears the notice"
+              (progn (temple-act g v #\1)  ; Ava pays herself
+                     (null (temple-view-note v))))
+  (check-true "the payer digit heals the patient" (= (hero-hp a) 8))
+  (check "the payer was charged" 85 (hero-gold a))
+  (check "a done deal turns back to the patient page" nil
+         (temple-view-patient v))
   (check-true "the mending is announced"
               (find-if (lambda (s) (search "mend Ava's wounds" s))
                        (funcall msgs)))
-  (check "an unhurt hero is turned away" nil (temple-heal g a))
+  (check "an unhurt patient is turned away" nil
+         (progn (temple-act g v #\1) (temple-view-patient v)))
   (check-true "needs-no-healing message"
               (find-if (lambda (s) (search "needs no healing" s))
                        (funcall msgs)))
-  ;; the raise: Bo falls — eight wounds at 3, plus the 40 fee
+  ;; another purse may pay: Bo falls — eight wounds at 3, plus the 40
+  ;; fee — and Ava covers the whole raising
   (damage-hero g b 999)
   (check "raising adds the flat fee" 64
          (temple-cost (game-location g) b))
   (check-true "the fallen hero's row says down, numbered by roster slot"
               (find-if (lambda (s)
                          (search "2) Bo (down)  costs 64" s))
-                       (menu-texts (temple-lines g))))
-  (check "a short purse is refused" nil (temple-heal g b))
-  (check-true "cannot-pay message"
-              (find-if (lambda (s)
-                         (search "cannot pay the priests' 64 gold" s))
-                       (funcall msgs)))
-  (check "refusals keep the gold" 3 (hero-gold b))
-  (setf (hero-gold b) 64)
-  (check-true "the temple raises the fallen through the menu"
-              (progn (temple-act g #\2) (hero-alive-p b)))
+                       (menu-texts (temple-lines g v))))
+  (temple-act g v #\2)                     ; Bo wishes healing
+  (temple-act g v #\1)                     ; Ava pays
+  (check-true "another purse raises the fallen" (hero-alive-p b))
   (check "back on their feet, whole" 8 (hero-hp b))
-  (check "the fee is gone" 0 (hero-gold b))
+  (check "the payer covered fee and wounds" 21 (hero-gold a))
+  (check "the patient's own purse is untouched" 2 (hero-gold b))
   (check-true "the raising is announced"
               (find-if (lambda (s) (search "Bo rises, whole again" s))
                        (funcall msgs)))
   (check-true "a hale party gets the no-one-needs line"
               (find-if (lambda (s)
                          (search "No one here needs the priests" s))
-                       (menu-texts (temple-lines g))))
-  (check "Esc leaves the temple" :left (temple-act g #\Escape))
+                       (menu-texts (temple-lines g v))))
+  (check "Esc leaves the temple" :left (temple-act g v #\Escape))
   (check "the temple is left behind" nil (game-location g)))
+
+;; The short purse buys what it can: wounds one by one, and a raising
+;; only once the fee plus the first wound is covered.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ava"))            ; 8 max hp
+       (g (new-game m :party (list a)))
+       (msgs (watch-messages g))
+       (v nil))
+  (damage-hero g a 5)                      ; 3/8 — five wounds
+  (setf (hero-gold a) 11)                  ; three wounds and change
+  (enter-location g '("The Test Chapel" :temple :price 3 :raise 40))
+  (setf v (make-location-view g))
+  (temple-act g v #\1)                     ; Ava wishes healing
+  (check-true "a short purse buys what it can"
+              (progn (temple-act g v #\1) (= (hero-hp a) 6)))
+  (check "three wounds cost nine, the change stays" 2 (hero-gold a))
+  (check-true "the part mend is announced"
+              (find-if (lambda (s) (search "mend some of Ava's wounds" s))
+                       (funcall msgs)))
+  ;; the fallen: the fee gates the raising — 40 alone buys no rise,
+  ;; 46 raises with one wound bought
+  (damage-hero g a 999)
+  (setf (hero-gold a) 42)                  ; a gold short of fee + wound
+  (temple-act g v #\1)
+  (temple-act g v #\1)
+  (check-true "the fee alone raises no one"
+              (and (not (hero-alive-p a))
+                   (equal "Not enough Gold"
+                          (first (last (menu-texts (temple-lines g v)))))))
+  (check "the refusal keeps the gold" 42 (hero-gold a))
+  (setf (hero-gold a) 46)                  ; fee + two wounds' worth
+  (temple-act g v #\1)
+  (check-true "fee and first wound covered, the fallen rises hurt"
+              (progn (temple-act g v #\1)
+                     (and (hero-alive-p a) (= (hero-hp a) 2))))
+  (check "the raising took everything" 0 (hero-gold a))
+  (check-true "the part raise is announced"
+              (find-if (lambda (s) (search "Ava rises" s))
+                       (funcall msgs)))
+  (temple-act g v #\Escape))
+
+;; A free-healing shrine (:price 0) buys every wound without dividing
+;; by zero; a flat raise fee, if any, still gates a raising.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ava"))            ; 8 max hp
+       (g (new-game m :party (list a)))
+       (v nil))
+  (damage-hero g a 5)                      ; 3/8 — five wounds
+  (setf (hero-gold a) 0)
+  (enter-location g '("The Free Shrine" :temple :price 0 :raise 40))
+  (setf v (make-location-view g))
+  (temple-act g v #\1)                     ; Ava wishes healing
+  (check-true "a free shrine heals with no gold at all"
+              (progn (temple-act g v #\1) (= (hero-hp a) 8)))
+  (check "the shrine takes no gold" 0 (hero-gold a))
+  (temple-act g v #\Escape))
 
 ;; the default temple rates: two gold a wound, fifty for a raising
 (let* ((m (parse-map *art* :name "test"))

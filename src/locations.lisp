@@ -485,12 +485,15 @@ Returns :LEFT when the party leaves the location, else NIL."
           (t nil))))
 
 ;;; ---------------------------------------------------------------------
-;;; Temple mechanics: healers for hire.  A :TEMPLE location makes a
-;;; hero whole for gold — so many gold per missing hit point (:PRICE)
-;;; plus a flat :RAISE fee to bring a fallen hero back to their feet,
-;;; the Bard's Tale temple.  The healed hero pays from their own
-;;; purse (gold scattered over the party pools on the character
-;;; sheet first).
+;;; Temple mechanics: healers for hire.  A :TEMPLE location heals a
+;;; hero for gold — so many gold per missing hit point (:PRICE) plus a
+;;; flat :RAISE fee to bring a fallen hero back to their feet, the
+;;; Bard's Tale temple.  The menu asks twice: who wishes healing, then
+;;; who will pay — any purse in the party may cover any patient (a
+;;; fallen hero's own included; the purse survives its owner).  A
+;;; purse short of the whole job still buys what it can, wound by
+;;; wound; one too short for any healing at all leaves the temple's
+;;; Not enough Gold notice instead.
 
 (defun temple-price (location)
   "LOCATION's healing rate, gold per missing hit point (:PRICE,
@@ -510,71 +513,143 @@ Zero for an unhurt hero."
         (- (hero-max-hp hero) (hero-hp hero)))
      (if (hero-alive-p hero) 0 (temple-raise-fee location))))
 
-(defun temple-heal (game hero)
-  "The priests make HERO whole — hit points to the maximum, the
-fallen raised — for TEMPLE-COST gold out of HERO's own purse.
-Returns T and emits :COIN and :TEMPLE-HEAL; says why and returns NIL
-when HERO needs no healing or cannot pay.  A fallen hero may pay for
-their own raising (the purse survives its owner, as POOL-GOLD
-knows)."
+(defstruct (temple-view (:constructor %make-temple-view))
+  patient             ; the hero the priests will heal, or NIL while
+                      ; the menu asks who wishes healing
+  note)               ; a notice for the menu's last line ("Not enough
+                      ; Gold"), or NIL; cleared by the next key
+
+(defun make-temple-view ()
+  (%make-temple-view))
+
+(defun temple-heal (game hero payer)
+  "The priests heal HERO out of PAYER's purse: whole — hit points to
+the maximum, the fallen raised — when the gold reaches, else as many
+wounds as the gold buys (a raising asks the flat fee before the first
+wound comes back).  Returns T and emits :COIN and :TEMPLE-HEAL when
+any healing was bought; otherwise returns (VALUES NIL REASON) —
+:HALE when HERO needs no healing (said aloud), :POOR when PAYER's
+purse buys no healing at all (quiet: the temple menu shows the
+notice, see TEMPLE-LINES)."
   (let* ((loc (game-location game))
-         (cost (temple-cost loc hero)))
-    (cond ((zerop cost)
+         (price (temple-price loc))
+         (fee (if (hero-alive-p hero) 0 (temple-raise-fee loc)))
+         (wounds (- (hero-max-hp hero) (hero-hp hero))))
+    (cond ((zerop wounds)
            (say game "~A needs no healing." (hero-name hero))
-           nil)
-          ((< (hero-gold hero) cost)
-           (say game "~A cannot pay the priests' ~D gold."
-                (hero-name hero) cost)
-           nil)
+           (values nil :hale))
+          ((< (hero-gold payer) (+ fee price))
+           (values nil :poor))
           (t
-           (let ((raised (not (hero-alive-p hero))))
-             (decf (hero-gold hero) cost)
-             (setf (hero-hp hero) (hero-max-hp hero))
+           (let* ((bought (min wounds
+                               (if (zerop price)
+                                   wounds
+                                   (floor (- (hero-gold payer) fee) price))))
+                  (cost (+ fee (* bought price)))
+                  (whole (= bought wounds)))
+             (decf (hero-gold payer) cost)
+             (incf (hero-hp hero) bought)
              (emit game :coin cost)
-             (if raised
-                 (say game "The priests chant, and ~A rises, whole ~
-                            again!  (~D gold)"
-                      (hero-name hero) cost)
-                 (say game "The priests mend ~A's wounds.  (~D gold)"
-                      (hero-name hero) cost))
+             (cond ((and (plusp fee) whole)
+                    (say game "The priests chant, and ~A rises, whole ~
+                               again!  (~D gold)"
+                         (hero-name hero) cost))
+                   ((plusp fee)
+                    (say game "The priests chant, and ~A rises — ~
+                               wounds remain.  (~D gold)"
+                         (hero-name hero) cost))
+                   (whole
+                    (say game "The priests mend ~A's wounds.  (~D gold)"
+                         (hero-name hero) cost))
+                   (t
+                    (say game "The priests mend some of ~A's wounds.  ~
+                               (~D gold)"
+                         (hero-name hero) cost)))
              (emit game :temple-heal hero)
              t)))))
 
-(defun temple-lines (game)
-  "The temple menu as menu lines: the rates, then one numbered row per
-party member the priests can help — the roster pane already shows
-everyone's health and purse, so a hale hero earns no row.  The number
-is the hero's roster slot (the digit TEMPLE-ACT expects), so a row is
-skipped, never renumbered."
-  (let ((loc (game-location game)))
+(defun temple-lines (game view)
+  "The temple menu as menu lines, two pages riding VIEW (a
+TEMPLE-VIEW).  First the rates and — Who wishes healing? — one
+numbered row per party member the priests can help; the roster pane
+already shows everyone's health and purse, so a hale hero earns no
+row, and the number is the hero's roster slot (the digit TEMPLE-ACT
+expects), so a row is skipped, never renumbered.  With the patient
+chosen: Who will pay? over one row per party member and their purse.
+The view's NOTE (the payer page's Not enough Gold) is the last line."
+  (let* ((loc (game-location game))
+         (patient (and view (temple-view-patient view)))
+         (note (and view (temple-view-note view))))
     (append
      (list (format nil "*** ~A ***" (location-title loc)) ""
            (format nil "Healing ~D gold a wound; ~D to raise the fallen."
                    (temple-price loc) (temple-raise-fee loc))
            "")
-     (let ((i 0)
-           (rows '()))
-       (dolist (h (game-party game))
-         (incf i)
-         (when (plusp (temple-cost loc h))
-           (push (menu-numbered
-                  i (format nil "~D) ~A~:[~; (down)~]  costs ~D"
-                            i (hero-name h) (not (hero-alive-p h))
-                            (temple-cost loc h)))
-                 rows)))
-       (if rows
-           (nreverse rows)
-           (list "No one here needs the priests."))))))
+     (if patient
+         (append
+          (list (format nil "Who will pay ~A's ~D gold?"
+                        (hero-name patient) (temple-cost loc patient))
+                "")
+          (let ((i 0))
+            (mapcar (lambda (h)
+                      (incf i)
+                      (menu-numbered
+                       i (format nil "~D) ~A  ~D gp"
+                                 i (hero-name h) (hero-gold h))))
+                    (game-party game))))
+         (let ((i 0)
+               (rows '()))
+           (dolist (h (game-party game))
+             (incf i)
+             ;; hurt heroes earn a row — by wounds, not by cost, so a
+             ;; free shrine (:price 0) still offers its healing
+             (when (< (hero-hp h) (hero-max-hp h))
+               (push (menu-numbered
+                      i (format nil "~D) ~A~:[~; (down)~]  costs ~D"
+                                i (hero-name h) (not (hero-alive-p h))
+                                (temple-cost loc h)))
+                     rows)))
+           (if rows
+               (cons "Who wishes healing?" (nreverse rows))
+               (list "No one here needs the priests."))))
+     (when note (list "" note)))))
 
-(defun temple-act (game char)
-  "Apply key CHAR to the temple menu: a digit heals that hero (the
-fallen very much included — that is what temples are for), Esc
-leaves.  Returns :LEFT when the party leaves the location, else NIL."
-  (let ((digit (digit-char-p char)))
-    (cond ((and digit (<= 1 digit (length (game-party game))))
-           (temple-heal game (nth (1- digit) (game-party game)))
+(defun temple-act (game view char)
+  "Apply key CHAR to the temple menu (VIEW is its TEMPLE-VIEW): on
+the first page a digit picks the patient (the fallen very much
+included — that is what temples are for), on the payer page a digit
+picks whose purse pays — a short purse buys what it can, and one too
+short for any healing leaves the Not enough Gold notice.  Esc backs
+off the payer page, else leaves.  Returns :LEFT when the party
+leaves the location, else NIL."
+  (let ((digit (digit-char-p char))
+        (patient (and view (temple-view-patient view))))
+    (when view (setf (temple-view-note view) nil))
+    (cond ((and view digit (<= 1 digit (length (game-party game))))
+           (let ((h (nth (1- digit) (game-party game))))
+             (if patient
+                 (multiple-value-bind (healed reason)
+                     (temple-heal game patient h)
+                   (declare (ignore healed))
+                   (if (eq reason :poor)
+                       (setf (temple-view-note view) "Not enough Gold")
+                       ;; healed — or hale after another purse already
+                       ;; paid: back to picking a patient either way
+                       (setf (temple-view-patient view) nil)))
+                 ;; wounds, not cost, make a patient — a free shrine
+                 ;; (:price 0) heals too
+                 (if (< (hero-hp h) (hero-max-hp h))
+                     (setf (temple-view-patient view) h)
+                     (say game "~A needs no healing." (hero-name h)))))
            nil)
-          ((member char '(#\Escape #\l #\L #\q #\Q))
+          ((eql char #\Escape)
+           (cond (patient
+                  (setf (temple-view-patient view) nil)
+                  nil)
+                 (t
+                  (leave-location game)
+                  :left)))
+          ((and (null patient) (member char '(#\l #\L #\q #\Q)))
            (leave-location game)
            :left)
           (t nil))))
@@ -662,6 +737,19 @@ the location, else NIL."
            :left)
           (t nil))))
 
+(defun make-location-view (game)
+  "A fresh view for the current location's menu, of the kind that
+menu needs: the shop model for :SHOP, the temple's for :TEMPLE, NIL
+for kinds whose menus keep no state (and with no location at all).
+The front-ends call this on :ENTER-LOCATION and hand the view to
+LOCATION-LINES and LOCATION-ACT."
+  (let ((loc (game-location game)))
+    (when loc
+      (case (location-kind loc)
+        (:shop (make-shop-view))
+        (:temple (make-temple-view))
+        (t nil)))))
+
 (defun location-lines (game view)
   "Menu lines for the current location: the shop model for :SHOP, the
 tavern menu for :TAVERN, the temple for :TEMPLE, the energy fount for
@@ -672,7 +760,7 @@ clickable EXIT."
     (case (location-kind loc)
       (:shop (shop-lines game view))
       (:tavern (tavern-lines game))
-      (:temple (temple-lines game))
+      (:temple (temple-lines game view))
       (:energy (energy-lines game))
       (t (list (format nil "*** ~A ***" (location-title loc)) ""
                "There is nothing to do here."
@@ -685,7 +773,7 @@ TAVERN-ACT, TEMPLE-ACT and ENERGY-ACT)."
     (case (location-kind loc)
       (:shop (shop-act game view char))
       (:tavern (tavern-act game char))
-      (:temple (temple-act game char))
+      (:temple (temple-act game view char))
       (:energy (energy-act game char))
       (t (when (member char '(#\Escape #\e #\E #\l #\L #\q #\Q))
            (leave-location game)

@@ -1994,7 +1994,8 @@ map/help/sheet pages close on a click outside a target — see
          (equipv nil)       ; EQUIP-VIEW while the pack page is open
          (tradev nil)       ; TRADE-VIEW while the trade page is open
          (help-prior-mode :play) ; mode to return to when help closes
-         (shopv nil)        ; SHOP-VIEW while inside a location
+         (locv nil)         ; the location's view (MAKE-LOCATION-VIEW)
+                            ; while inside one; NIL for stateless menus
          (castv nil)        ; CAST-VIEW while the cast menu is open
          (usev nil)         ; USE-VIEW while the use menu is open
          (singv nil)        ; SING-VIEW while the sing menu is open
@@ -2019,7 +2020,7 @@ map/help/sheet pages close on a click outside a target — see
     (labels ((wire (g)
                (setf log (attach-message-log g))
                (attach-sounds g)
-               (setf shopv (when (game-location g) (make-shop-view)))
+               (setf locv (make-location-view g))
                (setf castv nil)
                (setf usev nil)
                (setf singv nil)
@@ -2035,11 +2036,11 @@ map/help/sheet pages close on a click outside a target — see
                                       (plusp (combat-message-delay)))
                              (funcall pace-fn))))
                (on-event g :enter-location
-                         (lambda (gm loc) (declare (ignore gm loc))
-                           (setf shopv (make-shop-view))))
+                         (lambda (gm loc) (declare (ignore loc))
+                           (setf locv (make-location-view gm))))
                (on-event g :leave-location
                          (lambda (gm loc) (declare (ignore gm loc))
-                           (setf shopv nil)))
+                           (setf locv nil)))
                (on-event g :enter-zone
                          (lambda (gm map) (declare (ignore gm map))
                            (setf zone-dirty t)))
@@ -2200,8 +2201,8 @@ map/help/sheet pages close on a click outside a target — see
                           (let ((loc (game-location game)))
                             (and loc
                                  (eq (location-kind loc) :shop)
-                                 shopv
-                                 (null (shop-view-hero shopv)))))
+                                 locv
+                                 (null (shop-view-hero locv)))))
                         (idle-clock ()
                           ;; one heartbeat of the living-world clock: drip
                           ;; game time forward while the party stands idle
@@ -2385,8 +2386,9 @@ map/help/sheet pages close on a click outside a target — see
                                      rp
                                      (location-lines
                                       game
-                                      (or shopv
-                                          (setf shopv (make-shop-view))))
+                                      (or locv
+                                          (setf locv
+                                                (make-location-view game))))
                                      log l log-lines))
                                    (t
                                     (%amiga-draw-log rp log l log-lines)))
@@ -2743,9 +2745,10 @@ map/help/sheet pages close on a click outside a target — see
                                          (when (characterp key)
                                            (location-act
                                             game
-                                            (or shopv
-                                                (setf shopv
-                                                      (make-shop-view)))
+                                            (or locv
+                                                (setf locv
+                                                      (make-location-view
+                                                       game)))
                                             key))
                                          ;; the location lives in the
                                          ;; panes too — leaving needs

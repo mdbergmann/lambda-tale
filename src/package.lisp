@@ -129,7 +129,8 @@
    #:cell-location-op #:facing-location-image-path
    #:shop-stock #:item-price #:item-sell-price #:buy-item #:sell-item
    #:make-shop-view #:shop-view-hero #:shop-view-mode #:shop-view-top
-   #:shop-lines #:shop-act #:location-lines #:location-act
+   #:shop-lines #:shop-act
+   #:make-location-view #:location-lines #:location-act
    ;; spells
    #:define-spell #:find-spell-type #:spell-title
    #:spell-code #:spell-range #:spell-duration-text #:spell-target-kind
@@ -148,6 +149,7 @@
    ;; temples (healing and raising, for gold) and the energy fount
    ;; (spell points at so many gold apiece)
    #:temple-price #:temple-raise-fee #:temple-cost #:temple-heal
+   #:make-temple-view #:temple-view-patient #:temple-view-note
    #:temple-lines #:temple-act
    #:energy-price #:energy-cost #:energy-restore
    #:energy-lines #:energy-act

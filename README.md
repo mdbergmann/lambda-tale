@@ -701,11 +701,14 @@ band icon.  See the "Usable items" and "Spell-trigger items" test
 sections of `tests/run-tests.lisp` for the exact rules.
 
 Two more location kinds spend gold on recovery, Bard's Tale style.  A
-**temple** — `(location TITLE :temple :price N :raise M)` — makes a
-hero whole: `N` gold per missing hit point (default 2), plus the flat
-`M` (default 50) to **raise a fallen hero**; a digit on its menu heals
-that party member, paid from their own purse (pool first when the gold
-is scattered).  An **energy fount** — `(location TITLE :energy :price
+**temple** — `(location TITLE :temple :price N :raise M)` — heals for
+`N` gold per missing hit point (default 2), plus the flat `M` (default
+50) to **raise a fallen hero**.  Its menu asks twice: *Who wishes
+healing?* — a digit per hurt hero — then *Who will pay?* — any purse
+in the party, the patient's own included.  A purse short of the whole
+job buys what it can, wound by wound (a raising asks the fee plus the
+first wound), and one that buys nothing leaves *Not enough Gold* as
+the menu's last line.  An **energy fount** — `(location TITLE :energy :price
 N)` — refills a living caster's spell points at `N` gold apiece
 (default 3), the Roscoe's of the piece; singers refill at the tavern
 instead.  The "Temples" and "The energy fount" test sections of

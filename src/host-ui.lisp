@@ -104,7 +104,8 @@ engine has no default world; the game names its starting map."
          (ordering nil)      ; sheet: picking the hero's new slot (o)
          (equip nil)         ; EQUIP-VIEW while the pack page is open
          (trade nil)         ; TRADE-VIEW while the trade page is open
-         (shop nil)          ; SHOP-VIEW while inside a location
+         (locv nil)          ; the location's view (MAKE-LOCATION-VIEW)
+                             ; while inside one; NIL for stateless menus
          (cast nil)          ; CAST-VIEW while the cast menu is open
          (use nil)           ; USE-VIEW while the use menu is open
          (sing nil)          ; SING-VIEW while the sing menu is open
@@ -117,7 +118,7 @@ engine has no default world; the game names its starting map."
                ;; cues go through *SOUND-BACKEND* — silence on the host,
                ;; but the wiring matches the Amiga front-end
                (attach-sounds g)
-               (setf shop (when (game-location g) (make-shop-view)))
+               (setf locv (make-location-view g))
                (setf cast nil)
                (setf use nil)
                (setf sing nil)
@@ -144,12 +145,12 @@ engine has no default world; the game names its starting map."
                            (setf orders nil)))
                (on-event g :enter-location
                          (lambda (game loc)
-                           (declare (ignore game loc))
-                           (setf shop (make-shop-view))))
+                           (declare (ignore loc))
+                           (setf locv (make-location-view game))))
                (on-event g :leave-location
                          (lambda (game loc)
                            (declare (ignore game loc))
-                           (setf shop nil)))
+                           (setf locv nil)))
                (on-event g :game-won
                          (lambda (game)
                            (declare (ignore game))
@@ -210,7 +211,7 @@ engine has no default world; the game names its starting map."
                       (dolist (line (sing-lines game sing))
                         (format t "~A~%" (menu-line-text line))))
                      ((game-location game)
-                      (dolist (line (location-lines game shop))
+                      (dolist (line (location-lines game locv))
                         (format t "~A~%" (menu-line-text line))))
                      (t
                       (format t "~A~%"
@@ -464,7 +465,7 @@ engine has no default world; the game names its starting map."
                      (sing (sing-menu-act c))
                      ((game-combat game) (combat-act c))
                      ((game-location game)
-                      (location-act game shop c)
+                      (location-act game locv c)
                       nil)
                      (t (explore-act c))))
              (finished-p ()
