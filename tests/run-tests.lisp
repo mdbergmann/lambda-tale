@@ -3160,6 +3160,31 @@ height" d)
   (check-true "victory message"
               (find-if (lambda (s) (search "Victory" s)) (funcall msgs))))
 
+;; The Bard's Tale payout: the pot is never divided.  Two rats add up
+;; to 20 xp, and their flat 6 gold apiece to 12 — and each hero left
+;; standing banks that whole sum, so a hero fights no poorer for
+;; having company.  The one who went down takes neither.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ann"))
+       (b (%combat-hero "Bo"))
+       (c (%combat-hero "Cyd"))
+       (g (new-game m :party (list a b c)))
+       (msgs (watch-messages g)))
+  (setf (hero-hp b) 0)             ; Bo is down when the last rat falls
+  (start-combat g '(("test rat" 2)))
+  (dolist (mon (combat-monsters (game-combat g)))
+    (setf (monster-hp mon) 0))
+  (%award-victory g (game-combat g))
+  (check "the whole xp, not a share, to each hero standing"
+         '(20 20) (list (hero-xp a) (hero-xp c)))
+  (check "and the whole gold to each of them as well"
+         '(12 12) (list (hero-gold a) (hero-gold c)))
+  (check "the fallen hero takes neither"
+         '(0 0) (list (hero-xp b) (hero-gold b)))
+  (check-true "the victory line speaks the sum each hero takes"
+              (find "Victory!  Each hero wins 20 experience and 12 gold."
+                    (funcall msgs) :test #'equal)))
+
 ;; Miss, get hit back; defending raises AC for the round.
 (let* ((m (parse-map *art* :name "test"))
        (h (%combat-hero))
@@ -4020,7 +4045,10 @@ height" d)
   (check-true "the temple gets a temple view" (temple-view-p v))
   (check "the rates are the location's" '(3 40)
          (list (temple-price (game-location g))
-               (temple-raise-fee (game-location g))))
+               (temple-raise-fee (game-location g) a)))
+  (check "a flat raising asks the same of any hero" '(40 0)
+         (list (temple-raise-base (game-location g))
+               (temple-raise-rate (game-location g))))
   (check "the cost is the rate over the wounds" 15
          (temple-cost (game-location g) a))
   (check "an unhurt hero costs nothing" 0
@@ -4028,10 +4056,12 @@ height" d)
   (check "location-lines serves the temple menu"
          (menu-texts (temple-lines g v))
          (menu-texts (location-lines g v)))
-  (check-true "the menu shows the rates"
-              (find-if (lambda (s)
-                         (search "Healing 3 gold a wound; 40 to raise" s))
-                       (menu-texts (temple-lines g v))))
+  (check-true "the menu shows the healing rate"
+              (find "Healing 3 gold a wound."
+                    (menu-texts (temple-lines g v)) :test #'equal))
+  (check-true "and quotes a flat raising as the one number it is"
+              (find "Raising the fallen 40 gold."
+                    (menu-texts (temple-lines g v)) :test #'equal))
   (check-true "the menu asks who wishes healing"
               (find "Who wishes healing?" (menu-texts (temple-lines g v))
                     :test #'equal))
@@ -4088,20 +4118,20 @@ height" d)
   (check-true "needs-no-healing message"
               (find-if (lambda (s) (search "needs no healing" s))
                        (funcall msgs)))
-  ;; another purse may pay: Bo falls — eight wounds at 3, plus the 40
-  ;; fee — and Ava covers the whole raising
+  ;; another purse may pay: Bo falls — the 40 fee brings him back at one
+  ;; hit point, the seven above it are wounds at 3 — and Ava covers it all
   (damage-hero g b 999)
-  (check "raising adds the flat fee" 64
+  (check "raising adds the fee, and bills only the wounds above 1 hp" 61
          (temple-cost (game-location g) b))
   (check-true "the fallen hero's row says down, numbered by roster slot"
               (find-if (lambda (s)
-                         (search "2) Bo (down)  costs 64" s))
+                         (search "2) Bo (down)  costs 61" s))
                        (menu-texts (temple-lines g v))))
   (temple-act g v #\2)                     ; Bo wishes healing
   (temple-act g v #\1)                     ; Ava pays
   (check-true "another purse raises the fallen" (hero-alive-p b))
   (check "back on their feet, whole" 8 (hero-hp b))
-  (check "the payer covered fee and wounds" 21 (hero-gold a))
+  (check "the payer covered fee and wounds" 24 (hero-gold a))
   (check "the patient's own purse is untouched" 2 (hero-gold b))
   (check-true "the raising is announced"
               (find-if (lambda (s) (search "Bo rises, whole again" s))
@@ -4131,26 +4161,34 @@ height" d)
   (check-true "the part mend is announced"
               (find-if (lambda (s) (search "mend some of Ava's wounds" s))
                        (funcall msgs)))
-  ;; the fallen: the fee gates the raising — 40 alone buys no rise,
-  ;; 46 raises with one wound bought
+  ;; the fallen: the fee gates the raising, and buys the life alone —
+  ;; 39 is short of the 40 and buys nothing at all, 40 exactly brings
+  ;; her back at a single hit point with no wound mended
   (damage-hero g a 999)
-  (setf (hero-gold a) 42)                  ; a gold short of fee + wound
+  (setf (hero-gold a) 39)                  ; a gold short of the fee
   (temple-act g v #\1)
   (temple-act g v #\1)
-  (check-true "the fee alone raises no one"
+  (check-true "a purse short of the fee raises no one"
               (and (not (hero-alive-p a))
                    (equal "Not enough Gold"
                           (first (last (menu-texts (temple-lines g v)))))))
-  (check "the refusal keeps the gold" 42 (hero-gold a))
-  (setf (hero-gold a) 46)                  ; fee + two wounds' worth
+  (check "the refusal keeps the gold" 39 (hero-gold a))
+  (setf (hero-gold a) 40)                  ; the fee, and not a wound more
   (temple-act g v #\1)
-  (check-true "fee and first wound covered, the fallen rises hurt"
+  (check-true "the fee alone raises her, at one hit point"
               (progn (temple-act g v #\1)
-                     (and (hero-alive-p a) (= (hero-hp a) 2))))
+                     (and (hero-alive-p a) (= (hero-hp a) 1))))
   (check "the raising took everything" 0 (hero-gold a))
   (check-true "the part raise is announced"
               (find-if (lambda (s) (search "Ava rises" s))
                        (funcall msgs)))
+  ;; and the health above that hit point is ordinary wound trade: 12
+  ;; gold buys four of her seven remaining wounds
+  (setf (hero-gold a) 12)
+  (temple-act g v #\1)
+  (temple-act g v #\1)
+  (check "four wounds bought at three" 5 (hero-hp a))
+  (check "the change stays" 0 (hero-gold a))
   (temple-act g v #\Escape))
 
 ;; A free-healing shrine (:price 0) buys every wound without dividing
@@ -4169,16 +4207,89 @@ height" d)
   (check "the shrine takes no gold" 0 (hero-gold a))
   (temple-act g v #\Escape))
 
-;; the default temple rates: two gold a wound, fifty for a raising
+;; the default temple rates: two gold a wound, fifty flat for a
+;; raising — and no per-hit-point scaling unless a map asks for it
 (let* ((m (parse-map *art* :name "test"))
-       (g (new-game m :party (list (%combat-hero)))))
+       (h (%combat-hero))                  ; 8 max hp
+       (g (new-game m :party (list h))))
   (enter-location g '("The Wayside Shrine" :temple))
   (check "healing is two gold a wound by default" 2
          (temple-price (game-location g)))
   (check "raising is fifty by default" 50
-         (temple-raise-fee (game-location g)))
+         (temple-raise-fee (game-location g) h))
+  (check "and flat by default — the hero's health does not enter it" 0
+         (temple-raise-rate (game-location g)))
   (check "location-act routes the temple" :left
          (location-act g nil #\Escape)))
+
+;; A raising fee that scales with the patient (:RAISE-PER-HP, the
+;; Bard's Tale rule Closure uses): so much per full hit point on top of
+;; the flat :RAISE, so a hardy hero is dearer to bring back than a
+;; frail one.  Ava's 8 max hp at 10 apiece plus 10 flat = 90.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ava"))            ; 8 max hp
+       (b (%combat-hero "Bo"))
+       (g (new-game m :party (list a b)))
+       (v nil))
+  (setf (hero-max-hp b) 20)                ; a hardier hero, dearer to raise
+  (enter-location g '("The Test Temple" :temple :price 10
+                      :raise 10 :raise-per-hp 10))
+  (setf v (make-location-view g))
+  (check "the two parts of the fee read back" '(10 10)
+         (list (temple-raise-base (game-location g))
+               (temple-raise-rate (game-location g))))
+  (check "the fee is the flat fee plus the rate over full hit points" 90
+         (temple-raise-fee (game-location g) a))
+  (check "a hardier hero costs more to raise" 210
+         (temple-raise-fee (game-location g) b))
+  ;; down and whole again: the scaled fee for the life, then 10 a wound
+  ;; over the seven hit points above the one the fee returns
+  (damage-hero g a 999)
+  (check "the raising cost is the fee plus the wounds above 1 hp" 160
+         (temple-cost (game-location g) a))
+  (check-true "the menu quotes the rate, not a single fee"
+              (find "Raising the fallen 10 a hit point plus 10."
+                    (menu-texts (temple-lines g v)) :test #'equal))
+  (check-true "and the fallen hero's row carries their own price"
+              (find-if (lambda (s) (search "1) Ava (down)  costs 160" s))
+                       (menu-texts (temple-lines g v))))
+  (setf (hero-gold b) 160)
+  (temple-act g v #\1)                     ; Ava wishes healing
+  (temple-act g v #\2)                     ; Bo's purse covers it
+  (check-true "the scaled raising brings her back whole"
+              (and (hero-alive-p a) (= (hero-hp a) 8)))
+  (check "and took the whole scaled price" 0 (hero-gold b))
+  (temple-act g v #\Escape))
+
+;; Closure's shape of the rule (BT's own): no flat part at all, just so
+;; much a hit point — 10 apiece over a hero's full health, and the menu
+;; quotes the rate alone.  Ava's 8 max hp raise for 80, and the seven
+;; hit points over the one the fee returns cost 10 each on top.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ava"))            ; 8 max hp
+       (g (new-game m :party (list a)))
+       (v nil))
+  (enter-location g '("The Test Sanctum" :temple :price 10
+                      :raise 0 :raise-per-hp 10))
+  (setf v (make-location-view g))
+  (check "no flat part, only the rate" '(0 10)
+         (list (temple-raise-base (game-location g))
+               (temple-raise-rate (game-location g))))
+  (check "the fee is the rate over full hit points" 80
+         (temple-raise-fee (game-location g) a))
+  (damage-hero g a 999)
+  (check "and whole again costs that plus the seven wounds" 150
+         (temple-cost (game-location g) a))
+  (check-true "the menu quotes a rate with no flat part to name"
+              (find "Raising the fallen 10 gold a hit point."
+                    (menu-texts (temple-lines g v)) :test #'equal))
+  (setf (hero-gold a) 80)                  ; her own purse, the fee exactly
+  (temple-act g v #\1)
+  (temple-act g v #\1)
+  (check-true "the fee alone stands her up at one hit point"
+              (and (hero-alive-p a) (= (hero-hp a) 1)))
+  (check "and it took the fee" 0 (hero-gold a))
+  (temple-act g v #\Escape))
 
 ;; The energy fount: spell points at so many gold apiece, living
 ;; casters only — singers have the tavern, the fallen the temple.

@@ -363,18 +363,23 @@ lets an out-of-reach attack pass as a wasted action."
       (%monster-attack game combat m))))
 
 (defun %award-victory (game combat)
+  "Pay out a won fight, the Bard's Tale way: the fallen monsters' XP
+adds up and their :GOLD dice are rolled one head at a time, and the
+sum is what **each** standing hero takes — the pot is not divided, so
+a hero fights no poorer for having company.  A hero who went down
+takes nothing (ALIVE-HEROES, HP above zero), and the party total
+therefore grows with the number still on its feet."
   (let ((xp 0)
         (gold 0))
     (dolist (m (combat-monsters combat))
       (incf xp (monster-type-xp (monster-kind m)))
       (incf gold (roll-dice (monster-type-gold-dice (monster-kind m)))))
-    (say game "Victory!  The party wins ~D experience and ~D gold." xp gold)
+    (say game "Victory!  Each hero wins ~D experience and ~D gold." xp gold)
     (let ((survivors (alive-heroes game)))
       (when survivors
-        (incf (hero-gold (first survivors)) gold)
-        (let ((share (floor xp (length survivors))))
-          (dolist (h survivors)
-            (award-xp game h share)))
+        (dolist (h survivors)
+          (incf (hero-gold h) gold)
+          (award-xp game h xp))
         (%award-loot game combat survivors)))))
 
 (defun %award-loot (game combat survivors)

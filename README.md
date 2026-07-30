@@ -762,13 +762,19 @@ band icon.  See the "Usable items" and "Spell-trigger items" test
 sections of `tests/run-tests.lisp` for the exact rules.
 
 Two more location kinds spend gold on recovery, Bard's Tale style.  A
-**temple** — `(location TITLE :temple :price N :raise M)` — heals for
-`N` gold per missing hit point (default 2), plus the flat `M` (default
-50) to **raise a fallen hero**.  Its menu asks twice: *Who wishes
+**temple** — `(location TITLE :temple :price N :raise M :raise-per-hp R)`
+— heals for `N` gold per missing hit point (default 2), plus a fee to
+**raise a fallen hero**: the flat `M` (default 50) and `R` (default 0)
+for every one of the patient's *full* hit points, so a map may make a
+raising scale with the life restored.  That fee buys the **life, not
+the health**: the hero comes back at a single hit point, and every hit
+point above it is a wound like any other at `N` — so making the fallen
+whole costs the fee plus the rest of their health.  Its menu asks
+twice: *Who wishes
 healing?* — a digit per hurt hero — then *Who will pay?* — any purse
 in the party, the patient's own included.  A purse short of the whole
-job buys what it can, wound by wound (a raising asks the fee plus the
-first wound), and one that buys nothing leaves *Not enough Gold* as
+job buys what it can, wound by wound (the fee alone still gets a fallen
+hero standing), and one that buys nothing leaves *Not enough Gold* as
 the menu's last line.  An **energy fount** — `(location TITLE :energy :price
 N)` — refills a living caster's spell points at `N` gold apiece
 (default 3), the Roscoe's of the piece; singers refill at the tavern
@@ -1067,7 +1073,10 @@ swings at a random front-rank hero.  Each round opens with a
 `-- Round N --` line and its transcript plays out one message at a
 time on a fresh page of its own; `+`/`-` set the pace (5 speeds, from
 a second per line — the starting pace — to instant).  A won fight
-pays out each monster type's XP and gold, may turn up an item a
+pays out each monster type's XP and gold: the sum over the fallen goes
+to **each** hero still standing, Bard's Tale style, rather than being
+divided among them — a hero who went down takes neither.  The fight
+may also turn up an item a
 fallen monster carried (`define-monster ... :item NAME :item-chance
 P`, one find per fight at most), and lingers on the campaign's
 `*victory-image*` treasure picture for `*victory-linger*` seconds

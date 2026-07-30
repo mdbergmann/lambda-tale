@@ -162,7 +162,8 @@
    #:tavern-price #:buy-drink #:tavern-lines #:tavern-act
    ;; temples (healing and raising, for gold) and the energy fount
    ;; (spell points at so many gold apiece)
-   #:temple-price #:temple-raise-fee #:temple-cost #:temple-heal
+   #:temple-price #:temple-raise-base #:temple-raise-rate
+   #:temple-raise-fee #:temple-cost #:temple-heal
    #:make-temple-view #:temple-view-patient #:temple-view-note
    #:temple-lines #:temple-act
    #:energy-price #:energy-cost #:energy-restore

@@ -487,8 +487,18 @@ Returns :LEFT when the party leaves the location, else NIL."
 ;;; ---------------------------------------------------------------------
 ;;; Temple mechanics: healers for hire.  A :TEMPLE location heals a
 ;;; hero for gold — so many gold per missing hit point (:PRICE) plus a
-;;; flat :RAISE fee to bring a fallen hero back to their feet, the
-;;; Bard's Tale temple.  The menu asks twice: who wishes healing, then
+;;; :RAISE fee to bring a fallen hero back to their feet, the Bard's
+;;; Tale temple.  The raising fee may scale with the patient: a flat
+;;; :RAISE plus :RAISE-PER-HP for every one of their full hit points,
+;;; so bringing back a seasoned hero costs what their life is worth.
+;;;
+;;; A raising buys life, not health: the fee returns the hero at a
+;;; SINGLE hit point, and every hit point above that is a wound like
+;;; any other, bought at :PRICE.  Making the fallen whole therefore
+;;; costs the fee plus the rest of their health, and a purse that
+;;; covers only the fee still gets them standing.
+;;;
+;;; The menu asks twice: who wishes healing, then
 ;;; who will pay — any purse in the party may cover any patient (a
 ;;; fallen hero's own included; the purse survives its owner).  A
 ;;; purse short of the whole job still buys what it can, wound by
@@ -500,18 +510,38 @@ Returns :LEFT when the party leaves the location, else NIL."
 default 2)."
   (or (location-arg location :price) 2))
 
-(defun temple-raise-fee (location)
-  "LOCATION's flat fee for raising a fallen hero (:RAISE, default 50),
-asked on top of the healing rate over their missing hit points."
+(defun temple-raise-base (location)
+  "The flat part of LOCATION's fee for raising a fallen hero (:RAISE,
+default 50)."
   (or (location-arg location :raise) 50))
+
+(defun temple-raise-rate (location)
+  "The scaling part of LOCATION's raising fee, gold per full hit point
+of the hero raised (:RAISE-PER-HP, default 0 — a flat fee, no
+scaling)."
+  (or (location-arg location :raise-per-hp) 0))
+
+(defun temple-raise-fee (location hero)
+  "What LOCATION's priests ask to raise HERO from the dead: the flat
+TEMPLE-RAISE-BASE plus TEMPLE-RAISE-RATE for each of HERO's full hit
+points.  It buys the life alone — HERO comes back at one hit point —
+so the health above that is bought as wounds at the healing rate."
+  (+ (temple-raise-base location)
+     (* (temple-raise-rate location) (hero-max-hp hero))))
+
+(defun temple-wounds (hero)
+  "The hit points HERO's priests can sell: the missing ones, counted
+from where the patient stands once the priests are done raising them —
+a hero comes back from the dead at one hit point, so a fallen hero's
+first hit point rides with the fee and is not a wound."
+  (- (hero-max-hp hero) (max 1 (hero-hp hero))))
 
 (defun temple-cost (location hero)
   "What LOCATION's priests ask to make HERO whole: the healing rate
-over the missing hit points, plus the raise fee when HERO is down.
+over the wounds (TEMPLE-WOUNDS), plus the raise fee when HERO is down.
 Zero for an unhurt hero."
-  (+ (* (temple-price location)
-        (- (hero-max-hp hero) (hero-hp hero)))
-     (if (hero-alive-p hero) 0 (temple-raise-fee location))))
+  (+ (* (temple-price location) (temple-wounds hero))
+     (if (hero-alive-p hero) 0 (temple-raise-fee location hero))))
 
 (defstruct (temple-view (:constructor %make-temple-view))
   patient             ; the hero the priests will heal, or NIL while
@@ -525,20 +555,25 @@ Zero for an unhurt hero."
 (defun temple-heal (game hero payer)
   "The priests heal HERO out of PAYER's purse: whole — hit points to
 the maximum, the fallen raised — when the gold reaches, else as many
-wounds as the gold buys (a raising asks the flat fee before the first
-wound comes back).  Returns T and emits :COIN and :TEMPLE-HEAL when
+wounds as the gold buys.  A raising is bought first and comes with one
+hit point; the rest of the health follows wound by wound, so a purse
+that covers the fee alone leaves HERO standing at 1 hit point.
+Returns T and emits :COIN and :TEMPLE-HEAL when
 any healing was bought; otherwise returns (VALUES NIL REASON) —
 :HALE when HERO needs no healing (said aloud), :POOR when PAYER's
 purse buys no healing at all (quiet: the temple menu shows the
 notice, see TEMPLE-LINES)."
   (let* ((loc (game-location game))
          (price (temple-price loc))
-         (fee (if (hero-alive-p hero) 0 (temple-raise-fee loc)))
-         (wounds (- (hero-max-hp hero) (hero-hp hero))))
-    (cond ((zerop wounds)
+         (down (not (hero-alive-p hero)))
+         (fee (if down (temple-raise-fee loc hero) 0))
+         (wounds (temple-wounds hero)))
+    (cond ((and (not down) (zerop wounds))
            (say game "~A needs no healing." (hero-name hero))
            (values nil :hale))
-          ((< (hero-gold payer) (+ fee price))
+          ;; the fee alone buys a raising (the hero's first hit point
+          ;; rides with it); healing a standing hero needs a wound's price
+          ((< (hero-gold payer) (if down fee price))
            (values nil :poor))
           (t
            (let* ((bought (min wounds
@@ -548,13 +583,15 @@ notice, see TEMPLE-LINES)."
                   (cost (+ fee (* bought price)))
                   (whole (= bought wounds)))
              (decf (hero-gold payer) cost)
+             (when down                  ; raised at a single hit point
+               (setf (hero-hp hero) 1))
              (incf (hero-hp hero) bought)
              (emit game :coin cost)
-             (cond ((and (plusp fee) whole)
+             (cond ((and down whole)
                     (say game "The priests chant, and ~A rises, whole ~
                                again!  (~D gold)"
                          (hero-name hero) cost))
-                   ((plusp fee)
+                   (down
                     (say game "The priests chant, and ~A rises — ~
                                wounds remain.  (~D gold)"
                          (hero-name hero) cost))
@@ -582,8 +619,19 @@ The view's NOTE (the payer page's Not enough Gold) is the last line."
          (note (and view (temple-view-note view))))
     (append
      (list (format nil "*** ~A ***" (location-title loc)) ""
-           (format nil "Healing ~D gold a wound; ~D to raise the fallen."
-                   (temple-price loc) (temple-raise-fee loc))
+           (format nil "Healing ~D gold a wound." (temple-price loc))
+           ;; a scaling raising cannot be quoted as one number — the
+           ;; rate stands in for it, and each row carries the hero's own
+           (let ((rate (temple-raise-rate loc))
+                 (base (temple-raise-base loc)))
+             (cond ((zerop rate)
+                    (format nil "Raising the fallen ~D gold." base))
+                   ((zerop base)
+                    (format nil "Raising the fallen ~D gold a hit point."
+                            rate))
+                   (t
+                    (format nil "Raising the fallen ~D a hit point plus ~D."
+                            rate base))))
            "")
      (if patient
          (append
