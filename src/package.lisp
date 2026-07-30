@@ -16,6 +16,7 @@
    #:image-frame-file #:image-frame-files
    ;; map model
    #:parse-map #:load-map-file #:map-viewport
+   #:map-page-window #:map-page-scroll
    #:dungeon-map-name #:dungeon-map-width #:dungeon-map-height
    #:dungeon-map-wrap #:dungeon-map-start-x #:dungeon-map-start-y
    #:dungeon-map-start-facing #:dungeon-map-kind #:dungeon-map-title
@@ -78,7 +79,7 @@
    #:wrap-text #:wrap-message
    ;; structured menu lines (option rows carry their pick key)
    #:menu-option #:menu-numbered #:menu-next-option
-   #:menu-line-text #:menu-line-key
+   #:menu-line-text #:menu-line-key #:menu-line-spans
    #:menu-texts #:wrap-menu-line #:menu-key-spans
    #:hint-line-p #:wrap-hint-line #:fit-menu-lines
    ;; menu scrolling (long lists window with u/d + the scrollbar)

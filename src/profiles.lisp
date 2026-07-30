@@ -176,7 +176,13 @@ its column rather than backing up into the column before it."
                                         ; viewport can afford it
    :draw-flanks 1                       ; the classic single flank; see
                                         ; the hires profile's note
-   :pad-x 10 :pad-y 10 :view-gap 12 :band-height 20
+   ;; The effect strip is the icons' own 16 pixels and not one more:
+   ;; the four the hires profile spends on clearance buy the message
+   ;; page above it a whole extra row of small-face type, and the page
+   ;; is where the shop and the character sheet run out of room.  Do
+   ;; not go below 16 — %AMIGA-DRAW-BAND skips an icon taller than the
+   ;; strip, so a shorter one shows no effects at all.
+   :pad-x 10 :pad-y 10 :view-gap 12 :band-height 16
    :roster-cols '(:no 0 :name 2 :ac 15 :hit 19 :hpts 23
                   :spl 27 :spts 31 :cl 35)))
 

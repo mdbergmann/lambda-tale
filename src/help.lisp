@@ -8,8 +8,12 @@
 
 (in-package :tale)
 
-(defun help-lines ()
-  "The key-mapping reference as a list of text lines."
+(defun help-lines (&optional map-scroll-p)
+  "The key-mapping reference as a list of text lines.  MAP-SCROLL-P is
+true only from a front-end that wires U/D scrolling into its map view
+(the Amiga UI does, via MAP-PAGE-SCROLL; the host UI's MAP-ACT does
+not) — it picks which map-view line to show so the page never
+advertises a key the calling front-end does not honor."
   (list "*** Keys ***"
         ""
         "W forward    S step back"
@@ -40,7 +44,9 @@
         "        Y fight / N redo  +/- speed"
         "Shop/menus: 1-9 pick  Esc back"
         "            U/D scroll long lists"
-        "Map view: F full map (debug)"
+        (if map-scroll-p
+            "Map view: U/D scroll  F reveal"
+            "Map view: F reveal")
         "Mouse: click to walk and pick"
         ""
         "H or Esc: back"))

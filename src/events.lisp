@@ -197,8 +197,19 @@ line's click target is its whole row, so the padding clicks too."
   (if (consp line) (car line) line))
 
 (defun menu-line-key (line)
-  "The key a menu line stands for, or NIL for a plain line."
-  (if (consp line) (cdr line) nil))
+  "The key a menu line stands for, or NIL for a plain line — and for a
+packed option row, whose several keys are MENU-LINE-SPANS' business."
+  (let ((k (if (consp line) (cdr line) nil)))
+    (if (atom k) k nil)))
+
+(defun menu-line-spans (line)
+  "The per-option click targets of a packed option row (see
+%PACK-OPTION-RUNS) — a list of (START END KEY) character-cell spans,
+END exclusive, in the shape MENU-KEY-SPANS returns.  NIL for every
+other kind of line: a whole-row option answers to MENU-LINE-KEY and a
+plain footer's bracket hints to MENU-KEY-SPANS."
+  (let ((k (if (consp line) (cdr line) nil)))
+    (if (consp k) k nil)))
 
 (defun menu-texts (lines)
   "LINES with each menu line reduced to its display text."
@@ -286,14 +297,85 @@ too short to list one option per row."
       (flush))
     (nreverse out)))
 
+(defun %pack-options (options width)
+  "OPTIONS — menu lines that each carry a key — packed onto rows of at
+most WIDTH cells, whole options only.  Each row comes back as a packed
+line (TEXT . SPANS): the option texts joined by the two-space gap, with
+the cell span each one occupies paired to its key so a pointing
+front-end can still tell which option the pointer is over.  The texts
+are trimmed as they join — that is what lets the centered NEXT row give
+up its padding and share a row rather than fall off the page."
+  (let ((rows '())
+        (row "")
+        (spans '()))
+    (labels ((flush ()
+               (when (plusp (length row))
+                 (push (cons row (nreverse spans)) rows)
+                 (setf row "" spans '())))
+             (place (text key)
+               (let ((start (if (zerop (length row)) 0 (+ (length row) 2))))
+                 (setf row (if (zerop (length row))
+                               text
+                               (concatenate 'string row "  " text)))
+                 (push (list start (+ start (length text)) key) spans))))
+      (dolist (option options)
+        (let ((text (string-trim " " (menu-line-text option)))
+              (key (menu-line-key option)))
+          (unless (zerop (length text))
+            ;; a row already holding something gives way when the next
+            ;; option would run past the page's width
+            (when (and (plusp (length row))
+                       (> (+ (length row) 2 (length text)) width))
+              (flush))
+            (place text key))))
+      (flush))
+    (nreverse rows)))
+
+(defun %packable-option-p (line)
+  "True for a menu row the packer may share with its neighbours: an
+option row whose key is a LETTER.  A digit-keyed row is a pick out of
+a list — a shop's stock, a pack, a spell book — and keeps a row to
+itself: its number has to read down the column against the numbers
+above and below it, and a stock item that ran on into the page's
+commands would read as one of them."
+  (let ((key (menu-line-key line)))
+    (and (characterp key) (not (digit-char-p key)))))
+
+(defun %pack-option-runs (lines width)
+  "LINES with each run of two or more consecutive packable option rows
+(%PACKABLE-OPTION-P) put onto as few WIDTH-wide rows as whole options
+allow (%PACK-OPTIONS) — the last squeeze a page can make before it
+starts losing rows off its foot.  A lone option row passes through
+untouched, so a NEXT standing by itself on a page that fits keeps the
+padding that centers it."
+  (let ((out '())
+        (run '()))
+    (flet ((flush ()
+             (when run
+               (let ((options (nreverse run)))
+                 (dolist (row (if (rest options)
+                                  (%pack-options options width)
+                                  options))
+                   (push row out)))
+               (setf run nil))))
+      (dolist (line lines)
+        (if (%packable-option-p line)
+            (push line run)
+            (progn (flush) (push line out))))
+      (flush))
+    (nreverse out)))
+
 (defun fit-menu-lines (lines rows width)
   "LINES wrapped for a ROWS x WIDTH page: each line through
 WRAP-MENU-LINE, then squeezed progressively while they overflow —
 first each run of consecutive footer hint rows packs onto shared rows
 (whole options only, see %PACK-HINT-RUNS), then the blank spacer rows
-go.  The generators emit one option per hint row (the Bard's Tale
-look), so a roomy page lists the options vertically and a tight page
-— the lores shop — packs them.  A page that still overflows is the
+go, and last the page's command rows pack (%PACK-OPTION-RUNS — the
+letter options only; a numbered list row keeps its own row).  The
+generators emit one option per row (the Bard's Tale look), so a roomy
+page lists the options vertically and a tight page — the lores shop and
+character sheet — packs them onto shared rows instead of running its
+navigation off the bottom edge.  A page that still overflows is the
 caller's to truncate."
   (let ((all (mapcan (lambda (line) (wrap-menu-line line width))
                      lines)))
@@ -303,6 +385,8 @@ caller's to truncate."
       (setf all (delete-if (lambda (line)
                              (equal (menu-line-text line) ""))
                            all)))
+    (when (> (length all) rows)
+      (setf all (%pack-option-runs all width)))
     all))
 
 ;;; Menu scrolling: a list longer than a page shows a full-page window

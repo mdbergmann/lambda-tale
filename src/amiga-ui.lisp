@@ -130,15 +130,17 @@ Most recently registered target first."
 
 (defun %register-line-hotspots (line x y advance line-h row-x0 row-x1)
   "Click targets for one drawn menu line: an option line (a key from
-MENU-LINE-KEY) gets the whole row ROW-X0..ROW-X1, and a plain line's
-bracket hints ([S]ell, [Esc] back — see MENU-KEY-SPANS) each get
-their own span.  (X,Y) is the drawn text's top-left, ADVANCE the fixed
-character cell width, LINE-H the row height."
+MENU-LINE-KEY) gets the whole row ROW-X0..ROW-X1, while a row carrying
+several options — a packed one (MENU-LINE-SPANS) or a plain line's
+bracket hints ([S]ell, [Esc] back — see MENU-KEY-SPANS) — gives each
+of them its own span.  (X,Y) is the drawn text's top-left, ADVANCE the
+fixed character cell width, LINE-H the row height."
   (let ((key (menu-line-key line))
         (y1 (+ y line-h -1)))
     (if key
         (%hotspot key row-x0 y row-x1 y1)
-        (dolist (span (menu-key-spans (menu-line-text line)))
+        (dolist (span (or (menu-line-spans line)
+                          (menu-key-spans (menu-line-text line))))
           (destructuring-bind (start end span-key) span
             ;; Esc goes through ACT as :ESC — the same shape a real
             ;; VANILLAKEY 27 arrives in, so every mode recognizes it
@@ -1273,8 +1275,10 @@ instead of seconds at 14MHz."
 
 (defun %amiga-draw-band (rp game l &optional icons log)
   "The effect strip below the log page, on the grey chrome (a small
-gap separates it from the page above; the profiles keep the strip 20px
-— just clearing the 16px icons, so the log page above gets the room).
+gap separates it from the page above; :BAND-HEIGHT sets the strip's
+height per profile — hires keeps it 20px, clearing the 16px icons with
+a 4px margin, while lores' strip is 16px, flush with the icons, so the
+log page above gets the room).
 One slot per active effect, laid out left to right in effect order —
 no labels; casting/expiry is announced in the log.  An effect's slot
 shows its icon (ICONS is the session's icon cache, see %EFFECT-ICON),
@@ -1635,7 +1639,7 @@ sheet."
          (oy (ui-layout-by l))
          (lh (ui-layout-lh l))
          (cw (ui-layout-cw l))
-         (lines (help-lines))
+         (lines (help-lines t))         ; this UI wires map U/D scroll
          (px (+ ox (* 2 cw)))           ; the page
          (py (+ oy 8))
          (pw (min (* 40 cw) (- (ui-layout-right l) px (* 2 cw))))
@@ -1813,6 +1817,53 @@ keys, exactly as on %AMIGA-DRAW-PAGE.  LINES-CACHE as in
         (incf y lh)))
     (amiga.gfx:set-a-pen rp 1)))
 
+;;; ---------------------------------------------------------------------
+;;; The automap page's geometry.  The policy — show the map whole while
+;;; it fits legibly, else keep a legible cell and window it — is
+;;; MAP-PAGE-WINDOW's, in map.lisp where the host suite can check it.
+;;; What belongs here is only the page's pixel budget: the legend's
+;;; column, the gutter carrying the scrollbar, and the footer.
+;;;
+;;; The legend's column is reserved BEFORE the cell size is picked.  It
+;;; used to be whatever the map happened to leave over, which held only
+;;; while the page was height-bound; the moment the height stops
+;;; deciding the cell size, an unreserved column is one the map grows
+;;; straight over.
+
+(defconstant +map-legend-cells+ 12
+  "Small-face character cells the automap page keeps beside the map for
+the found-locations legend.")
+
+(defconstant +map-legend-gutter+ 11
+  "Pixels between the automap and its legend column: the vertical
+scrollbar's 3, with a clear margin either side.")
+
+(defun %map-page-geometry (l map)
+  "How the automap page draws MAP on layout L: values (CELL VW VH), the
+page's own pixel budget put to MAP-PAGE-WINDOW.  Cells under
++MICROFONT-SMALL-ADVANCE+ carry no feature glyph (%MAP-GLYPH), so that
+is the floor the policy works to."
+  (map-page-window map
+                   (- (ui-layout-right l) (ui-layout-bx l)
+                      +map-legend-gutter+
+                      (* +map-legend-cells+ +microfont-small-advance+))
+                   (- (ui-layout-bottom l) (ui-layout-by l)
+                      (* 2 +microfont-line-height+) 6)
+                   +microfont-small-advance+))
+
+(defun %map-scroll (game l top char)
+  "The automap's scroll offset after key CHAR (u/d), or NIL when the
+page shows the map whole or CHAR is no scroll key.  TOP NIL is a page
+still centered on the party: the window it is showing right now is
+where its first scroll starts from."
+  (let ((map (game-map game)))
+    (multiple-value-bind (cell vw vh) (%map-page-geometry l map)
+      (declare (ignore cell))
+      (map-page-scroll (or top
+                           (nth-value 1 (map-viewport map (game-x game)
+                                                      (game-y game) vw vh)))
+                       char (dungeon-map-height map) vh))))
+
 (defun %amiga-draw-map-legend (rp entries lx lw top bottom)
   "The found-locations legend beside the full map: MARKER NAME per
 entry in the small face, black on the grey page, the marker amber to
@@ -1842,10 +1893,13 @@ in LW pixels."
               (line row 0 (+ lx marker-w))
               (incf y +microfont-line-height+))))))))
 
-(defun %amiga-draw-map-page (rp game l full)
+(defun %amiga-draw-map-page (rp game l full &optional top)
   "Full map mode ('m'): the automap over the whole inner area — black
-ink on the grey page — party centered and clamped to what fits at a
-readable cell size.  The space right of the map carries the legend of
+ink on the grey page — at the cell size and window %MAP-PAGE-GEOMETRY
+allows.  A map too tall for the page shows a window of itself with a
+scrollbar down its right edge: TOP is the scroll offset in cells (u/d
+move it — see %MAP-SCROLL), and NIL keeps the window centered on the
+party.  The reserved column right of the map carries the legend of
 found locations; the two-line footer carries what the play page has
 no room for: the zone title, the party position — plus the facing
 while a compass burns — and the game clock (keys are on the help
@@ -1860,13 +1914,6 @@ legend column."
          (map (game-map game))
          (mw (dungeon-map-width map))
          (mh (dungeon-map-height map))
-         (avail-w (- right bx))
-         (avail-h (- (ui-layout-bottom l) by (* 2 lh) 6))
-         (cell (max 4 (min 16
-                           (floor avail-w (max mw 1))
-                           (floor avail-h (max mh 1)))))
-         (vw (min mw (floor avail-w cell)))
-         (vh (min mh (floor avail-h cell)))
          (legend (map-legend-entries map (game-knowledge game)
                                      :full full)))
     ;; clear the whole inner area (the play panes underneath) to the
@@ -1880,14 +1927,24 @@ legend column."
     (amiga.gfx:set-a-pen rp 2)
     (amiga.gfx:rect-fill rp (1- bx) (1- by) (+ right 2)
                          (ui-layout-bottom l))
-    (multiple-value-bind (x0 y0 w h)
-        (map-viewport map (game-x game) (game-y game) vw vh)
-      (%amiga-draw-map-region rp game bx by cell x0 y0 w h full legend)
-      ;; the legend, in whatever width the map leaves to its right
-      (let* ((lx (+ bx (* w cell) 8))
-             (lw (- right lx)))
-        (when (and legend (>= lw (* 7 +microfont-small-advance+)))
-          (%amiga-draw-map-legend rp legend lx lw by (+ by (* h cell))))))
+    (multiple-value-bind (cell vw vh) (%map-page-geometry l map)
+      (multiple-value-bind (x0 y0 w h)
+          (map-viewport map (game-x game) (game-y game) vw vh)
+        ;; a scrolled page shows the window the player put it at; an
+        ;; unscrolled one stays centered on the party
+        (when top
+          (setf y0 (max 0 (min top (- mh h)))))
+        (%amiga-draw-map-region rp game bx by cell x0 y0 w h full legend)
+        ;; the scrollbar rides the gutter between map and legend, and
+        ;; only while there is map above or below the window to reach
+        (when (< h mh)
+          (%amiga-draw-scrollbar rp (+ bx (* w cell) 4) by 3 (* h cell)
+                                 y0 (+ y0 h) mh))
+        ;; the legend, in its reserved column right of the gutter
+        (let* ((lx (+ bx (* w cell) +map-legend-gutter+))
+               (lw (- right lx)))
+          (when (and legend (>= lw (* 7 +microfont-small-advance+)))
+            (%amiga-draw-map-legend rp legend lx lw by (+ by (* h cell)))))))
     (let* ((y1 (- (ui-layout-bottom l) (* 2 lh)))  ; upper footer line
            (y2 (- (ui-layout-bottom l) lh))        ; lower footer line
            (clock (clock-line game))
@@ -2170,6 +2227,8 @@ map/help/sheet pages close on a click outside a target — see
          (log nil)
          (mode :play)       ; :play, :map (full map view), :sheet or :help
          (full nil)         ; omniscient map (debug), map mode only
+         (map-top nil)      ; map mode: the scrolled window's top cell
+                            ; row, or NIL while it follows the party
          (sheet-hero 0)     ; party index shown in :sheet mode
          (sheet-top 0)      ; current sheet page's scroll offset (u/d)
          (magic nil)        ; MAGIC-VIEW while the spells/songs page is up
@@ -2519,7 +2578,7 @@ map/help/sheet pages close on a click outside a target — see
                                       (ui-layout-bottom l)))
                           (cond
                             ((eq mode :map)
-                             (%amiga-draw-map-page rp game l full))
+                             (%amiga-draw-map-page rp game l full map-top))
                             ((eq mode :help)
                              (%amiga-draw-help rp l))
                             (t
@@ -2843,6 +2902,18 @@ means the player asked to leave (ACT confirms it)."
                                           (setf full (not full))
                                           (redraw)
                                           nil)
+                                         ;; a map too tall for the page
+                                         ;; windows it: u/d walk the
+                                         ;; window, and the scrollbar's
+                                         ;; trough clicks as the same
+                                         ;; two keys
+                                         ((member lc '(#\u #\d))
+                                          (let ((next (%map-scroll
+                                                       game l map-top lc)))
+                                            (when next
+                                              (setf map-top next)
+                                              (redraw)))
+                                          nil)
                                          ((or (eql lc #\h) (eql c #\?))
                                           (open-help)
                                           nil)))
@@ -3131,7 +3202,13 @@ means the player asked to leave (ACT confirms it)."
                                      (#\p (open-sing nil))
                                      (#\h (open-help))
                                      (#\? (open-help))
-                                     (#\m (setf mode :map)
+                                     ;; the map opens centered on the
+                                     ;; party every time — a window
+                                     ;; scrolled away last visit says
+                                     ;; nothing about where the party
+                                     ;; stands now
+                                     (#\m (setf mode :map
+                                                map-top nil)
                                           (redraw)))
                                    nil)))))
                  (let ((*pointer-window* win))

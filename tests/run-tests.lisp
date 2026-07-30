@@ -229,6 +229,64 @@ messages so far (oldest first)."
     (check "viewport of a small map is the whole map" '(0 0 3 2)
            (list x0 y0 w h))))
 
+;;; The automap page's sizing policy (MAP-PAGE-WINDOW).  A front-end's
+;;; feature glyphs need a floor of pixels to draw in — the Amiga's is
+;;; the microfont's 6px small advance — so a page too short for the
+;;; whole map keeps a legible cell and windows the map instead of
+;;; shrinking the cells past the point where the stairs, the doors and
+;;; the legend's markers stop drawing at all.
+;;;
+;;; The numbers below are the lores automap page's own: 217 pixels
+;;; across (the content span less the legend's reserved column and the
+;;; scrollbar gutter) and 158 down (the content column less the
+;;; two-line footer) on the 200-line layout, against 214 down on the
+;;; 256-line one the layout used to be.
+(let ((m (parse-map (%big-map-art 30 30) :name "big30")))
+  ;; the 256-line page: 30 rows at 7px fit, so the map shows whole
+  (multiple-value-bind (cell vw vh) (map-page-window m 217 214 6)
+    (check "a page with the room shows the whole map" '(7 30 30)
+           (list cell vw vh)))
+  ;; the 200-line page: fitting 30 rows into 158px asks for 5px cells,
+  ;; under the glyph floor — so the cell stays what the WIDTH affords
+  ;; and the page windows 22 of the 30 rows
+  (multiple-value-bind (cell vw vh) (map-page-window m 217 158 6)
+    (check "a short page keeps a legible cell and windows the map"
+           '(7 30 22) (list cell vw vh)))
+  ;; ... never below the floor, whatever the page's height
+  (multiple-value-bind (cell vw vh) (map-page-window m 217 40 6)
+    (check "a very short page still draws legible cells" '(7 30 5)
+           (list cell vw vh)))
+  ;; a narrow page is the one case the cell may not reach the floor:
+  ;; there is nothing to give, and a window that also scrolled
+  ;; sideways would be a maze to read
+  (multiple-value-bind (cell vw vh) (map-page-window m 90 158 6)
+    (check "a narrow page falls back to the floor and windows both ways"
+           '(6 15 26) (list cell vw vh)))
+  ;; the cap holds a small map's cells to a sane size
+  (multiple-value-bind (cell vw vh) (map-page-window m 700 700 6)
+    (check "a roomy page stops growing at the cap" '(16 30 30)
+           (list cell vw vh))))
+
+;; A map that fits shows whole and never scrolls; one that windows
+;; scrolls a window at a time, clamped to the map's own rows.
+(check "a whole map does not scroll" nil (map-page-scroll 0 #\d 30 30))
+(check "a windowed map scrolls a window down" 10
+       (map-page-scroll 0 #\d 30 10))
+(check "and another window down" 20 (map-page-scroll 10 #\d 30 10))
+(check "the last window down is clamped to the map" 20
+       (map-page-scroll 20 #\d 30 10))
+(check "scrolling up comes back a window" 10 (map-page-scroll 20 #\u 30 10))
+(check "the first window up is clamped at the top" 0
+       (map-page-scroll 5 #\u 30 10))
+(check "upper case scrolls too" 10 (map-page-scroll 0 #\D 30 10))
+(check "a key that is not a scroll key moves nothing" nil
+       (map-page-scroll 0 #\f 30 10))
+(check "a non-character moves nothing" nil (map-page-scroll 0 :esc 30 10))
+;; the town's own numbers: 22 rows of 30, so one press already lands on
+;; the last window rather than 22 rows past the map's foot
+(check "a deep window's first scroll is its last" 8
+       (map-page-scroll 0 #\d 30 22))
+
 ;; Region rendering (the full map view's clamped window): a 6x6 region
 ;; is 13 art lines high, and the party arrow sits inside it.
 (let* ((m (parse-map (%big-map-art 30 30) :name "big30"))
@@ -933,7 +991,24 @@ height" d)
   ;; If this ever loosens, the pixel went somewhere; find out where
   ;; before spending it.
   (check ":lores roster row 7 ends on the last usable row"
-         bottom last-row))
+         bottom last-row)
+  ;; The message column's own budget, walked the same way
+  ;; %AMIGA-LAYOUT walks it: the column runs from BY to the plaque's
+  ;; bottom, the effect strip takes its foot, and the white page ends
+  ;; four pixels above the strip.  What is left is what the log, the
+  ;; shop and the character sheet have to say their piece in, and it
+  ;; is measured in whole small-face rows — a page short of one is a
+  ;; page that drops its last option (see FIT-MENU-LINES).
+  (let* ((col-h (- (1+ plaque-b) by))
+         (band-h (display-profile-band-height p))
+         (page-b (- (+ by col-h -1) band-h 4))
+         (rows (floor (- (- page-b by) 2) +microfont-line-height+)))
+    ;; the strip is the effect icons' own height and not one pixel
+    ;; more: %AMIGA-DRAW-BAND skips an icon taller than the strip, so
+    ;; anything under 16 shows no effects at all
+    (check ":lores keeps the effect strip at the icons' height" 16 band-h)
+    (check ":lores gives the message page eleven small-face rows"
+           11 rows)))
 
 ;; Every profile must declare a draw distance the plane set can serve.
 (dolist (p *display-profiles*)
@@ -1536,6 +1611,110 @@ height" d)
          '("*** Shop ***" "1) Sword"
            "[1-9] buy  [S]ell" "[Esc] back")
          (menu-texts (fit-menu-lines lines 4 27))))
+
+;; The last squeeze: the OPTION rows (the bracketless convention the
+;; pages actually use now) pack onto shared rows too, once packing the
+;; hints and dropping the spacers has not been enough.  Without this a
+;; short page loses its foot — and the foot is where the navigation is.
+(let ((lines (list "*** Sheet ***" ""
+                   (menu-option #\p "Pool gold") ""
+                   (menu-option #\t "Trade gold") ""
+                   (menu-option #\o "Order party") ""
+                   (menu-next-option))))
+  (check "a roomy page leaves the option rows alone"
+         '("*** Sheet ***" "" "Pool gold" "" "Trade gold" ""
+           "Order party" "" "           NEXT")
+         (menu-texts (fit-menu-lines lines 12 27)))
+  ;; spacers first, options still one per row while that fits
+  (check "a tight page drops the spacers before it packs"
+         '("*** Sheet ***" "Pool gold" "Trade gold"
+           "Order party" "           NEXT")
+         (menu-texts (fit-menu-lines lines 5 27)))
+  ;; and a page shorter still packs them — NEXT gives up the padding
+  ;; that centered it and rides along rather than falling off the foot
+  (check "a tighter page packs the options, NEXT included"
+         '("*** Sheet ***" "Pool gold  Trade gold" "Order party  NEXT")
+         (menu-texts (fit-menu-lines lines 4 27)))
+  ;; the packed row still picks per option: each keeps its own span
+  (let ((packed (second (fit-menu-lines lines 4 27))))
+    (check "a packed row is no longer a whole-row option" nil
+           (menu-line-key packed))
+    (check "a packed row carries a span per option"
+           '((0 9 #\p) (11 21 #\t))
+           (menu-line-spans packed))
+    (check "a plain line carries no spans" nil (menu-line-spans "x"))
+    (check "an unpacked option carries no spans" nil
+           (menu-line-spans (menu-option #\p "Pool gold")))))
+
+;; A numbered list row is never packed: its number reads down the
+;; column against its neighbours, and a stock item run together with
+;; the page's commands would read as one of them.
+(let ((lines (list "*** Shop ***"
+                   (menu-numbered 1 "1) Sword  30 gp")
+                   (menu-numbered 2 "2) Mace  60 gp")
+                   (menu-option #\s "Sell")
+                   (menu-option #\p "Pool gold"))))
+  (check "the numbered rows keep their own rows, the commands share one"
+         '("*** Shop ***" "1) Sword  30 gp" "2) Mace  60 gp"
+           "Sell  Pool gold")
+         (menu-texts (fit-menu-lines lines 4 27))))
+
+;; A lone option row is left as it is: NEXT standing by itself keeps
+;; the padding that centers it on the takeover column, even on a page
+;; too short to hold it (the caller truncates; the packer does not
+;; strip a row it cannot pack with anything).
+(check "a run of one option is not packed"
+       '("A" "           NEXT" "B")
+       (menu-texts (fit-menu-lines (list "A" "" (menu-next-option) "" "B")
+                                   2 27)))
+
+;; The two pages that drove this — the lores takeover column is 27
+;; cells wide (+TAKEOVER-COLUMNS+) and 11 rows tall on the 200-line
+;; layout.  Both must still reach their last option: the shop's Pool
+;; gold and, above all, the sheet's NEXT, which is the only way on
+;; round the carousel.
+(let ((rows 11)
+      (width +takeover-columns+))
+  (labels ((page-keys (fitted)
+             ;; every key the fitted page can still be picked by —
+             ;; whole-row options and the options inside packed rows
+             (mapcan (lambda (line)
+                       (let ((key (menu-line-key line)))
+                         (if key
+                             (list key)
+                             (mapcar #'third (menu-line-spans line)))))
+                     fitted))
+           (fits-p (lines)
+             (let ((fitted (fit-menu-lines lines rows width)))
+               (and (<= (length fitted) rows)
+                    (member (menu-line-key (car (last lines)))
+                            (page-keys fitted))
+                    t))))
+    ;; the shop's buy page at a full seven-item window
+    (check-true "the lores shop page keeps its last option"
+                (fits-p (append
+                         (list "*** The Armoury ***" ""
+                               "Kestrel buys.  Gold: 250 gp" "")
+                         (loop for i from 1 to +menu-page-size+
+                               collect (menu-numbered
+                                        i (format nil "~D) Longsword  120 gp" i)))
+                         (list ""
+                               (menu-option #\s "Sell")
+                               (menu-option #\i "Inspect")
+                               (menu-option #\p "Pool gold")))))
+    ;; the character sheet at its fullest: a stat block filling the
+    ;; window AND both ladders open (a level due and an art to take up)
+    (check-true "the lores sheet page keeps its NEXT row"
+                (fits-p (append
+                         (loop for i from 1 to +sheet-page-size+
+                               collect (format nil "STR ~D DEX ~D IQ ~D" i i i))
+                         (list ""
+                               (menu-option #\l "Level up") ""
+                               (menu-option #\c "Change class") ""
+                               (menu-option #\p "Pool gold") ""
+                               (menu-option #\t "Trade gold") ""
+                               (menu-option #\o "Order party") ""
+                               (menu-next-option)))))))
 
 ;; Menu scrolling: a list longer than +MENU-PAGE-SIZE+ (7) windows to
 ;; a full page of rows — no rows spent on marker hints; the scroll
@@ -10127,6 +10306,15 @@ never its own"
               (find-if (lambda (s) (search "take a level" s)) lines))
   (check-true "help says quitting asks first"
               (find-if (lambda (s) (search "asks first" s)) lines)))
+
+;;; The map-view line must not overclaim U/D scroll for a front-end
+;;; that does not wire it in (the host UI's MAP-ACT has no u/d case).
+(check-true "help-lines with no arg (host) does not advertise map U/D scroll"
+            (not (find-if (lambda (s) (search "Map view: U/D scroll" s))
+                           (help-lines))))
+(check-true "help-lines(t) (Amiga) advertises map U/D scroll"
+            (find-if (lambda (s) (search "Map view: U/D scroll" s))
+                     (help-lines t)))
 
 ;;; ---------------------------------------------------------------------
 ;;; The quit confirmation: Q, Esc and the menu strip's Quit all ask

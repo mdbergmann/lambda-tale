@@ -155,7 +155,14 @@ the party has found (shops, taverns and the like, each marker also
 drawn on its map cell — plain houses are scenery and carry no marker,
 or a city's front doors would bury the places that matter) and a
 footer showing the zone, position and game clock; maps can be large
-(30x30 like Bard's Tale I, up to 128x128).  The overlay pages, the
+(30x30 like Bard's Tale I, up to 128x128).  The page **shows the map
+whole while it can do so legibly, and windows it when it cannot**:
+cells below the glyph size carry no stairs, doors or markers at all,
+so rather than shrink past that the page keeps the cell its width
+affords and **scrolls** — `u`/`d`, or the scrollbar down the map's
+right edge — opening centered on the party each time.  The legend's
+column is reserved before the cell size is chosen, so the map never
+grows over it.  The overlay pages, the
 takeover and the whole map page set the same face as the log — the
 engine's 5x7-on-6px condensed bold cut, the metrics of the actual
 Bard's Tale II text — so the Amiga UI carries one type size
@@ -172,7 +179,10 @@ profile** (`play-amiga`'s `:profile` argument):
   to fall back on.  That budget sizes the 120x100 viewport: the chrome
   pads, view, plaque and the seven solid-set roster rows fill it
   exactly — roster row 7 ends on the last usable line, with the chrome
-  ring's clearance below it.
+  ring's clearance below it.  The effect strip at the message column's
+  foot is the icons' own 16 pixels and no more, so the message page
+  above it clears eleven rows of text: enough that the shop's and the
+  character sheet's last option stays on the page.
 
   The **screen** is a separate question from the layout, and it grows
   to fit the display it landed on: `play-amiga` asks the display
@@ -288,7 +298,14 @@ first letter is the key) acts as those keys, and the map/help/sheet
 pages close on a click
 elsewhere.  Menu option rows carry their pick key (`menu-option` /
 `menu-numbered` in `src/events.lisp`), so front-ends map clicks to
-keys without parsing the text.  A menu list deeper than a page — a
+keys without parsing the text.  A page emits **one option per row**,
+the Bard's Tale look; a page with fewer rows than that needs squeezes
+in order — spacer rows go first, then the options themselves **pack
+onto shared rows** (`fit-menu-lines`), each keeping its own click
+target on the packed row (`menu-line-spans`).  So a short page loses
+its blank lines and its vertical listing before it loses an option,
+and the last row — the sheet carousel's `NEXT`, the shop's `Pool
+gold` — stays on the page and stays clickable.  A menu list deeper than a page — a
 big shop stock, a full pack on the sell page or the character sheet,
 a fat spell book — **scrolls**: `u`/`d` (or the scrollbar at the
 page's right edge — a click above the thumb is a window up, below it

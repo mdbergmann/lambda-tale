@@ -166,6 +166,43 @@ map itself is smaller."
          (y0 (max 0 (min (- py (floor h 2)) (- mh h)))))
     (values x0 y0 w h)))
 
+;;; The automap page's sizing policy.  A front-end draws its map cells
+;;; at some pixel size and its feature glyphs — stairs, doors, the
+;;; legend's markers — need a floor of that size to draw in at all
+;;; (MIN-CELL; the Amiga's is the microfont's small advance).  Below it
+;;; the page does not show more map, it shows a wireframe with
+;;; everything that names a place gone out of it.
+;;;
+;;; So: the map shows WHOLE while it fits at MIN-CELL or better, and
+;;; otherwise keeps the cell its WIDTH affords and windows what is left
+;;; — the page scrolls (MAP-PAGE-SCROLL) rather than shrinking past
+;;; legibility.  Kept here, in pixels and cells and nothing else, so
+;;; both the policy and its arithmetic are the host suite's to check.
+
+(defun map-page-window (map avail-w avail-h min-cell &optional (max-cell 16))
+  "How an automap page of AVAIL-W x AVAIL-H pixels draws MAP: values
+(CELL VW VH) — pixels per map cell, and the cells across and down that
+fit in them.  A VH short of the map's own height is a page that
+windows the map and must scroll to show the rest."
+  (let* ((mw (max 1 (dungeon-map-width map)))
+         (mh (max 1 (dungeon-map-height map)))
+         (wide (max 1 (min max-cell (floor (max avail-w 0) mw))))
+         (fit (min wide (max 1 (floor (max avail-h 0) mh))))
+         (cell (if (>= fit min-cell) fit (max min-cell wide))))
+    (values cell
+            (min mw (max 1 (floor (max avail-w 0) cell)))
+            (min mh (max 1 (floor (max avail-h 0) cell))))))
+
+(defun map-page-scroll (top char mh vh)
+  "The automap window's top cell row after key CHAR — u/U moves it a
+window up, d/D a window down, each clamped to the map — or NIL when
+CHAR does not scroll or the VH-row window already shows all MH rows."
+  (when (and (characterp char) (< vh mh))
+    (case char
+      ((#\u #\U) (max 0 (- top vh)))
+      ((#\d #\D) (min (- mh vh) (+ top vh)))
+      (t nil))))
+
 ;;; ---------------------------------------------------------------------
 ;;; Parsing ASCII map art
 
