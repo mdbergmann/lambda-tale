@@ -2848,6 +2848,221 @@ height" d)
   (check "natural armor floors at -10" -10 (hero-ac h)))
 
 ;;; ---------------------------------------------------------------------
+;;; Changing class — the second ladder.  An art is left at its
+;;; :CHANGE-AT level, freezes there, and goes on granting exactly the
+;;; spells it had opened; the new art starts over at level 1 while the
+;;; body keeps what it earned.
+
+(check-error "change-at must be a positive integer"
+  (define-hero-class :t-bogus-art :change-at 0))
+(check-error "change-group must be a symbol"
+  (define-hero-class :t-bogus-art :change-group 7))
+(check-error ":requires wants (CLASS . LEVEL) pairs"
+  (define-hero-class :t-bogus-art :requires '(:t-first)))
+(check-error ":requires wants a positive level"
+  (define-hero-class :t-bogus-art :requires '((:t-first . 0))))
+
+;; Three arts of one family: the first two are ordinary and
+;; interchangeable, the third is closed to new characters and asks for
+;; both of the others.
+(define-hero-class :t-first  :hp-dice "1d6" :damage "1d4" :ac 10
+                             :caster t :change-at 3 :change-group :t-art)
+(define-hero-class :t-second :hp-dice "1d6" :damage "1d6" :ac 10
+                             :caster t :change-at 3 :change-group :t-art)
+(define-hero-class :t-third  :hp-dice "1d6" :damage "1d4" :ac 10
+                             :caster t :startable nil
+                             :change-at 3 :change-group :t-art
+                             :requires '((:t-first . 3) (:t-second . 3)))
+;; and a fourth outside the family and with no :CHANGE-AT at all — an
+;; art for life, and no destination for anyone either
+(define-hero-class :t-forlife :hp-dice "1d8" :damage "1d6" :ac 9)
+
+(check-true ":startable defaults to true"
+            (hero-class-property :t-first :startable))
+(check-true "a :startable nil class is off the creation list"
+            (not (member :t-third (startable-hero-classes))))
+(check-true "an ordinary class is on it"
+            (member :t-first (startable-hero-classes)))
+(check-error "make-hero refuses a class closed to new characters"
+  (make-hero "Nope" :t-third))
+
+(defun %art-hero (name class)
+  "A deterministic level-1 caster of CLASS: hit die 4, all abilities 10."
+  (let ((h (with-rng (3 7 7 7 7 7) (make-hero name class))))
+    (setf (hero-str h) 10 (hero-dex h) 10 (hero-iq h) 10
+          (hero-con h) 10 (hero-lck h) 10)
+    h))
+
+;; Spells the arts hand out, one per level, so a frozen rating is
+;; visible as "these and no more".
+(define-spell 't-first-1 :title "first one" :level 1 :cost 1
+  :classes '(:t-first) :heal 1)
+(define-spell 't-first-3 :title "first three" :level 3 :cost 1
+  :classes '(:t-first) :heal 1)
+(define-spell 't-first-5 :title "first five" :level 5 :cost 1
+  :classes '(:t-first) :heal 1)
+(define-spell 't-second-1 :title "second one" :level 1 :cost 1
+  :classes '(:t-second) :heal 1)
+(define-spell 't-shared-1 :title "shared one" :level 1 :cost 1
+  :classes '(:t-first :t-second) :heal 1)
+
+;; The refusals, one at a time.
+(let ((h (%art-hero "Sy" :t-first)))
+  (check "an art below its :change-at will not be left"
+         "Needs level 3 here." (class-change-refusal h :t-second))
+  (check "nothing is open yet" '() (hero-class-change-targets h))
+  (check-true "and the sheet offers no 'c'"
+              (not (hero-can-change-class-p h)))
+  (setf (hero-level h) 3)
+  (check "at :change-at the sister art opens" nil
+         (class-change-refusal h :t-second))
+  (check "the class already worn is refused"
+         "Already that." (class-change-refusal h :t-first))
+  (check "an art outside the family is no destination"
+         "Not that kind of art." (class-change-refusal h :t-forlife))
+  (check "the top art still wants the other rating"
+         "T Second 3 first." (class-change-refusal h :t-third))
+  (check "so only the sister art is offered" '(:t-second)
+         (hero-class-change-targets h))
+  (setf (hero-hp h) 0)
+  (check "a fallen hero changes nothing"
+         "Not while down." (class-change-refusal h :t-second))
+  (check-error "and change-class refuses outright"
+    (change-class nil h :t-second)))
+
+;; A class for life is exactly that, however high the level.
+(let ((h (%art-hero "Stone" :t-forlife)))
+  (setf (hero-level h) 20)
+  (check "no :change-at, nothing open" '() (hero-class-change-targets h))
+  (check "and it says so"
+         "This art is for life." (class-change-refusal h :t-first)))
+
+;; The change itself: what freezes, what starts over, what carries.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%art-hero "Vex" :t-first))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (setf (hero-level h) 3 (hero-xp h) 300 (hero-gold h) 42)
+  (setf (hero-max-hp h) 30 (hero-hp h) 30)
+  (setf (hero-max-sp h) 12 (hero-sp h) 12)
+  (check-true "the first art's level-3 spells are known"
+              (spell-known-p h 't-first-3))
+  (check-true "its level-5 spells are not" (not (spell-known-p h 't-first-5)))
+  (check ":t-second returns the change" :t-second (change-class g h :t-second))
+  (check "the new art starts at level 1" 1 (hero-level h))
+  (check "with no experience" 0 (hero-xp h))
+  (check "the class is the new one" :t-second (hero-class h))
+  (check "the art left behind froze at the level it was left"
+         3 (hero-class-level h :t-first))
+  (check "the new art's rating is the hero's level"
+         1 (hero-class-level h :t-second))
+  (check "an art never worn rates 0" 0 (hero-class-level h :t-third))
+  (check-true "the old art is remembered" (hero-held-class-p h :t-first))
+  (check-true "hit points carry across" (= 30 (hero-max-hp h)))
+  (check-true "spell points carry across" (= 12 (hero-max-sp h)))
+  (check-true "gold carries across" (= 42 (hero-gold h)))
+  (check "the bare attack becomes the new art's" "1d6" (hero-damage h))
+  (check-true "the change is announced"
+              (find-if (lambda (s) (search "takes up the t second" s))
+                       (funcall msgs)))
+  ;; the frozen art keeps granting what it opened, and never more
+  (check-true "the left art's level-1 spell is still known"
+              (spell-known-p h 't-first-1))
+  (check-true "and its level-3 spell too" (spell-known-p h 't-first-3))
+  (check-true "but the level it never reached stays shut"
+              (not (spell-known-p h 't-first-5)))
+  (check-true "the new art's level-1 spell arrives"
+              (spell-known-p h 't-second-1))
+  (check-true "a spell both arts share is known once"
+              (= 1 (count 't-shared-1 (spells-for-hero h))))
+  ;; and the art cannot be taken up a second time
+  (setf (hero-level h) 3)
+  (check "an art once worn is closed for good"
+         "Been there once." (class-change-refusal h :t-first)))
+
+;; Levelling after a change never lets the earned spell points fall.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%art-hero "Purse" :t-first))
+       (g (new-game m :party (list h))))
+  (setf (hero-level h) 3 (hero-max-sp h) 12 (hero-sp h) 12)
+  (change-class g h :t-second)
+  (check "the change keeps the earned purse" 12 (hero-max-sp h))
+  (award-xp g h 100)
+  (with-rng (4) (advance-level g h))
+  (check "and a level-1 art's arithmetic cannot shrink it"
+         12 (hero-max-sp h)))
+
+;; The top art: reachable only once both ratings are in hand, and only
+;; by changing class.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%art-hero "Arch" :t-first))
+       (g (new-game m :party (list h))))
+  (setf (hero-level h) 3)
+  (check "one rating short, the top art stays shut"
+         "T Second 3 first." (class-change-refusal h :t-third))
+  (change-class g h :t-second)
+  (check "and freshly changed, the new art must be walked first"
+         "Needs level 3 here." (class-change-refusal h :t-third))
+  (setf (hero-level h) 3)               ; the second art reaches 3 too
+  (check "both ratings in hand, it opens" nil
+         (class-change-refusal h :t-third))
+  (check "and it is what is offered" '(:t-third)
+         (hero-class-change-targets h))
+  (change-class g h :t-third)
+  (check "the second art froze on the way out"
+         3 (hero-class-level h :t-second))
+  (check "and the first is still where it was left"
+         3 (hero-class-level h :t-first)))
+
+;; A race that does not permit the art refuses it, change or no change.
+(define-race :t-narrow :classes '(:t-first))
+(let ((h (%art-hero "Nar" :t-first)))
+  (setf (hero-race h) :t-narrow (hero-level h) 3)
+  (check "the race has the last word"
+         "No T-Narrow does that." (class-change-refusal h :t-second)))
+
+;; The sheet: the Arts row appears only once an art has been left, and
+;; the 'c' hint only while something is open.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%art-hero "Page" :t-first))
+       (g (new-game m :party (list h))))
+  (check "one art, no Arts row" nil
+         (find-if (lambda (s) (search "Arts" s)) (hero-summary-lines h)))
+  (check-true "and no 'c' on the page"
+              (not (find-if (lambda (l) (search "Change class"
+                                                (menu-line-text l)))
+                            (hero-sheet-lines g 0))))
+  (setf (hero-level h) 3)
+  (check-true "at the threshold the 'c' hint appears"
+              (find-if (lambda (l) (search "Change class" (menu-line-text l)))
+                       (hero-sheet-lines g 0)))
+  ;; the pick page: the offered arts, numbered, in place of the hints
+  (check-true "the pick page asks which art"
+              (find-if (lambda (l) (search "Take up which art?"
+                                           (menu-line-text l)))
+                       (hero-sheet-lines g 0 0 nil t)))
+  (check-true "and numbers the offer"
+              (find-if (lambda (l) (search "1) T Second" (menu-line-text l)))
+                       (hero-sheet-lines g 0 0 nil t)))
+  (change-class g h :t-second)
+  (check "both arts now show with their ratings" '("Arts TF3 TS1")
+         (remove-if-not (lambda (s) (search "Arts" s))
+                        (hero-summary-lines h))))
+
+;; The Arts rows wrap at three arts so the sheet's 20 cells hold.
+(let ((h (%art-hero "Wide" :t-first)))
+  (setf (hero-class-levels h) '((:t-forlife . 13) (:t-third . 13)
+                                (:t-second . 13))
+        (hero-level h) 13)
+  (check "four arts take two rows"
+         '("Arts TS13 TT13 TF13" "Arts TF13")
+         (remove-if-not (lambda (s) (search "Arts" s))
+                        (hero-summary-lines h)))
+  (check-true "and neither row runs past the sheet's 20 cells"
+              (every (lambda (s) (<= (length s) 20))
+                     (hero-summary-lines h))))
+
+;;; ---------------------------------------------------------------------
 ;;; Combat
 
 (define-monster "test rat"
@@ -7426,6 +7641,9 @@ height" d)
   (incf (hero-gold b) 17)
   (setf (hero-tunes b) 3)
   (decf (hero-sp c))
+  ;; an art left behind rides along too: without it a reloaded
+  ;; class-changer would forget every spell the old art had opened
+  (setf (hero-class-levels b) '((:t-first . 4) (:t-second . 3)))
   ;; conditions ride along in the save: they are cured or carried, and a
   ;; party that saves poisoned loads poisoned
   (afflict-hero g a :poison)
@@ -7469,6 +7687,12 @@ height" d)
       (check "loaded hero ailments, in vocabulary order"
              '(:poison :paralysis) (hero-ailments a2))
       (check "a hale hero loads hale" nil (hero-ailments b2))
+      (check "loaded hero's arts, frozen where they were left"
+             '((:t-first . 4) (:t-second . 3)) (hero-class-levels b2))
+      (check "and they still answer for their spells"
+             4 (hero-class-level b2 :t-first))
+      (check "a hero who never changed class loads with none"
+             '() (hero-class-levels a2))
       (check-true "and the loaded condition still speaks for itself"
                   (and (hero-helpless-p a2)
                        (equal "poisoned, paralysed"

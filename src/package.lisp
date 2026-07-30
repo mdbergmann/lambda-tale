@@ -93,7 +93,7 @@
    #:race-str #:race-dex #:race-iq #:race-con #:race-lck
    #:clamp-stat #:+stat-min+ #:+stat-max+
    ;; heroes and the party
-   #:define-hero-class #:hero-classes
+   #:define-hero-class #:hero-classes #:startable-hero-classes
    #:make-hero #:hero-name #:hero-class #:hero-race #:hero-race-title
    #:hero-level
    #:hero-xp #:hero-max-hp #:hero-hp #:hero-max-sp #:hero-sp
@@ -119,6 +119,11 @@
    #:damage-hero #:heal-hero #:stat-bonus #:stat-gift #:saving-throw
    #:award-xp #:xp-for-level
    #:hero-level-up-pending-p #:advance-level
+   ;; changing class — the second ladder; an art left behind freezes at
+   ;; the level it was left and keeps granting what it opened
+   #:hero-class-levels #:hero-class-level #:hero-held-class-p
+   #:class-change-refusal #:hero-class-change-targets
+   #:hero-can-change-class-p #:change-class
    #:pool-gold #:trade-gold
    ;; trading gold ('t' on the character sheet)
    #:make-trade-view #:trade-view-hero #:trade-view-to

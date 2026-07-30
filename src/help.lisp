@@ -28,6 +28,7 @@
         "    T there: trade gold to another"
         "    O there: marching order"
         "    L there: take a level (^ = due)"
+        "    C there: change class"
         "Shift-S save  Shift-L load"
         "Q or Esc quit (asks first)"
         ""

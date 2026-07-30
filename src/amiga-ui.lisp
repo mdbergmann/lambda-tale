@@ -2174,6 +2174,7 @@ map/help/sheet pages close on a click outside a target — see
          (sheet-top 0)      ; current sheet page's scroll offset (u/d)
          (magic nil)        ; MAGIC-VIEW while the spells/songs page is up
          (ordering nil)     ; sheet: picking the hero's new slot (o)
+         (changing nil)     ; sheet: picking the hero's new art (c)
          (equipv nil)       ; EQUIP-VIEW while the pack page is open
          (tradev nil)       ; TRADE-VIEW while the trade page is open
          (help-prior-mode :play) ; mode to return to when help closes
@@ -2363,6 +2364,7 @@ map/help/sheet pages close on a click outside a target — see
                                   equipv nil
                                   tradev nil
                                   ordering nil
+                                  changing nil
                                   mode :sheet)
                             (redraw)))
                         (sheet-next ()
@@ -2410,6 +2412,7 @@ map/help/sheet pages close on a click outside a target — see
                           (setf equipv nil)
                           (setf tradev nil)
                           (setf ordering nil)
+                          (setf changing nil)
                           (setf mode :play)
                           (redraw))
                         (open-help ()
@@ -2605,7 +2608,8 @@ map/help/sheet pages close on a click outside a target — see
                                               (t
                                                (hero-sheet-lines
                                                 game sheet-hero
-                                                sheet-top ordering)))
+                                                sheet-top ordering
+                                                changing)))
                                      log l log-lines))
                                    (ordersv
                                     ;; combat: the round orders, with
@@ -2912,6 +2916,36 @@ means the player asked to leave (ACT confirms it)."
                                                  (setf ordering nil)
                                                  (redraw)))
                                           nil)
+                                         (changing
+                                          ;; the class pick: a digit
+                                          ;; takes that art off the
+                                          ;; offered list; Esc cancels.
+                                          ;; The list is read fresh, so
+                                          ;; it is the one just drawn.
+                                          (let* ((hero
+                                                  (nth sheet-hero
+                                                       (game-party game)))
+                                                 (targets
+                                                  (and hero
+                                                       (hero-class-change-targets
+                                                        hero))))
+                                            (cond ((eql c :esc)
+                                                   (setf changing nil)
+                                                   (redraw))
+                                                  ((and (characterp c)
+                                                        (digit-char-p c)
+                                                        (<= 1
+                                                            (digit-char-p c)
+                                                            (length
+                                                             targets)))
+                                                   (change-class
+                                                    game hero
+                                                    (nth (1- (digit-char-p c))
+                                                         targets))
+                                                   (setf sheet-top 0)
+                                                   (setf changing nil)
+                                                   (redraw))))
+                                          nil)
                                          (magic
                                           ;; the spells/songs page: the
                                           ;; shared model eats the keys
@@ -2983,6 +3017,18 @@ means the player asked to leave (ACT confirms it)."
                                             (when (and hero
                                                        (advance-level
                                                         game hero))
+                                              (redraw)))
+                                          nil)
+                                         ((eql lc #\c)
+                                          ;; the second ladder: pick an
+                                          ;; art to take up
+                                          (let ((hero (nth sheet-hero
+                                                           (game-party
+                                                            game))))
+                                            (when (and hero
+                                                       (hero-can-change-class-p
+                                                        hero))
+                                              (setf changing t)
                                               (redraw)))
                                           nil)
                                          ((characterp c)

@@ -144,13 +144,21 @@ rule items follow too)."
   (effect-spec-target-kind (spell-type-effect (find-spell-type name))))
 
 (defun spell-known-p (hero name)
-  "Does HERO know spell NAME?  A caster of an allowed class (NIL
-:classes = any caster) who has reached the spell's level."
-  (let ((type (find-spell-type name)))
+  "Does HERO know spell NAME?  A caster one of whose arts has reached
+the spell's level — and an art is measured by HERO-CLASS-LEVEL, not
+HERO-LEVEL, so a class the hero has since left goes on granting
+everything it had opened before they walked away (the frozen rating
+CHANGE-CLASS banked).  A spell with NIL :classes belongs to no art in
+particular and answers to the hero's current level."
+  (let* ((type (find-spell-type name))
+         (classes (spell-type-classes type)))
     (and (hero-caster-p hero)
-         (or (null (spell-type-classes type))
-             (member (hero-class hero) (spell-type-classes type)))
-         (>= (hero-level hero) (spell-type-level type))
+         (if classes
+             (some (lambda (class)
+                     (>= (hero-class-level hero class)
+                         (spell-type-level type)))
+                   classes)
+             (>= (hero-level hero) (spell-type-level type)))
          t)))
 
 (defun spells-for-hero (hero)

@@ -19,7 +19,9 @@
 ;;;   party member — 1-9 the item, then 1-7 who receives it)
 ;;;   p=pool the party's gold onto the hero
 ;;;   o=marching order (a digit moves the hero to that slot)
-;;;   l=take a banked level (the roster's ^ marker)  Esc=back
+;;;   l=take a banked level (the roster's ^ marker)
+;;;   c=change class (a digit takes that art; offered only when one
+;;;     will have the hero)  Esc=back
 ;;; In a location (shop): 1-9=choose  s/b=sell/buy page  p=pool gold
 ;;;   onto the shopper  Esc=back/leave
 ;;; In the cast menu: 1-9=choose caster/spell/target  Esc=back/cancel
@@ -110,6 +112,7 @@ engine has no default world; the game names its starting map."
          (sheet-top 0)       ; current sheet page's scroll offset (u/d)
          (magic nil)         ; MAGIC-VIEW while the spells/songs page is up
          (ordering nil)      ; sheet: picking the hero's new slot (o)
+         (changing nil)      ; sheet: picking the hero's new art (c)
          (equip nil)         ; EQUIP-VIEW while the pack page is open
          (trade nil)         ; TRADE-VIEW while the trade page is open
          (locv nil)          ; the location's view (MAKE-LOCATION-VIEW)
@@ -261,7 +264,8 @@ engine has no default world; the game names its starting map."
                                    (magic (magic-lines game magic))
                                    (t (hero-sheet-lines game sheet-hero
                                                         sheet-top
-                                                        ordering))))
+                                                        ordering
+                                                        changing))))
                  (format t "~A~%" (menu-line-text line))))
              (draw ()
                (%clear-screen)
@@ -370,6 +374,7 @@ engine has no default world; the game names its starting map."
                        equip nil
                        trade nil
                        ordering nil
+                       changing nil
                        mode :sheet))
                nil)
              (sheet-next ()
@@ -442,6 +447,22 @@ engine has no default world; the game names its starting map."
                           ((eql c #\Escape) (setf ordering nil) nil)
                           ((member c '(#\q #\Q)) :quit)
                           (t nil))))
+                 (changing
+                  ;; the class pick: a digit takes that art off the
+                  ;; offered list; Esc cancels.  The list is read fresh,
+                  ;; so it is always the one the page drew.
+                  (let* ((digit (digit-char-p c))
+                         (hero (nth sheet-hero (game-party game)))
+                         (targets (and hero (hero-class-change-targets hero))))
+                    (cond ((and digit (<= 1 digit (length targets)))
+                           (change-class game hero
+                                         (nth (1- digit) targets))
+                           (setf sheet-top 0)
+                           (setf changing nil)
+                           nil)
+                          ((eql c #\Escape) (setf changing nil) nil)
+                          ((member c '(#\q #\Q)) :quit)
+                          (t nil))))
                  (magic
                   ;; the spells/songs page: the shared model eats the
                   ;; keys — digits pick a card there, so Q alone still
@@ -488,6 +509,13 @@ engine has no default world; the game names its starting map."
                                             (game-party game))))
                              (when hero
                                (advance-level game hero)))
+                           nil)
+                          ((member c '(#\c #\C))
+                           ;; the second ladder: pick an art to take up
+                           (let ((hero (nth sheet-hero
+                                            (game-party game))))
+                             (when (and hero (hero-can-change-class-p hero))
+                               (setf changing t)))
                            nil)
                           ((eql c #\Escape) (setf mode :play) nil)
                           ((member c '(#\q #\Q)) :quit)

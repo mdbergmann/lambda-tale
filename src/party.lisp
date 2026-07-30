@@ -24,14 +24,21 @@
   (items '())         ; pack contents: item names, at most +inventory-limit+
   (equipped '())      ; equipped subset: one :weapon, :armor, :shield each
   (tunes 0)           ; song charges (singers; refilled at a tavern)
-  (ailments '()))     ; conditions carried until cured (see *AILMENTS*)
+  (ailments '())      ; conditions carried until cured (see *AILMENTS*)
+  (class-levels '()))  ; (class . level) for every class LEFT behind —
+                      ; the rating CHANGE-CLASS froze on the way out, and
+                      ; what a departed class's spells still answer to
+                      ; (HERO-CLASS-LEVEL).  The current class is never
+                      ; in here: its rating is HERO-LEVEL itself.
 
 (defvar *hero-classes* (make-hash-table :test 'eq))
 
 (defun define-hero-class (name &key (hp-dice "1d8") (damage "1d4") (ac 10)
                                     caster singer sings-with image description
                                     extra-attack-levels crit-chance
-                                    ac-per-level trap-skill)
+                                    ac-per-level trap-skill
+                                    (startable t) change-at change-group
+                                    requires)
   "Register hero class NAME (a keyword) with its hit dice, attack dice
 and starting armor class; CASTER T marks a spell-casting class (spell
 points from level and IQ, see %HERO-MAX-SP), SINGER T a song-playing
@@ -50,7 +57,21 @@ improves the class's natural armor by one every N levels beyond the
 first (the monk's art, see LEVEL-UP — floored at -10, Bard's Tale's
 best); TRAP-SKILL N is the percent chance to spot and disarm a
 springing floor trap, growing one point per level (the rogue's art,
-see the TRAP op in specials.lisp).  Campaign data calls this."
+see the TRAP op in specials.lisp).
+
+STARTABLE NIL bars the class from character creation — MAKE-HERO
+refuses it, and the only way in is CHANGE-CLASS (Bard's Tale kept its
+higher arts off the creation menu this way).
+
+Three keys govern that second ladder, and a class needs the first two
+to walk it at all.  CHANGE-AT N is the level a hero of this class must
+reach before they may LEAVE it.  CHANGE-GROUP is the family it changes
+within: a hero may only move between classes that name the SAME group,
+which is how \"a mage moves up to another mage class\" is said — a
+class with no group (or no CHANGE-AT) is for life.  REQUIRES is an
+alist of (CLASS . LEVEL) a hero must have ATTAINED — now or in a class
+they have since left — before they may ENTER this one; the top art
+asks for several at once.  Campaign data calls this."
   (when (and extra-attack-levels
              (not (and (integerp extra-attack-levels)
                        (plusp extra-attack-levels))))
@@ -68,6 +89,20 @@ see the TRAP op in specials.lisp).  Campaign data calls this."
              (not (and (integerp trap-skill) (< 0 trap-skill 101))))
     (error "define-hero-class ~S: :trap-skill ~S must be a percent ~
             (1-100)" name trap-skill))
+  (when (and change-at
+             (not (and (integerp change-at) (plusp change-at))))
+    (error "define-hero-class ~S: :change-at ~S must be a positive ~
+            integer" name change-at))
+  (when (and change-group (not (symbolp change-group)))
+    (error "define-hero-class ~S: :change-group ~S must be a symbol"
+           name change-group))
+  ;; the shape only — a required class need not be registered yet, so
+  ;; campaign data may name the arts in any order
+  (dolist (entry requires)
+    (unless (and (consp entry) (keywordp (car entry))
+                 (integerp (cdr entry)) (plusp (cdr entry)))
+      (error "define-hero-class ~S: :requires entry ~S must be ~
+              (CLASS . LEVEL) with a positive LEVEL" name entry)))
   (when sings-with
     (unless (member sings-with *item-kinds*)
       (error "define-hero-class ~S: :sings-with ~S names no item kind ~
@@ -83,8 +118,18 @@ see the TRAP op in specials.lisp).  Campaign data calls this."
               :extra-attack-levels extra-attack-levels
               :crit-chance crit-chance
               :ac-per-level ac-per-level
-              :trap-skill trap-skill))
+              :trap-skill trap-skill
+              :startable startable
+              :change-at change-at
+              :change-group change-group
+              :requires requires))
   name)
+
+(defun startable-hero-classes ()
+  "The classes a new character may be rolled as — HERO-CLASSES minus
+the ones registered :STARTABLE NIL.  A creation menu picks from here."
+  (remove-if-not (lambda (class) (hero-class-property class :startable))
+                 (hero-classes)))
 
 (defun hero-extra-attacks (hero)
   "Extra strikes HERO's class training grants per combat round: one
@@ -121,13 +166,40 @@ none of its own)."
              class))
     (getf plist key)))
 
+(defun hero-class-level (hero class)
+  "The level HERO has ATTAINED in CLASS — HERO-LEVEL for the class they
+wear now, the rating CHANGE-CLASS froze for one they have left, and 0
+for one they never held.  This, not HERO-LEVEL, is what a spell's own
+class answers to (SPELL-KNOWN-P): an art keeps handing out the spells
+it opened long after its owner has moved on, and never opens another."
+  (if (eq class (hero-class hero))
+      (hero-level hero)
+      (or (cdr (assoc class (hero-class-levels hero))) 0)))
+
+(defun hero-held-class-p (hero class)
+  "Has HERO ever worn CLASS — now, or before a CHANGE-CLASS?"
+  (and (or (eq class (hero-class hero))
+           (assoc class (hero-class-levels hero)))
+       t))
+
 (defun make-hero (name class &key race (gold 0))
   "Create a level-1 hero of CLASS: hp from the class hit dice plus the
 CON bonus (minimum 1 — a sickly hero still lives), abilities rolled 3d6
 in the order str, dex, iq, con, lck, then adjusted by RACE's ability
 modifiers when a race is given (see DEFINE-RACE).  A RACE that does not
-permit CLASS is an error.  GOLD is the starting purse (campaign data
-decides; dice strings welcome)."
+permit CLASS is an error, and so is a CLASS registered :STARTABLE NIL —
+those are reached by CHANGE-CLASS alone.  GOLD is the starting purse
+(campaign data decides; dice strings welcome)."
+  ;; A class that is closed to new characters is caught with the race
+  ;; check below: both are design errors, both before any dice roll, so
+  ;; a scripted roll order never half-runs.
+  (unless (hero-class-property class :startable)
+    (error "~A is not open to a new character — it is reached by ~
+            changing class; the open ones are: ~{~A~^, ~}"
+           (string-capitalize (substitute #\Space #\- (string class)))
+           (mapcar (lambda (c)
+                     (string-capitalize (substitute #\Space #\- (string c))))
+                   (startable-hero-classes))))
   ;; A race that cannot take this class is a design error caught early,
   ;; before any dice roll, with a message that lists the legal classes.
   (when (and race (not (race-allows-class-p race class)))
@@ -355,12 +427,12 @@ summoned/charmed monster or story NPC, Bard's Tale tradition).")
 when the hero has no race."
   (and (hero-race hero) (race-title (hero-race hero))))
 
-(defun hero-class-abbrev (hero)
-  "The hero's class as the roster's CL column code, always two
-characters so the name column keeps the room: the initials of the
-first two words of a multi-word class, else the first two letters —
-:war-mage -> \"WM\", :conjurer -> \"CO\"."
-  (let* ((name (string (hero-class hero)))
+(defun class-abbrev (class)
+  "CLASS as the roster's CL column code, always two characters so the
+name column keeps the room: the initials of the first two words of a
+multi-word class, else the first two letters — :war-mage -> \"WM\",
+:conjurer -> \"CO\"."
+  (let* ((name (string class))
          (words (loop with start = 0
                       for dash = (position #\- name :start start)
                       collect (subseq name start dash)
@@ -370,6 +442,35 @@ first two words of a multi-word class, else the first two letters —
      (if (rest words)
          (map 'string (lambda (w) (char w 0)) (subseq words 0 2))
          (subseq name 0 (min 2 (length name)))))))
+
+(defun hero-class-abbrev (hero)
+  "HERO's current class as the roster's CL column code — CLASS-ABBREV
+of HERO-CLASS."
+  (class-abbrev (hero-class hero)))
+
+(defun hero-art-ratings (hero)
+  "The level HERO has attained in every class they have ever worn, as
+(CLASS . LEVEL) pairs, oldest first and the class they wear now last.
+One pair for a hero who never changed class — the sheet leaves the
+line out for them, since the name and Level rows already say it."
+  (append (reverse (hero-class-levels hero))
+          (list (cons (hero-class hero) (hero-level hero)))))
+
+(defun %art-rating-lines (hero)
+  "The Arts rows of the stat block: every art HERO has worn with the
+level it stands at, three to a row so the line keeps inside the
+sheet's 20 cells even at two-digit levels (\"Arts CO13 MA13 SO13\" is
+19).  NIL for a hero who has worn only one class."
+  (let ((ratings (hero-art-ratings hero)))
+    (when (rest ratings)
+      (loop for tail = ratings then (nthcdr 3 tail)
+            while tail
+            collect (format nil "Arts~{ ~A~}"
+                            (mapcar (lambda (rating)
+                                      (format nil "~A~D"
+                                              (class-abbrev (car rating))
+                                              (cdr rating)))
+                                    (subseq tail 0 (min 3 (length tail)))))))))
 
 (defun hero-summary-lines (hero &optional game)
   "The character sheet's first page as a list of text lines — the stat
@@ -401,6 +502,10 @@ same source."
          (format nil "HP ~D/~D  AC ~D"
                  (hero-hp hero) (hero-max-hp hero)
                  (hero-effective-ac hero game)))
+   ;; a hero who has changed class needs the ratings spelled out: the
+   ;; Level row above speaks for the current art alone, and the arts
+   ;; left behind are what half the spellbook still answers to
+   (%art-rating-lines hero)
    (when (hero-caster-p hero)
      (list (format nil "SP ~D/~D" (hero-sp hero) (hero-max-sp hero))))
    (when (hero-singer-p hero)
@@ -430,12 +535,14 @@ current map file's directory — or NIL when the class has none."
 (defconstant +sheet-page-size+ 8
   "Body rows a character-sheet carousel page shows at once; a longer
 block scrolls with u/d — see MENU-WINDOW.  Both windowing pages count
-against it.  The stat block reaches nine rows — and so scrolls — only
-for a raced hero who both casts and sings (the race line, the SP line
-and the Tunes line all at once); the spells/songs page overflows far
-more readily, as soon as a book and its head run past eight rows.")
+against it.  The stat block reaches nine rows — and so scrolls — for a
+raced hero who both casts and sings (the race line, the SP line and
+the Tunes line at once), and for any raced hero who has changed class
+(the Arts rows, one per three arts worn); the spells/songs page
+overflows far more readily, as soon as a book and its head run past
+eight rows.")
 
-(defun hero-sheet-lines (game index &optional (top 0) ordering)
+(defun hero-sheet-lines (game index &optional (top 0) ordering changing)
   "The character-sheet page for roster slot INDEX as text lines: the
 hero's stat block (windowed at scroll offset TOP when it overflows
 +SHEET-PAGE-SIZE+ rows — see *MENU-SCROLL*) and the sheet's
@@ -447,7 +554,10 @@ row (MENU-NEXT-OPTION, 'n' or a click) turns to the hero's pack page,
 from there to a caster's or singer's spells/songs page, and from the
 last page back here.  ORDERING true is the marching-order pick ('o'):
 the hints give way to the where-to prompt, a digit there moves the
-hero (MOVE-HERO) and Esc cancels."
+hero (MOVE-HERO) and Esc cancels.  CHANGING true is the class pick
+('c'), the same shape: the hints give way to the arts open to the hero
+(HERO-CLASS-CHANGE-TARGETS, numbered), a digit there takes that one
+(CHANGE-CLASS) and Esc cancels."
   (let* ((hero (nth index (game-party game)))
          (body (when hero (hero-summary-lines hero game))))
     (append
@@ -462,23 +572,40 @@ hero (MOVE-HERO) and Esc cancels."
      ;; the digit pick, u/d scrolling and Esc are common knowledge —
      ;; the help screen carries those.  The pack lost its row to the
      ;; carousel: NEXT (below) is the way there now.
-     (if (and hero ordering)
-         (list ""
-               (format nil "Move ~A where?" (hero-name hero)))
-         (append
-          (list "")
-          ;; a banked level heads the keys — the rise happens here,
-          ;; and only while one is actually due
-          (when (and hero (hero-level-up-pending-p hero))
-            (list (menu-option #\l "Level up")
-                  ""))
-          (list (menu-option #\p "Pool gold")
-                ""
-                (menu-option #\t "Trade gold")
-                ""
-                (menu-option #\o "Order party")
-                ""
-                (menu-next-option)))))))
+     (cond
+       ((and hero ordering)
+        (list ""
+              (format nil "Move ~A where?" (hero-name hero))))
+       ;; the arts open to the hero, numbered — the pick list IS the
+       ;; prompt, since a class change is not a thing to do by guesswork
+       ((and hero changing)
+        (append
+         (list "" "Take up which art?")
+         (loop for class in (hero-class-change-targets hero)
+               for n from 1
+               collect (format nil "~D) ~A" n
+                               (string-capitalize
+                                (substitute #\Space #\- (string class)))))))
+       (t
+        (append
+         (list "")
+         ;; a banked level heads the keys — the rise happens here,
+         ;; and only while one is actually due
+         (when (and hero (hero-level-up-pending-p hero))
+           (list (menu-option #\l "Level up")
+                 ""))
+         ;; and the second ladder right under it, only while some art
+         ;; will actually have the hero
+         (when (and hero (hero-can-change-class-p hero))
+           (list (menu-option #\c "Change class")
+                 ""))
+         (list (menu-option #\p "Pool gold")
+               ""
+               (menu-option #\t "Trade gold")
+               ""
+               (menu-option #\o "Order party")
+               ""
+               (menu-next-option))))))))
 
 (defun hero-sheet-scroll (game index top char)
   "The sheet page's scroll offset after key CHAR (u/d — see
@@ -939,9 +1066,13 @@ scripted tests spend a fixed number of rolls per level."
       (when (and per (zerop (mod (1- (hero-level hero)) per)))
         (setf (hero-ac hero) (max -10 (1- (hero-ac hero))))))
     ;; casters grow spell points like hit points: the new maximum
-    ;; arrives as fresh, ready-to-burn sp (and reads a freshly risen IQ)
-    (let ((new-sp (%hero-max-sp (hero-class hero) (hero-level hero)
-                                (hero-iq hero))))
+    ;; arrives as fresh, ready-to-burn sp (and reads a freshly risen IQ).
+    ;; The maximum never FALLS — a hero who changed class keeps the
+    ;; purse the old art earned (CHANGE-CLASS banks it) while the new
+    ;; art's level-1 arithmetic climbs back up under it.
+    (let ((new-sp (max (hero-max-sp hero)
+                       (%hero-max-sp (hero-class hero) (hero-level hero)
+                                     (hero-iq hero)))))
       (incf (hero-sp hero) (max 0 (- new-sp (hero-max-sp hero))))
       (setf (hero-max-sp hero) new-sp))
     ;; the spells the new level brings, named in registration order
@@ -976,3 +1107,99 @@ home to the Review Board; here the sheet is the board)."
     (when (and (not was-ready) (hero-level-up-pending-p hero))
       (say game "~A is ready for the next level!" (hero-name hero))))
   (hero-xp hero))
+
+;;; ---------------------------------------------------------------------
+;;; Changing class — Bard's Tale's second ladder.  A hero who has taken
+;;; an art far enough (its :CHANGE-AT) may set it down for another: the
+;;; level and the experience start over at 1 and 0, but the body keeps
+;;; what it earned — hit points, spell points, gold, abilities, armor,
+;;; pack.  The art left behind FREEZES at the level it was left
+;;; (HERO-CLASS-LEVELS), and goes on granting exactly the spells it had
+;;; opened — never one more.  That freeze is the whole point: the
+;;; spells a hero can call on are the sum of every art they have worn,
+;;; each answering to its own rating, which is why SPELL-KNOWN-P reads
+;;; HERO-CLASS-LEVEL and not HERO-LEVEL.
+
+(defun class-change-refusal (hero class)
+  "Why HERO may not become CLASS right now, as a short line for the
+sheet — or NIL when they may.  The sheet is +TAKEOVER-COLUMNS+ wide,
+so the reasons stay short.  HERO-CLASS-CHANGE-TARGETS answers the
+yes/no of the same rule for every registered class at once."
+  (let ((change-at (hero-class-property (hero-class hero) :change-at))
+        (group (hero-class-property (hero-class hero) :change-group)))
+    (cond ((eq class (hero-class hero)) "Already that.")
+          ((not (hero-alive-p hero)) "Not while down.")
+          ((hero-held-class-p hero class) "Been there once.")
+          ;; both keys, or the art is a life's work
+          ((not (and change-at group)) "This art is for life.")
+          ((< (hero-level hero) change-at)
+           (format nil "Needs level ~D here." change-at))
+          ;; a mage moves up to another mage class, never to a warrior
+          ((not (eq group (hero-class-property class :change-group)))
+           "Not that kind of art.")
+          ((and (hero-race hero)
+                (not (race-allows-class-p (hero-race hero) class)))
+           (format nil "No ~A does that." (hero-race-title hero)))
+          (t
+           ;; the target's own entry price: levels attained in named
+           ;; arts, the current one included (HERO-CLASS-LEVEL knows it)
+           (let ((short (find-if-not
+                         (lambda (entry)
+                           (>= (hero-class-level hero (car entry))
+                               (cdr entry)))
+                         (hero-class-property class :requires))))
+             (when short
+               (format nil "~A ~D first."
+                       (string-capitalize
+                        (substitute #\Space #\- (string (car short))))
+                       (cdr short))))))))
+
+(defun hero-class-change-targets (hero)
+  "The classes HERO may change into right now, sorted as HERO-CLASSES
+sorts — the sheet's pick list.  Empty for a hero whose art has no
+:CHANGE-AT, or who has not yet reached it."
+  (remove-if (lambda (class) (class-change-refusal hero class))
+             (hero-classes)))
+
+(defun hero-can-change-class-p (hero)
+  "True when some class is open to HERO — what the sheet's 'c' hint
+rides on."
+  (and (hero-class-change-targets hero) t))
+
+(defun change-class (game hero class)
+  "Move HERO into CLASS — the sheet's 'c'.  The art being left freezes
+at its current level in HERO-CLASS-LEVELS (it will grant its opened
+spells forever and never open another), then level and experience
+start over at 1 and 0 while hit points, spell points, gold, abilities,
+armor and pack carry across untouched.  Signals an error when
+CLASS-CHANGE-REFUSAL has something to say — the sheet only ever offers
+what HERO-CLASS-CHANGE-TARGETS listed.  Returns CLASS."
+  (let ((refusal (class-change-refusal hero class)))
+    (when refusal
+      (error "~A cannot become a ~A: ~A" (hero-name hero)
+             (string-capitalize (substitute #\Space #\- (string class)))
+             refusal)))
+  (let ((left (hero-class hero)))
+    (push (cons left (hero-level hero)) (hero-class-levels hero))
+    (setf (hero-class hero) class
+          (hero-level hero) 1
+          (hero-xp hero) 0
+          ;; the bare-handed attack is the new art's, not the old one's:
+          ;; class training, never something the body earned
+          (hero-damage hero) (hero-class-property class :damage))
+    ;; Spell points are kept whole — "as they were", the manual's word —
+    ;; so the maximum can only ever rise here (a fresh caster who never
+    ;; had any gets a level-1 purse; LEVEL-UP holds the same floor).
+    (setf (hero-max-sp hero)
+          (max (hero-max-sp hero)
+               (%hero-max-sp class 1 (hero-iq hero)))
+          (hero-sp hero) (min (hero-sp hero) (hero-max-sp hero)))
+    ;; song charges follow the new art: a singer starts the level-1 day
+    ;; with a full throat, anyone else stops carrying charges at all
+    (setf (hero-tunes hero) (hero-max-tunes hero))
+    (say game "~A sets down the ~A's art and takes up the ~A's!"
+         (hero-name hero)
+         (string-downcase (substitute #\Space #\- (string left)))
+         (string-downcase (substitute #\Space #\- (string class))))
+    (emit game :class-change hero))
+  class)

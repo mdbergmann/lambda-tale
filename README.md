@@ -1059,7 +1059,28 @@ a landed blow fells the foe outright (the hunter's),
 first, floored at -10 (the monk's),
 `:trap-skill N` a percent chance — growing one point per level — to
 spot and disarm a springing floor trap (the rogue's), and
-`:description` a lore line for the campaign to show.  The roster holds
+`:description` a lore line for the campaign to show.
+
+A class may also be closed and conditional.  `:startable nil` keeps it
+off the creation menu — `make-hero` refuses it, `startable-hero-classes`
+lists what is left — so the only way in is the second ladder:
+**changing class**.  `:change-at N` is the level a hero must reach
+before they may *leave* that class, `:change-group` the family it
+changes within (a hero only ever moves between classes naming the
+*same* group, which is how "a mage moves up to another mage class" is
+said — a class missing either key is for life), and
+`:requires ((:class . level) …)` what they must have *attained* before
+they may enter this one.
+`change-class` (the sheet's `c`, offered only when
+`hero-class-change-targets` is non-empty) freezes the art being left
+at its current level and starts the new one over: level 1, no
+experience, but hit points, spell points, gold, abilities, armor and
+pack all carry across untouched, and the maximum spell points never
+fall.  The frozen rating is the point — `hero-class-level` reads it,
+so a class left behind goes on granting every spell it had opened and
+never opens another, and a hero's book is the sum of every art they
+have worn.  An art already worn cannot be taken up a second time.
+The roster holds
 up to 7 members (`join-party`): six regular heroes plus one guest slot
 for a summoned monster or story NPC.  Combat is
 round-based, Bard's Tale style: every round opens on the **engage
@@ -1141,9 +1162,11 @@ Spells are campaign data (`define-spell`); the engine knows the
 mechanics: casters (`define-hero-class ... :caster t`) carry **spell
 points** (2 per level plus the IQ bonus) and pay them per cast.  A
 caster **knows** every registered spell of their class at or below
-their level — no separate learning step; a fresh level's spells
-arrive with the rise, which names each one ("Zzal learns test
-flame!"), and the character sheet's spells/songs page carries the
+the level they have reached **in that class** — no separate learning
+step; a fresh level's spells arrive with the rise, which names each
+one ("Zzal learns test flame!").  "In that class" matters only for a
+hero who has changed class (below): an art left behind keeps granting
+what it had opened.  The character sheet's spells/songs page carries the
 spellbook as it stands — numbered, so a digit opens that spell's
 **card**: the tier, what the cast costs against the caster's own
 points, the four-letter incantation, the range and duration the

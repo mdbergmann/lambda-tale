@@ -11,7 +11,9 @@
 
 (in-package :tale)
 
-(defconstant +save-version+ 6)
+(defconstant +save-version+ 7)
+;; v7: the arts a hero has left behind (:class-levels in the hero
+;; plists; NIL for one who never changed class).
 ;; v6: hero ailments (:ailments in the hero plists; NIL for a hale hero).
 ;; v5: hero race (:race in the hero plists; NIL for a raceless hero).
 ;; v4: effect icon images (:image in the effect plists) and hero song
@@ -55,7 +57,11 @@
         :con (hero-con h) :lck (hero-lck h)
         :ac (hero-ac h) :damage (hero-damage h) :gold (hero-gold h)
         :items (hero-items h) :equipped (hero-equipped h)
-        :tunes (hero-tunes h) :ailments (hero-ailments h)))
+        :tunes (hero-tunes h) :ailments (hero-ailments h)
+        ;; the arts left behind, frozen at the level they were left —
+        ;; without these a reloaded class-changer forgets every spell
+        ;; the old art had opened (see HERO-CLASS-LEVEL)
+        :class-levels (hero-class-levels h)))
 
 (defun %effects->list (game)
   (mapcar (lambda (e)
