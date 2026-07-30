@@ -51,7 +51,10 @@ those); only a refused step speaks."
 
 (defun %party-pane (game)
   "The party roster, Bard's Tale columns like the Amiga table: armor
-class (with equipment and spell effects), hit and spell points, gold.
+class (with equipment and spell effects), hit and spell points, gold,
+and what is the matter with the hero — (down), (poisoned), (down,
+insane) — from the engine's HERO-CONDITION-TITLES, so this pane and the
+Amiga table name the same things.
 A ^ before the name is the banked-level flag (the Amiga table's white
 up-arrow) — the character sheet's 'l' takes the rise."
   (with-output-to-string (s)
@@ -65,7 +68,8 @@ up-arrow) — the character sheet's 'l' takes the rise."
                 (hero-level h) (hero-effective-ac h game)
                 (hero-hp h) (hero-max-hp h)
                 (hero-sp h) (hero-max-sp h) (hero-gold h)
-                (if (hero-alive-p h) "" "  (down)"))))))
+                (let ((conditions (hero-condition-titles h)))
+                  (if conditions (format nil "  (~A)" conditions) "")))))))
 
 (defun %effects-pane (game)
   "The active-spells strip: one line per active effect."

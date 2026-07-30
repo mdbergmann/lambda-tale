@@ -11,7 +11,8 @@
 
 (in-package :tale)
 
-(defconstant +save-version+ 5)
+(defconstant +save-version+ 6)
+;; v6: hero ailments (:ailments in the hero plists; NIL for a hale hero).
 ;; v5: hero race (:race in the hero plists; NIL for a raceless hero).
 ;; v4: effect icon images (:image in the effect plists) and hero song
 ;; tunes (:tunes in the hero plists).
@@ -54,7 +55,7 @@
         :con (hero-con h) :lck (hero-lck h)
         :ac (hero-ac h) :damage (hero-damage h) :gold (hero-gold h)
         :items (hero-items h) :equipped (hero-equipped h)
-        :tunes (hero-tunes h)))
+        :tunes (hero-tunes h) :ailments (hero-ailments h)))
 
 (defun %effects->list (game)
   (mapcar (lambda (e)

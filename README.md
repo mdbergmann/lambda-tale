@@ -762,20 +762,26 @@ band icon.  See the "Usable items" and "Spell-trigger items" test
 sections of `tests/run-tests.lisp` for the exact rules.
 
 Two more location kinds spend gold on recovery, Bard's Tale style.  A
-**temple** — `(location TITLE :temple :price N :raise M :raise-per-hp R)`
+**temple** — `(location TITLE :temple :price N :raise M :raise-per-hp R
+:cures ((AILMENT PRICE) ...))`
 — heals for `N` gold per missing hit point (default 2), plus a fee to
 **raise a fallen hero**: the flat `M` (default 50) and `R` (default 0)
 for every one of the patient's *full* hit points, so a map may make a
 raising scale with the life restored.  That fee buys the **life, not
 the health**: the hero comes back at a single hit point, and every hit
 point above it is a wound like any other at `N` — so making the fallen
-whole costs the fee plus the rest of their health.  Its menu asks
+whole costs the fee plus the rest of their health.  Its priests also
+**lift conditions**, at the flat price `:cures` names per ailment — and
+only the ones that table names: a condition this house does not treat
+walks out of the temple however much gold is offered.  Its menu asks
 twice: *Who wishes
-healing?* — a digit per hurt hero — then *Who will pay?* — any purse
-in the party, the patient's own included.  A purse short of the whole
-job buys what it can, wound by wound (the fee alone still gets a fallen
-hero standing), and one that buys nothing leaves *Not enough Gold* as
-the menu's last line.  An **energy fount** — `(location TITLE :energy :price
+healing?* — a digit per hero they have work for, wounded or merely
+ailing — then *Who will pay?* — any purse
+in the party, the patient's own included.  The purse buys in one order:
+the raising first (there is no cleansing a corpse, so a purse short of
+the fee buys nothing at all), then each cure it can cover whole, then
+wounds one at a time with what is left.  A purse that buys nothing
+leaves *Not enough Gold* as the menu's last line.  An **energy fount** — `(location TITLE :energy :price
 N)` — refills a living caster's spell points at `N` gold apiece
 (default 3), the Roscoe's of the piece; singers refill at the tavern
 instead.  The "Temples" and "The energy fount" test sections of
@@ -1084,6 +1090,51 @@ before play resumes.  All randomness
 goes through
 `*rng*`, so the test suite scripts entire fights deterministically.
 
+## Ailments
+
+Four conditions a hero **carries about until something lifts them** —
+none wears off with time, which is what makes a cure worth paying for:
+
+| Ailment | In play |
+|---|---|
+| `:poison` | bites for `*poison-bite*` hp on every party step and every combat round; it can kill |
+| `:insanity` | the hero fights on its own — the round's order is void and the madness strikes a companion |
+| `:paralysis` | the hero cannot act at all |
+| `:stone` | a statue: cannot act, and stands in the rank taking blows |
+
+`afflict-hero` lays one on (once — an ailment does not deepen),
+`cure-ailment` lifts one quietly, `cure-hero` lifts a list and says
+what it lifted.  A hero's `hero-ailments` list is always in
+`*ailments*` order, so conditions read and cure in the same order
+however they arrived, and they **stack**: a poisoned hero can be
+paralysed too, and each is cured on its own.  Saves carry them.
+
+The paralysed and the stone are **helpless**: `acting-heroes` leaves
+them out, so the orders page never asks them and the round never spends
+an action on them (they are named once a round instead), while
+`front-ranks` still offers them to the monsters.  A party where nobody
+can act — every hero frozen or petrified — **loses the fight**
+(`party-can-act-p`), which is the honest end for a fight that could
+otherwise run rounds forever with no one able to swing.
+
+Who hands them out and what lifting one costs is **campaign data**:
+
+- `define-monster ... :inflicts ((:poison 25) (:stone 5))` — a landed
+  blow rolls each entry's percent chance on the hero it struck.  This is
+  how the Bard's Tale monster powers are expressed; a blow that misses,
+  or that fells its target, carries nothing.
+- a spell's `:cure (:poison :insanity)` lifts exactly the conditions it
+  names — a word against poison leaves a madness where it found it.
+  With `:heal-party` or `:resurrect` it reaches the whole roster.
+- a temple's `:cures ((:poison 60) ...)` prices each condition its
+  priests know how to treat (see below).
+
+Both front-ends read a hero's state from the engine, so they name the
+same things: `hero-condition-titles` gives the roster's parenthetical
+(*poisoned*, *down, insane*), `hero-condition-code` the Amiga table's
+four-letter code for the worst of it (`DEAD`, `STON`, `PARA`, `INSA`,
+`POIS`), and the character sheet lists the conditions one per line.
+
 ## Spells
 
 Spells are campaign data (`define-spell`); the engine knows the
@@ -1119,9 +1170,10 @@ installs five enchantments in one casting:
   arrival.  An integer teleport refuses to cast in combat; `:teleport
   t` stays a flavor line for spells whose named destination awaits
   its subsystem, and an item's `(:cast ...)` trigger (no prompt)
-  speaks the same line.  `:cure`, `:summon` and the foe-handling keys
-  carry canonical data and speak their line today; their subsystems
-  (ailments, allies) are still to come.
+  speaks the same line.  `:cure (:poison ...)` lifts the ailments it
+  names (see **Ailments** above) and refuses anything that is not one.
+  `:summon` and the foe-handling keys carry canonical data and speak
+  their line today; their subsystems (allies) are still to come.
 - **Timed keys** merge into one effect record with a `:duration` in
   game minutes (or `:indefinite`): `:buff-ac`, `:light`,
   `:night-vision` and `:reveal` (all three defeat darkness),
@@ -1201,7 +1253,7 @@ specification.
 Save games (`save-game`/`load-game`) are a single readable Lisp form:
 the current zone's map file, position, the game clock, active effects,
 every visited zone's automap knowledge, story flags and the party with
-packs and equipment.  Up to 9 **named saves** live side by side as
+packs, equipment and each hero's ailments.  Up to 9 **named saves** live side by side as
 `saves/NAME.sav`: both front-ends share the same slot picker
 (`Shift-S`/`Shift-L`, and the Save/Load menu items on the Amiga) — pick a slot by number or
 type a new name (refused once 9 slots exist, so every slot stays

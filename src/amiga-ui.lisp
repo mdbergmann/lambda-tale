@@ -1504,7 +1504,8 @@ name, armor class (with equipment and spell effects), then
 max/current hit points and max/current spell points, and the class
 code.  The current points are picked out in white; a downed hero
 keeps the normal pens and shows DEAD in the hit-point columns instead
-of numbers.  Columns come from the profile's ROSTER-COLS character
+of numbers, and an ailing one shows HERO-CONDITION-CODE where its
+maximum would stand.  Columns come from the profile's ROSTER-COLS character
 cells; the numbers are right-aligned in their column (ROSTER-CELL) so
 their digits line up down the table."
   (let* ((ox (ui-layout-bx l))
@@ -1536,11 +1537,18 @@ their digits line up down the table."
       (num (getf cols :ac) 0
            (format nil "~D" (hero-effective-ac hero game)))
       ;; a downed hero's hit points give way to DEAD, right-aligned
-      ;; under the HIT heading (it runs one cell into the column gap)
+      ;; under the HIT heading (it runs one cell into the column gap);
+      ;; an ailing one gives up the MAX figure the same way, to the code
+      ;; for the worst thing about them (STON, PARA, INSA, POIS) while
+      ;; the current points stay where they were — what is wrong with a
+      ;; hero belongs in the table, and this is the column that can say
+      ;; it without a column of its own
       (if down
           (num (getf cols :hit) 0 "DEAD")
           (progn
-            (num (getf cols :hit) 0 (format nil "~D" (hero-max-hp hero)))
+            (num (getf cols :hit) 0
+                 (or (hero-condition-code hero)
+                     (format nil "~D" (hero-max-hp hero))))
             (num (getf cols :hpts) 1
                  (format nil "~D" (hero-hp hero)))))
       (num (getf cols :spl) 0 (format nil "~D" (hero-max-sp hero)))

@@ -529,6 +529,59 @@ so the health above that is bought as wounds at the healing rate."
   (+ (temple-raise-base location)
      (* (temple-raise-rate location) (hero-max-hp hero))))
 
+(defun temple-cures (location)
+  "LOCATION's cure price table — ((AILMENT PRICE) ...) from :CURES, or
+NIL when this house treats no ailments at all (the engine's default: a
+temple mends flesh and raises the dead, and a campaign says which
+conditions its priests know how to lift).  Signals an error on a
+malformed table, so a campaign learns of a typo the first time the
+party walks in."
+  (let ((cures (location-arg location :cures)))
+    (dolist (entry cures)
+      (unless (and (consp entry) (null (cddr entry))
+                   (ailment-p (first entry))
+                   (integerp (second entry))
+                   (not (minusp (second entry))))
+        (error "~A: :cures wants (AILMENT PRICE) entries over ~S, got ~S"
+               (location-title location) *ailments* entry)))
+    cures))
+
+(defun temple-cure-price (location ailment)
+  "What LOCATION's priests ask to lift AILMENT, or NIL when they do not
+treat it — an untreated condition is carried out of the temple however
+much gold the party offers, and some other house's priests (or a spell)
+must lift it."
+  (second (assoc ailment (temple-cures location))))
+
+(defun temple-curable (location hero)
+  "The work LOCATION's priests can do on HERO's conditions, as
+((AILMENT PRICE) ...) in *AILMENTS* order: every ailment HERO carries
+that this house treats.  NIL for a hero carrying nothing, or nothing
+these priests know."
+  (let ((work '()))
+    (dolist (a *ailments* (nreverse work))
+      (let ((price (and (hero-ailment-p hero a)
+                        (temple-cure-price location a))))
+        (when price
+          (push (list a price) work))))))
+
+(defun temple-work-p (location hero)
+  "Have LOCATION's priests anything to sell for HERO — wounds to mend
+(the fallen always have some), or a condition they treat?  The menu's
+rows and its patient pick ask this one question, so a hero who earns a
+row can be picked and a hero who cannot be picked earns none."
+  (and (or (< (hero-hp hero) (hero-max-hp hero))
+           (temple-curable location hero))
+       t))
+
+(defun %temple-turn-away (game hero)
+  "Say why the priests will not take HERO: nothing the matter at
+all, or nothing they know how to lift."
+  (if (hero-ailments hero)
+      (say game "These priests cannot lift what ~A carries."
+           (hero-name hero))
+      (say game "~A needs no healing." (hero-name hero))))
+
 (defun temple-wounds (hero)
   "The hit points HERO's priests can sell: the missing ones, counted
 from where the patient stands once the priests are done raising them —
@@ -537,11 +590,15 @@ first hit point rides with the fee and is not a wound."
   (- (hero-max-hp hero) (max 1 (hero-hp hero))))
 
 (defun temple-cost (location hero)
-  "What LOCATION's priests ask to make HERO whole: the healing rate
-over the wounds (TEMPLE-WOUNDS), plus the raise fee when HERO is down.
-Zero for an unhurt hero."
-  (+ (* (temple-price location) (temple-wounds hero))
-     (if (hero-alive-p hero) 0 (temple-raise-fee location hero))))
+  "What LOCATION's priests ask to make HERO whole: the raise fee when
+HERO is down, every condition these priests treat (TEMPLE-CURABLE), and
+the healing rate over the wounds (TEMPLE-WOUNDS).  Zero for a hale
+hero, and a condition this house does not treat is not in it."
+  (+ (if (hero-alive-p hero) 0 (temple-raise-fee location hero))
+     (let ((sum 0))
+       (dolist (work (temple-curable location hero) sum)
+         (incf sum (second work))))
+     (* (temple-price location) (temple-wounds hero))))
 
 (defstruct (temple-view (:constructor %make-temple-view))
   patient             ; the hero the priests will heal, or NIL while
@@ -553,57 +610,87 @@ Zero for an unhurt hero."
   (%make-temple-view))
 
 (defun temple-heal (game hero payer)
-  "The priests heal HERO out of PAYER's purse: whole — hit points to
-the maximum, the fallen raised — when the gold reaches, else as many
-wounds as the gold buys.  A raising is bought first and comes with one
-hit point; the rest of the health follows wound by wound, so a purse
-that covers the fee alone leaves HERO standing at 1 hit point.
-Returns T and emits :COIN and :TEMPLE-HEAL when
-any healing was bought; otherwise returns (VALUES NIL REASON) —
-:HALE when HERO needs no healing (said aloud), :POOR when PAYER's
-purse buys no healing at all (quiet: the temple menu shows the
-notice, see TEMPLE-LINES)."
+  "The priests work on HERO out of PAYER's purse, and in this order: the
+raising first, then every condition they treat, then the wounds with
+whatever is left.  A raising comes with one hit point and no more; each
+cure is bought whole or not at all — a purse short of the poison's price
+skips the poison and spends on what it can reach — and the remaining
+gold buys wounds one at a time.  Returns T and emits :COIN and
+:TEMPLE-HEAL when anything was bought; otherwise returns (VALUES NIL
+REASON) — :HALE when there is nothing the matter with HERO that these
+priests could mend (said aloud), :POOR when PAYER's purse does not
+reach the cheapest thing they could do (quiet: the temple menu shows
+the notice, see TEMPLE-LINES)."
   (let* ((loc (game-location game))
          (price (temple-price loc))
          (down (not (hero-alive-p hero)))
          (fee (if down (temple-raise-fee loc hero) 0))
-         (wounds (temple-wounds hero)))
-    (cond ((and (not down) (zerop wounds))
-           (say game "~A needs no healing." (hero-name hero))
+         (wounds (temple-wounds hero))
+         (curable (temple-curable loc hero))
+         ;; the cheapest thing on offer for this patient: no purse under
+         ;; it buys anything at all.  For the fallen that is the fee and
+         ;; only the fee — there is no cleansing or mending a corpse, so
+         ;; the raising gates the whole visit.
+         (cheapest (if down
+                       fee
+                       (let ((prices (append (mapcar #'second curable)
+                                             (when (plusp wounds)
+                                               (list price)))))
+                         (and prices (reduce #'min prices))))))
+    (cond ((null cheapest)
+           ;; nothing to sell — either a hale hero, or one whose only
+           ;; trouble is a condition this house does not treat
+           (%temple-turn-away game hero)
            (values nil :hale))
-          ;; the fee alone buys a raising (the hero's first hit point
-          ;; rides with it); healing a standing hero needs a wound's price
-          ((< (hero-gold payer) (if down fee price))
+          ((< (hero-gold payer) cheapest)
            (values nil :poor))
           (t
-           (let* ((bought (min wounds
-                               (if (zerop price)
-                                   wounds
-                                   (floor (- (hero-gold payer) fee) price))))
-                  (cost (+ fee (* bought price)))
-                  (whole (= bought wounds)))
-             (decf (hero-gold payer) cost)
+           (let ((purse (hero-gold payer))
+                 (cost 0)
+                 (lifted '()))
              (when down                  ; raised at a single hit point
+               (decf purse fee)
+               (incf cost fee)
                (setf (hero-hp hero) 1))
-             (incf (hero-hp hero) bought)
-             (emit game :coin cost)
-             (cond ((and down whole)
-                    (say game "The priests chant, and ~A rises, whole ~
-                               again!  (~D gold)"
-                         (hero-name hero) cost))
-                   (down
-                    (say game "The priests chant, and ~A rises — ~
-                               wounds remain.  (~D gold)"
-                         (hero-name hero) cost))
-                   (whole
-                    (say game "The priests mend ~A's wounds.  (~D gold)"
-                         (hero-name hero) cost))
-                   (t
-                    (say game "The priests mend some of ~A's wounds.  ~
-                               (~D gold)"
-                         (hero-name hero) cost)))
-             (emit game :temple-heal hero)
-             t)))))
+             (dolist (work curable)      ; each cure whole or not at all
+               (when (<= (second work) purse)
+                 (decf purse (second work))
+                 (incf cost (second work))
+                 (cure-ailment game hero (first work))
+                 (push (first work) lifted)))
+             (let* ((bought (min wounds
+                                 (if (zerop price)
+                                     wounds
+                                     (floor purse price))))
+                    (whole (and (= bought wounds)
+                                (= (length lifted) (length curable)))))
+               (incf cost (* bought price))
+               (incf (hero-hp hero) bought)
+               (decf (hero-gold payer) cost)
+               (emit game :coin cost)
+               (when lifted
+                 (say game "~A is cleansed of ~{~A~^ and ~}."
+                      (hero-name hero)
+                      (mapcar #'ailment-noun (nreverse lifted))))
+               (cond ((and down whole)
+                      (say game "The priests chant, and ~A rises, whole ~
+                                 again!  (~D gold)"
+                           (hero-name hero) cost))
+                     (down
+                      (say game "The priests chant, and ~A rises — ~
+                                 wounds remain.  (~D gold)"
+                           (hero-name hero) cost))
+                     ((zerop bought)     ; a cleansing and nothing else
+                      (say game "The priests ask ~D gold for it." cost))
+                     (whole
+                      (say game "The priests mend ~A's wounds.  (~D gold)"
+                           (hero-name hero) cost))
+                     (t
+                      (say game "The priests mend some of ~A's wounds.  ~
+                                 (~D gold)"
+                           (hero-name hero) cost)))
+               (emit game :temple-heal hero)
+               t))))))
 
 (defun temple-lines (game view)
   "The temple menu as menu lines, two pages riding VIEW (a
@@ -649,12 +736,13 @@ The view's NOTE (the payer page's Not enough Gold) is the last line."
                (rows '()))
            (dolist (h (game-party game))
              (incf i)
-             ;; hurt heroes earn a row — by wounds, not by cost, so a
-             ;; free shrine (:price 0) still offers its healing
-             (when (< (hero-hp h) (hero-max-hp h))
+             ;; a hero earns a row when these priests have work to do —
+             ;; wounds, or a condition they treat (TEMPLE-WORK-P, the
+             ;; same question the patient pick asks)
+             (when (temple-work-p loc h)
                (push (menu-numbered
-                      i (format nil "~D) ~A~:[~; (down)~]  costs ~D"
-                                i (hero-name h) (not (hero-alive-p h))
+                      i (format nil "~D) ~A~@[ (~A)~]  costs ~D"
+                                i (hero-name h) (hero-condition-titles h)
                                 (temple-cost loc h)))
                      rows)))
            (if rows
@@ -684,11 +772,13 @@ leaves the location, else NIL."
                        ;; healed — or hale after another purse already
                        ;; paid: back to picking a patient either way
                        (setf (temple-view-patient view) nil)))
-                 ;; wounds, not cost, make a patient — a free shrine
-                 ;; (:price 0) heals too
-                 (if (< (hero-hp h) (hero-max-hp h))
+                 ;; work, not cost, makes a patient — a free shrine
+                 ;; (:price 0) heals too, and a hale hero carrying a
+                 ;; condition these priests treat is as much a patient
+                 ;; as a wounded one
+                 (if (temple-work-p (game-location game) h)
                      (setf (temple-view-patient view) h)
-                     (say game "~A needs no healing." (hero-name h)))))
+                     (%temple-turn-away game h))))
            nil)
           ((eql char #\Escape)
            (cond (patient

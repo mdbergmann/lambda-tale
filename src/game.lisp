@@ -284,7 +284,7 @@ carries its own icons — or NIL when the effect has none."
     (:heal             heal    nil) ; heals one chosen hero (:full = all)
     (:heal-party       heal    nil) ; heals every living hero
     (:resurrect        flag    nil) ; raises the fallen to 1 hp
-    (:cure             list    nil) ; flavor: cures ailments (to come)
+    (:cure             ailments nil) ; lifts the named ailments (party.lisp)
     (:scry             flag    nil) ; speaks the party's position
     (:disarm-traps     integer nil) ; traps ahead made safe (reach in squares)
     (:teleport         teleport nil) ; N: offset teleport, max N squares;
@@ -304,7 +304,9 @@ carries its own icons — or NIL when the effect has none."
     (heal    (or (eq value :full)
                  (and (or (integerp value) (stringp value))
                       (ignore-errors (parse-dice value) t))))
-    (list    (and (consp value) (every #'keywordp value)))
+    ;; a cure names ailments and nothing else, so a typo in a campaign's
+    ;; :CURE list is refused where it is written (AILMENT-P, party.lisp)
+    (ailments (and (consp value) (every #'ailment-p value)))
     (string  (stringp value))
     (teleport (or (eq value t)
                   (and (integerp value) (plusp value))))))
@@ -453,8 +455,7 @@ as the word."
                        :damage-all :combat-heal))
          (format nil phrase (dice-range-text value)))
         ((eq key :cure)
-         (format nil phrase (mapcar (lambda (k) (string-downcase (string k)))
-                                    value)))
+         (format nil phrase (mapcar #'ailment-noun value)))
         (t (format nil phrase value))))))
 
 (defun effect-duration-text (spec)
@@ -635,6 +636,9 @@ combat — there is no walking away from a fight (see ATTEMPT-FLEE)."
                 ;; very step maps, and an AT-NIGHT special on the target
                 ;; cell must see the post-step clock.
                 (advance-time game)
+                ;; time passed, so the venom worked: poison takes its
+                ;; due on the step itself, before the cell has its say
+                (poison-bite game)
                 (observe game)
                 (emit game :enter-cell nx ny)
                 (let ((map (game-map game)))

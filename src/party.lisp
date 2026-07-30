@@ -23,7 +23,8 @@
   (gold 0)
   (items '())         ; pack contents: item names, at most +inventory-limit+
   (equipped '())      ; equipped subset: one :weapon, :armor, :shield each
-  (tunes 0))          ; song charges (singers; refilled at a tavern)
+  (tunes 0)           ; song charges (singers; refilled at a tavern)
+  (ailments '()))     ; conditions carried until cured (see *AILMENTS*)
 
 (defvar *hero-classes* (make-hash-table :test 'eq))
 
@@ -197,6 +198,139 @@ songs-per-day), none for everyone else."
 (defun hero-alive-p (hero)
   (> (hero-hp hero) 0))
 
+;;; ---------------------------------------------------------------------
+;;; Ailments — the Bard's Tale conditions a hero carries about until
+;;; something lifts them.  The engine owns the four states and what each
+;;; one does in play; a campaign says who hands them out (DEFINE-MONSTER
+;;; :INFLICTS) and what lifting one costs (a :TEMPLE's :CURES table).
+;;;
+;;;   :poison     bites for *POISON-BITE* hp every step and every round
+;;;   :insanity   the hero fights on its own, striking a companion
+;;;   :paralysis  the hero cannot act at all
+;;;   :stone      a statue: cannot act, and stands there taking blows
+;;;
+;;; None of them wears off with time — an ailment is cured or it is
+;;; carried (a temple's priests, a spell's :CURE), which is what makes
+;;; it worth pricing.  They stack: a poisoned hero can be paralysed too,
+;;; and each is cured on its own.
+
+(defparameter *ailments* '(:poison :insanity :paralysis :stone)
+  "The ailment vocabulary, in the order they are displayed, cured and
+rolled.  A hero's AILMENTS list is a subset of this, held in this
+order; anything outside it is a campaign error (AFFLICT-HERO).")
+
+(defparameter *poison-bite* 1
+  "Hit points poison costs its carrier on every party step and every
+combat round.  Poison can kill: the bite goes through DAMAGE-HERO like
+any other harm.")
+
+(defparameter *ailment-titles*
+  '((:poison . "poisoned") (:insanity . "insane")
+    (:paralysis . "paralysed") (:stone . "stone"))
+  "Display adjective per ailment — how a hero's condition reads.")
+
+(defparameter *ailment-codes*
+  '((:poison . "POIS") (:insanity . "INSA")
+    (:paralysis . "PARA") (:stone . "STON"))
+  "The roster table's four-character condition code per ailment, cut to
+the width of the DEAD it stands beside (HERO-CONDITION-CODE).")
+
+(defun ailment-p (x)
+  "Is X one of the engine's ailments?  The check campaign data is held
+to — a spell's :CURE list, a monster's :INFLICTS table, a temple's
+:CURES table all name ailments and are refused when they name anything
+else."
+  (and (member x *ailments*) t))
+
+(defun ailment-title (ailment)
+  "AILMENT as a display adjective — what a hero IS: :poison ->
+\"poisoned\".  The roster's parenthetical and the affliction line."
+  (or (cdr (assoc ailment *ailment-titles*))
+      (string-downcase (symbol-name ailment))))
+
+(defun ailment-noun (ailment)
+  "AILMENT as a display noun — what is LIFTED: :poison -> \"poison\".
+The keywords are the nouns; a cleansing is cleansed of poison, not of
+poisoned."
+  (string-downcase (symbol-name ailment)))
+
+(defun hero-ailment-p (hero ailment)
+  "Is HERO carrying AILMENT?"
+  (and (member ailment (hero-ailments hero)) t))
+
+(defun hero-condition-titles (hero)
+  "HERO's condition as a display string — \"down\" for the fallen, then
+every ailment in *AILMENTS* order (\"down, poisoned\") — or NIL when
+there is nothing the matter."
+  (let ((parts (append (unless (hero-alive-p hero) (list "down"))
+                       (mapcar #'ailment-title
+                               (remove-if-not (lambda (a)
+                                                (hero-ailment-p hero a))
+                                              *ailments*)))))
+    (when parts
+      (format nil "~{~A~^, ~}" parts))))
+
+(defun hero-condition-code (hero)
+  "The roster table's code for the worst thing about HERO — \"DEAD\",
+then stone, paralysis, insanity, poison in that order — or NIL for a
+hero with nothing the matter.  The engine picks the word so both
+front-ends (and the suite) show the same one."
+  (cond ((not (hero-alive-p hero)) "DEAD")
+        (t (dolist (a '(:stone :paralysis :insanity :poison))
+             (when (hero-ailment-p hero a)
+               (return (cdr (assoc a *ailment-codes*))))))))
+
+(defun hero-helpless-p (hero)
+  "Is HERO unable to take any action at all — paralysed or turned to
+stone?  A helpless hero is not asked for a round order and takes none,
+but still stands in the rank and still takes blows."
+  (or (hero-ailment-p hero :paralysis)
+      (hero-ailment-p hero :stone)))
+
+(defun hero-can-act-p (hero)
+  "Can HERO take an action this round — standing, and neither paralysed
+nor stone?  An insane hero can: madness acts, just not as ordered."
+  (and (hero-alive-p hero) (not (hero-helpless-p hero))))
+
+(defun afflict-hero (game hero ailment)
+  "Lay AILMENT on HERO.  Says so and emits :AFFLICT the first time;
+returns T then, NIL when HERO already carried it (an ailment does not
+deepen).  AILMENT must be one of *AILMENTS*."
+  (unless (member ailment *ailments*)
+    (error "Unknown ailment ~S (one of ~S)" ailment *ailments*))
+  (unless (hero-ailment-p hero ailment)
+    ;; kept in *AILMENTS* order, so a hero's conditions always read and
+    ;; cure in the same order however they were picked up
+    (let ((carried (cons ailment (hero-ailments hero))))
+      (setf (hero-ailments hero)
+            (remove-if-not (lambda (a) (member a carried)) *ailments*)))
+    (say game "~A is ~A!" (hero-name hero) (ailment-title ailment))
+    (emit game :afflict hero ailment)
+    t))
+
+(defun cure-ailment (game hero ailment)
+  "Lift AILMENT from HERO, quietly — the caller does the talking (a
+temple's receipt, a spell's cleansing).  Emits :CURE and returns T when
+HERO was carrying it, NIL when there was nothing to lift."
+  (when (hero-ailment-p hero ailment)
+    (setf (hero-ailments hero) (remove ailment (hero-ailments hero)))
+    (emit game :cure hero ailment)
+    t))
+
+(defun cure-hero (game hero &optional (ailments *ailments*))
+  "Lift every one of AILMENTS that HERO carries, naming them in one
+line (\"Ava is cleansed of poison.\").  Returns the list actually
+lifted, NIL when HERO carried none of them."
+  (let ((lifted '()))
+    (dolist (a *ailments*)
+      (when (and (member a ailments) (cure-ailment game hero a))
+        (push a lifted)))
+    (setf lifted (nreverse lifted))
+    (when lifted
+      (say game "~A is cleansed of ~{~A~^ and ~}." (hero-name hero)
+           (mapcar #'ailment-noun lifted)))
+    lifted))
+
 (defconstant +party-limit+ 7
   "Maximum roster size: six regular heroes plus one guest slot (a
 summoned/charmed monster or story NPC, Bard's Tale tradition).")
@@ -265,7 +399,11 @@ same source."
                  (hero-str hero) (hero-dex hero) (hero-iq hero))
          (format nil "CON ~D LCK ~D" (hero-con hero) (hero-lck hero))
          (format nil "Gold ~D gp~@[ ~A~]" (hero-gold hero)
-                 (unless (hero-alive-p hero) "(down)")))))
+                 (unless (hero-alive-p hero) "(down)")))
+   ;; the conditions, one per line: four of them at once would run past
+   ;; the sheet's 20 cells on one line, and each word is short alone
+   (mapcar (lambda (a) (string-capitalize (ailment-title a)))
+           (remove-if-not (lambda (a) (hero-ailment-p hero a)) *ailments*))))
 
 (defun hero-image (hero)
   "HERO's portrait file name (the class's :IMAGE), or NIL."
@@ -674,6 +812,19 @@ steps back to the pick page.  Returns :DONE when the trade lands,
 (defun party-alive-p (game)
   (not (null (alive-heroes game))))
 
+(defun acting-heroes (game)
+  "The heroes who can take a round action, in party order — standing,
+and neither paralysed nor stone (HERO-CAN-ACT-P).  A round's orders are
+collected over this list and resolved against it, so a helpless hero is
+never asked for an order and never spends one."
+  (remove-if-not #'hero-can-act-p (game-party game)))
+
+(defun party-can-act-p (game)
+  "Can anyone in the party still act?  A party frozen stiff is a beaten
+party even though every hero lives — the fight would otherwise run
+rounds forever with no one able to swing (see %COMBAT-OUTCOME)."
+  (not (null (acting-heroes game))))
+
 (defun front-ranks (game &optional (n 3))
   "The first N living heroes — the ones monsters can reach."
   (let ((alive (alive-heroes game)))
@@ -710,6 +861,19 @@ Returns remaining hp."
       (say game "~A recovers ~D hit point~A." (hero-name hero) gained
            (if (> gained 1) "s" "")))
     gained))
+
+(defun poison-bite (game)
+  "Poison's toll: every poisoned hero still standing loses
+*POISON-BITE* hit points.  Taken on every party step and every combat
+round, and it can kill — the bite goes through DAMAGE-HERO like any
+other harm, so a hero can be walked to death by a venom nobody paid to
+have drawn.  Returns the number of heroes bitten."
+  (let ((bitten 0))
+    (dolist (h (game-party game) bitten)
+      (when (and (hero-alive-p h) (hero-ailment-p h :poison))
+        (incf bitten)
+        (say game "The poison bites ~A." (hero-name h))
+        (damage-hero game h *poison-bite*)))))
 
 ;;; ---------------------------------------------------------------------
 ;;; Experience and levels

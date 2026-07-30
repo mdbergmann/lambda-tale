@@ -268,10 +268,19 @@ line so the canonical spell already casts."
     (when (getf effect :heal-party)
       (dolist (h (alive-heroes game))
         (heal-hero game h (%heal-amount h (getf effect :heal-party)))))
-    (when (getf effect :cure)             ; ailments are a coming subsystem
-      (if (or (getf effect :heal-party) (getf effect :resurrect))
-          (say game "The party is cleansed.")
-          (say game "~A is cleansed." (hero-name target))))
+    ;; a cleansing lifts the ailments the spell names and no others: a
+    ;; word against poison leaves a madness where it found it
+    (when (getf effect :cure)
+      (let ((ailments (getf effect :cure)))
+        (if (or (getf effect :heal-party) (getf effect :resurrect))
+            (progn                        ; one line for the whole party
+              (dolist (h (game-party game))
+                (dolist (a ailments)
+                  (cure-ailment game h a)))
+              (say game "The party is cleansed."))
+            (unless (cure-hero game target ailments)
+              (say game "~A carries nothing that would lift."
+                   (hero-name target))))))
     (when (getf effect :scry)
       (say game "You stand at (~D,~D) in ~A, facing ~A."
            (game-x game) (game-y game) (map-title (game-map game))

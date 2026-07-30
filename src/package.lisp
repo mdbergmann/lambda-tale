@@ -101,6 +101,12 @@
    #:hero-con #:hero-lck #:hero-ac #:hero-damage #:hero-gold
    #:hero-alive-p #:alive-heroes #:party-alive-p #:front-ranks
    #:hero-in-reach-p
+   ;; ailments — the conditions a hero carries until something cures them
+   #:*ailments* #:*poison-bite* #:ailment-p #:ailment-title #:ailment-noun
+   #:hero-ailments
+   #:hero-ailment-p #:hero-condition-titles #:hero-condition-code
+   #:hero-helpless-p #:hero-can-act-p #:acting-heroes #:party-can-act-p
+   #:afflict-hero #:cure-ailment #:cure-hero #:poison-bite
    #:hero-extra-attacks #:hero-trap-skill
    #:hero-class-title #:hero-class-abbrev #:hero-summary-lines
    #:hero-image #:hero-image-path #:hero-sheet-lines #:hero-sheet-scroll
@@ -163,7 +169,8 @@
    ;; temples (healing and raising, for gold) and the energy fount
    ;; (spell points at so many gold apiece)
    #:temple-price #:temple-raise-base #:temple-raise-rate
-   #:temple-raise-fee #:temple-cost #:temple-heal
+   #:temple-raise-fee #:temple-cures #:temple-cure-price #:temple-curable
+   #:temple-wounds #:temple-cost #:temple-heal
    #:make-temple-view #:temple-view-patient #:temple-view-note
    #:temple-lines #:temple-act
    #:energy-price #:energy-cost #:energy-restore
@@ -172,7 +179,7 @@
    #:define-monster #:find-monster-type #:monster-type-name
    #:monster-type-level #:monster-type-ac #:monster-type-xp
    #:monster-type-item #:monster-type-item-chance
-   #:monster-type-image
+   #:monster-type-inflicts #:monster-type-image
    #:monster-kind #:monster-hp #:monster-alive-p
    #:start-combat #:combat-round #:attempt-flee #:hero-can-attack-p
    #:*encounter-rate* #:maybe-wandering-encounter

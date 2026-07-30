@@ -4027,6 +4027,294 @@ height" d)
   (check "the location is left behind" nil (game-location g)))
 (delete-file "tests/tmp-down.map")
 
+;;; ---------------------------------------------------------------------
+;;; Ailments — the four conditions a hero carries until something lifts
+;;; them.  The engine owns the states and what each does in play; who
+;;; hands them out and what a cure costs is campaign data.
+
+(check "the ailment vocabulary, in display and cure order"
+       '(:poison :insanity :paralysis :stone) *ailments*)
+(check-true "an ailment is what AILMENT-P says it is"
+            (and (every #'ailment-p *ailments*)
+                 (not (ailment-p :poisoned))
+                 (not (ailment-p :sniffles))))
+(check "each ailment reads as an adjective"
+       '("poisoned" "insane" "paralysed" "stone")
+       (mapcar #'ailment-title *ailments*))
+(check "and as a noun, for what a cleansing lifts"
+       '("poison" "insanity" "paralysis" "stone")
+       (mapcar #'ailment-noun *ailments*))
+
+;; Afflicting: said once, emitted once, and idempotent — an ailment does
+;; not deepen, and the carried list keeps *AILMENTS* order however the
+;; conditions arrived.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g))
+       (cues '()))
+  (on-event g :afflict (lambda (game hero ailment)
+                         (declare (ignore game))
+                         (push (list (hero-name hero) ailment) cues)))
+  (check "a fresh hero carries nothing" nil (hero-ailments h))
+  (check-true "the first affliction takes" (afflict-hero g h :paralysis))
+  (check "and is spoken" '("Alva is paralysed!") (funcall msgs))
+  (check "and cued" '(("Alva" :paralysis)) cues)
+  (check "a second helping of the same changes nothing" nil
+         (afflict-hero g h :paralysis))
+  (check "no second cue" 1 (length cues))
+  (afflict-hero g h :poison)
+  (check "the carried list keeps the vocabulary's order, not arrival's"
+         '(:poison :paralysis) (hero-ailments h))
+  (check-true "and each reads back on its own"
+              (and (hero-ailment-p h :poison)
+                   (hero-ailment-p h :paralysis)
+                   (not (hero-ailment-p h :stone))))
+  (check-error "an unknown ailment is a campaign error"
+    (afflict-hero g h :sniffles))
+  ;; curing: quiet on its own, and only what it is asked for
+  (check-true "curing lifts it" (cure-ailment g h :paralysis))
+  (check "and it is gone" '(:poison) (hero-ailments h))
+  (check "curing what is not carried lifts nothing" nil
+         (cure-ailment g h :paralysis))
+  (afflict-hero g h :insanity)
+  (check "CURE-HERO lifts only the named, and says which"
+         '(:poison) (cure-hero g h '(:poison :stone)))
+  (check "the unnamed stays" '(:insanity) (hero-ailments h))
+  (check-true "the cleansing is spoken"
+              (find "Alva is cleansed of poison." (funcall msgs)
+                    :test #'equal))
+  (check "and with nothing to lift, CURE-HERO lifts none" nil
+         (cure-hero g h '(:poison)))
+  (check "no argument means every ailment" '(:insanity) (cure-hero g h))
+  (check "the hero is clean" nil (hero-ailments h)))
+
+;; What the front-ends read off a hero: the condition string (both
+;; front-ends' parenthetical) and the roster table's four-letter code,
+;; which names the WORST thing about the hero — death first, then stone,
+;; paralysis, insanity, poison.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero "Ava"))
+       (g (new-game m :party (list h))))
+  (check "a hale hero has no condition string" nil
+         (hero-condition-titles h))
+  (check "and no code" nil (hero-condition-code h))
+  (afflict-hero g h :poison)
+  (check "one condition" "poisoned" (hero-condition-titles h))
+  (check "poison's code" "POIS" (hero-condition-code h))
+  (afflict-hero g h :insanity)
+  (check "two, in vocabulary order" "poisoned, insane"
+         (hero-condition-titles h))
+  (check "the worse of the two shows" "INSA" (hero-condition-code h))
+  (afflict-hero g h :paralysis)
+  (check "paralysis outranks both" "PARA" (hero-condition-code h))
+  (afflict-hero g h :stone)
+  (check "stone outranks all three" "STON" (hero-condition-code h))
+  (check "and the string carries every one, in order"
+         "poisoned, insane, paralysed, stone" (hero-condition-titles h))
+  (setf (hero-hp h) 0)
+  (check "death leads the string" "down, poisoned, insane, paralysed, stone"
+         (hero-condition-titles h))
+  (check "and takes the code" "DEAD" (hero-condition-code h))
+  ;; the sheet names them one to a line — four at once would run past
+  ;; its 20 cells
+  (setf (hero-hp h) 8
+        (hero-ailments h) '(:poison :stone))
+  (let ((lines (hero-summary-lines h)))
+    (check-true "the sheet names the conditions, one per line"
+                (and (member "Poisoned" lines :test #'equal)
+                     (member "Stone" lines :test #'equal)))
+    (check-true "and every line still fits the sheet's 20 cells"
+                (every (lambda (l) (<= (length l) 20)) lines))))
+
+;; Who can act: the paralysed and the stone cannot, the insane can (the
+;; madness acts, just not as ordered), the dead never.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ann"))
+       (b (%combat-hero "Bo"))
+       (c (%combat-hero "Cyd"))
+       (g (new-game m :party (list a b c))))
+  (check "everyone acts to begin with" '("Ann" "Bo" "Cyd")
+         (mapcar #'hero-name (acting-heroes g)))
+  (afflict-hero g b :insanity)
+  (check "madness still acts" '("Ann" "Bo" "Cyd")
+         (mapcar #'hero-name (acting-heroes g)))
+  (afflict-hero g b :paralysis)
+  (check-true "paralysis is helplessness" (hero-helpless-p b))
+  (check "and drops out of the acting list" '("Ann" "Cyd")
+         (mapcar #'hero-name (acting-heroes g)))
+  (afflict-hero g a :stone)
+  (check-true "so is stone" (hero-helpless-p a))
+  (check "one hero left standing to act" '("Cyd")
+         (mapcar #'hero-name (acting-heroes g)))
+  (check-true "and the party can still act" (party-can-act-p g))
+  (setf (hero-hp c) 0)
+  (check "a fallen hero acts no more" nil (acting-heroes g))
+  (check "the party cannot act" nil (party-can-act-p g))
+  (check-true "yet it is not dead — two heroes still live"
+              (party-alive-p g)))
+
+;; Poison: *POISON-BITE* hit points off every poisoned hero still
+;; standing, on every party step and every combat round, and it kills.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ann"))
+       (b (%combat-hero "Bo"))
+       (c (%combat-hero "Cyd"))
+       (g (new-game m :party (list a b c)))
+       (msgs (watch-messages g)))
+  (afflict-hero g a :poison)
+  (afflict-hero g c :poison)
+  (setf (hero-hp c) 0)                   ; the fallen feel no venom
+  (check "the bite finds the poisoned who stand" 1 (poison-bite g))
+  (check "and costs them *POISON-BITE*" 7 (hero-hp a))
+  (check "the unpoisoned are untouched" 8 (hero-hp b))
+  (check "the fallen stay where they lie" 0 (hero-hp c))
+  (check-true "the bite is spoken"
+              (find "The poison bites Ann." (funcall msgs) :test #'equal))
+  ;; a step costs the venom's due — MOVE-PARTY, after the clock
+  (setf (game-facing g) +east+)
+  (move-party g)
+  (check "a step feeds the poison" 6 (hero-hp a))
+  ;; and it can kill: the bite goes through DAMAGE-HERO like any harm
+  (setf (hero-hp a) 1)
+  (let ((died '()))
+    (on-event g :hero-died (lambda (game hero) (declare (ignore game))
+                             (push (hero-name hero) died)))
+    (poison-bite g)
+    (check "the last hit point goes" 0 (hero-hp a))
+    (check "and the death is cued" '("Ann") died)))
+
+;; The helpless in a fight: never asked for an order, never spending
+;; one, named once a round — and the orders line up with the heroes who
+;; actually give them, so a statue in the middle of the party does not
+;; shift anybody's action.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ann"))
+       (b (%combat-hero "Bo"))
+       (c (%combat-hero "Cyd"))
+       (g (new-game m :party (list a b c)))
+       (msgs (watch-messages g))
+       (view nil))
+  (afflict-hero g b :paralysis)
+  (start-combat g '(("test rat" 1)))
+  (setf view (make-combat-orders))
+  (check "the orders page asks the first hero who can act" "Ann"
+         (hero-name (combat-orders-hero g view)))
+  (setf (combat-orders-chosen view) (list (cons a :defend)))
+  (check "and skips the statue for the next" "Cyd"
+         (hero-name (combat-orders-hero g view)))
+  (setf (combat-orders-chosen view)
+        (list (cons a :defend) (cons c :attack)))
+  (check "two orders are all this party has to give" nil
+         (combat-orders-hero g view))
+  ;; the round: Ann's defence lands on Ann, Cyd's attack on the rat —
+  ;; both swings miss (d20 = 1) so the fight is still standing to be
+  ;; inspected afterwards
+  (check "the round runs on two orders for three heroes" :ongoing
+         (with-rng (0 0 0) (combat-round g '(:defend :attack))))
+  (check "the defence went to the hero who ordered it" '("Ann")
+         (mapcar #'hero-name (combat-defenders (game-combat g))))
+  (check-true "the paralysed hero is named, once"
+              (= 1 (length (remove-if-not
+                            (lambda (s)
+                              (equal s "Bo is paralysed and cannot move."))
+                            (funcall msgs)))))
+  (setf (game-combat g) nil))
+
+;; Frozen stiff is beaten: with nobody able to swing, the fight ends as
+;; a defeat instead of running rounds forever.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g))
+       (ended '()))
+  (on-event g :combat-end (lambda (game result) (declare (ignore game))
+                            (push result ended)))
+  (afflict-hero g h :stone)
+  (start-combat g '(("test rat" 1)))
+  ;; the rat picks its only target and misses (d20 = 1); nobody answers
+  (check "a helpless party loses the fight" :defeat
+         (with-rng (0 0) (combat-round g)))
+  (check "the defeat is cued" '(:defeat) ended)
+  (check-true "and named for what it was"
+              (find "The party stands helpless..." (funcall msgs)
+                    :test #'equal))
+  (check-true "the hero is alive all the same" (hero-alive-p h)))
+
+;; Insanity: the madness spends the round on a companion, and voids
+;; whatever was ordered — including a defence.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ann"))
+       (b (%combat-hero "Bo"))
+       (g (new-game m :party (list a b)))
+       (msgs (watch-messages g)))
+  (afflict-hero g a :insanity)
+  ;; one companion to pick (roll 1 -> 0), then 1d6 = 3+1 = 4 damage,
+  ;; str 10 adding nothing
+  (with-rng (0 3) (%insane-strike g a))
+  (check "the madness strikes the companion" 4 (hero-hp b))
+  (check-true "and says so"
+              (find "Ann, raving, STRIKES Bo for 4 damage!" (funcall msgs)
+                    :test #'equal))
+  (setf (hero-hp b) 0)                   ; nobody left to strike
+  (with-rng () (%insane-strike g a))
+  (check-true "with no companion standing it rages at the air"
+              (find "Ann rages at the air." (funcall msgs) :test #'equal))
+  ;; in a round, an insane hero's :defend never reaches the defenders
+  (setf (hero-hp b) 8)
+  (start-combat g '(("test rat" 1)))
+  (with-rng (0 3 0 0) (combat-round g '(:defend :defend)))
+  (check "madness cannot defend — only the sane hero does" '("Bo")
+         (mapcar #'hero-name (combat-defenders (game-combat g))))
+  (setf (game-combat g) nil))
+
+;; Inflicting: a monster's :INFLICTS table is what its blows carry
+;; besides damage, rolled per landed hit.
+(check-error ":inflicts refuses an unknown ailment"
+  (define-monster "test typo" :inflicts '((:poisoned 10))))
+(check-error ":inflicts refuses a chance that is not a percent"
+  (define-monster "test typo" :inflicts '((:poison 0))))
+(check-error ":inflicts refuses a malformed entry"
+  (define-monster "test typo" :inflicts '((:poison 10 :stone))))
+(check "a monster carries no ailments unless told to" nil
+       (monster-type-inflicts (find-monster-type "test rat")))
+
+(define-monster "test viper"
+  :level 1 :hp-dice 3 :ac 10 :damage "1d2" :xp 5 :gold 0
+  :inflicts '((:poison 50) (:paralysis 25)))
+
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (check "the table reads back" '((:poison 50) (:paralysis 25))
+         (monster-type-inflicts (find-monster-type "test viper")))
+  (start-combat g '(("test viper" 1)))
+  ;; the viper picks its target, hits (defending drops ac 8 to 4, so
+  ;; d20 = 16 lands), rolls 1 damage, then rolls the ailments in
+  ;; vocabulary order: 49 lands under poison's 50, 30 misses
+  ;; paralysis' 25
+  (with-rng (0 15 0 49 30) (combat-round g '(:defend)))
+  (check "the landed blow carried its poison" '(:poison)
+         (hero-ailments h))
+  (check-true "and said so"
+              (find "Alva is poisoned!" (funcall msgs) :test #'equal))
+  (setf (game-combat g) nil))
+
+;; A blow that misses carries nothing, and a blow that kills carries
+;; nothing either — the ailments are the living's to carry.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h))))
+  (start-combat g '(("test viper" 1)))
+  (with-rng (0 0) (combat-round g '(:defend)))     ; d20 = 1, a miss
+  (check "a missed blow leaves the hero clean" nil (hero-ailments h))
+  (setf (hero-hp h) 1)
+  (with-rng (0 15 0 0 0) (combat-round g '(:defend)))
+  (check "the blow felled the hero" 0 (hero-hp h))
+  (check "and the dead caught nothing" nil (hero-ailments h))
+  (setf (game-combat g) nil))
+
 ;; Temples: healers for hire — so many gold per missing hit point,
 ;; a flat fee on top to raise the fallen.  The menu asks twice: who
 ;; wishes healing, then who will pay — any purse may cover any
@@ -4289,6 +4577,119 @@ height" d)
   (check-true "the fee alone stands her up at one hit point"
               (and (hero-alive-p a) (= (hero-hp a) 1)))
   (check "and it took the fee" 0 (hero-gold a))
+  (temple-act g v #\Escape))
+
+;; The priests also lift conditions, at a flat price per condition
+;; (:CURES) — and only the ones this house knows how to treat.
+(check-error ":cures refuses anything that is not an ailment"
+  (let* ((m (parse-map *art* :name "test"))
+         (g (new-game m :party (list (%combat-hero)))))
+    (enter-location g '("The Bad Chapel" :temple :cures ((:sniffles 10))))
+    (temple-cures (game-location g))))
+
+;; a temple treats nothing at all unless its map says so
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (enter-location g '("The Bare Chapel" :temple))
+  (check "no :cures table, no cures" nil (temple-cures (game-location g)))
+  (check "and no price for any condition" nil
+         (temple-cure-price (game-location g) :poison))
+  (leave-location g))
+
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ava"))            ; 8 max hp
+       (b (%combat-hero "Bo"))
+       (g (new-game m :party (list a b)))
+       (msgs (watch-messages g))
+       (v nil))
+  (enter-location g '("The Test Infirmary" :temple :price 10 :raise 40
+                      :cures ((:poison 60) (:paralysis 100))))
+  (setf v (make-location-view g))
+  (check "the table reads back" '((:poison 60) (:paralysis 100))
+         (temple-cures (game-location g)))
+  (check "each condition has its own price" '(60 100 nil)
+         (list (temple-cure-price (game-location g) :poison)
+               (temple-cure-price (game-location g) :paralysis)
+               (temple-cure-price (game-location g) :stone)))
+  ;; what these priests can do for this patient, in vocabulary order
+  (afflict-hero g a :paralysis)
+  (afflict-hero g a :poison)
+  (afflict-hero g a :stone)               ; untreated here
+  (check "only the conditions this house treats, in order"
+         '((:poison 60) (:paralysis 100))
+         (temple-curable (game-location g) a))
+  (check "and the cost is their sum — the untreated one is not in it" 160
+         (temple-cost (game-location g) a))
+  (check-true "a hale but ailing hero still earns a row, naming it all"
+              (find "1) Ava (poisoned, paralysed, stone)  costs 160"
+                    (menu-texts (temple-lines g v)) :test #'equal))
+  ;; the buying order: cures before wounds, each cure whole or not at all
+  (damage-hero g a 3)                     ; 5/8 — three wounds at 10
+  (check "wounds join the bill" 190 (temple-cost (game-location g) a))
+  (setf (hero-gold b) 80)                 ; poison's 60, and two wounds
+  (temple-act g v #\1)                    ; Ava wishes healing
+  (temple-act g v #\2)                    ; Bo's purse pays
+  (check "the cheaper cure was bought, the dearer skipped"
+         '(:paralysis :stone) (hero-ailments a))
+  (check-true "the cleansing names what it lifted"
+              (find "Ava is cleansed of poison." (funcall msgs)
+                    :test #'equal))
+  (check "and the change bought wounds at ten apiece" 7 (hero-hp a))
+  (check "the purse is spent to the copper" 0 (hero-gold b))
+  ;; a cure with nothing else to buy speaks its own receipt
+  (setf (hero-hp a) (hero-max-hp a)
+        (hero-gold b) 100)
+  (temple-act g v #\1)
+  (temple-act g v #\2)
+  (check "the paralysis lifted on its own" '(:stone) (hero-ailments a))
+  (check-true "and the receipt says what it cost"
+              (find "The priests ask 100 gold for it." (funcall msgs)
+                    :test #'equal))
+  ;; what is left is untreated here: the priests turn her away
+  (check "nothing these priests can sell" nil
+         (temple-curable (game-location g) a))
+  (temple-act g v #\1)
+  (check-true "and they say as much"
+              (find "These priests cannot lift what Ava carries."
+                    (funcall msgs) :test #'equal))
+  (check "the turned-away patient does not open the payer page" nil
+         (temple-view-patient v))
+  (check "and a hero with only an untreated condition earns no row" nil
+         (find-if (lambda (s) (search "Ava" s))
+                  (menu-texts (temple-lines g v))))
+  (temple-act g v #\Escape))
+
+;; The fallen are raised before anything else is sold them: a purse that
+;; covers a cure but not the fee buys nothing at all — there is no
+;; cleansing a corpse.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ava"))
+       (g (new-game m :party (list a)))
+       (v nil))
+  (enter-location g '("The Test Infirmary" :temple :price 10 :raise 40
+                      :cures ((:poison 60))))
+  (setf v (make-location-view g))
+  (afflict-hero g a :poison)
+  (damage-hero g a 99)
+  (check "the bill is fee, cure and the wounds above one hit point" 170
+         (temple-cost (game-location g) a))
+  (setf (hero-gold a) 39)                 ; a gold short of the raising
+  (temple-act g v #\1)
+  (temple-act g v #\1)
+  (check-true "short of the fee, nothing at all is bought"
+              (and (not (hero-alive-p a))
+                   (hero-ailment-p a :poison)
+                   (equal "Not enough Gold"
+                          (first (last (menu-texts (temple-lines g v)))))))
+  (check "the purse is untouched" 39 (hero-gold a))
+  ;; fee and cure, with nothing left for wounds
+  (setf (hero-gold a) 100)
+  (temple-act g v #\1)
+  (temple-act g v #\1)
+  (check-true "she rises, cleansed, and still hurt"
+              (and (hero-alive-p a) (= 1 (hero-hp a))
+                   (null (hero-ailments a))))
+  (check "the fee and the cure took it all" 0 (hero-gold a))
   (temple-act g v #\Escape))
 
 ;; The energy fount: spell points at so many gold apiece, living
@@ -4658,6 +5059,42 @@ height" d)
   (check-true "the cleansing is announced"
               (find-if (lambda (s) (search "party is cleansed" s))
                        (funcall msgs))))
+
+;; :CURE lifts the ailments it names and no others — a word against
+;; poison leaves a madness where it found it — and a party-wide mend
+;; cleanses the whole roster in one line.
+(define-spell 'test-antidote :cost 1 :classes '(:t-mage) :cure '(:poison))
+(check-error ":cure refuses anything that is not an ailment"
+  (define-spell 'test-bad-cure :cost 1 :classes '(:t-mage)
+    :cure '(:poison :sniffles)))
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (grunt (%combat-hero))
+       (g (new-game m :party (list grunt mage)))
+       (msgs (watch-messages g)))
+  (afflict-hero g grunt :poison)
+  (afflict-hero g grunt :insanity)
+  (afflict-hero g mage :poison)
+  (check-true "the antidote casts" (cast-spell g mage 'test-antidote grunt))
+  (check "it lifted the poison it named, and left the madness"
+         '(:insanity) (hero-ailments grunt))
+  (check-true "naming what it lifted"
+              (find "Alva is cleansed of poison." (funcall msgs)
+                    :test #'equal))
+  (check "and it reached only its target" '(:poison) (hero-ailments mage))
+  (check-true "cast on a hero with nothing it can lift, it says so"
+              (progn (cast-spell g mage 'test-antidote grunt)
+                     (find "Alva carries nothing that would lift."
+                           (funcall msgs) :test #'equal)))
+  (check "the madness is still there" '(:insanity) (hero-ailments grunt))
+  ;; the renewal reaches everyone, fallen included
+  (setf (hero-sp mage) 9)
+  (damage-hero g grunt 99)
+  (afflict-hero g grunt :paralysis)
+  (check-true "the renewal casts" (cast-spell g mage 'test-renew))
+  (check "it cleansed what it names across the party" '(:paralysis)
+         (hero-ailments grunt))
+  (check "the caster's own poison too" nil (hero-ailments mage)))
 
 ;; :SCRY speaks the party's position.
 (define-spell 'test-eye :cost 1 :classes '(:t-mage) :scry t)
@@ -6899,6 +7336,10 @@ height" d)
   (incf (hero-gold b) 17)
   (setf (hero-tunes b) 3)
   (decf (hero-sp c))
+  ;; conditions ride along in the save: they are cured or carried, and a
+  ;; party that saves poisoned loads poisoned
+  (afflict-hero g a :poison)
+  (afflict-hero g a :paralysis)
   (setf (game-time g) 700)
   (add-effect g "mage flame" :duration 60 :payload '(:light t)
                              :image "fx-flame.iff")
@@ -6935,6 +7376,13 @@ height" d)
       (check "loaded hero xp" 60 (hero-xp b2))
       (check "loaded hero gold" 17 (hero-gold b2))
       (check "loaded hero tunes" 3 (hero-tunes b2))
+      (check "loaded hero ailments, in vocabulary order"
+             '(:poison :paralysis) (hero-ailments a2))
+      (check "a hale hero loads hale" nil (hero-ailments b2))
+      (check-true "and the loaded condition still speaks for itself"
+                  (and (hero-helpless-p a2)
+                       (equal "poisoned, paralysed"
+                              (hero-condition-titles a2))))
       (check-true "loaded caster hero is still a caster" (hero-caster-p c2))
       (check "loaded caster max-sp" (hero-max-sp c) (hero-max-sp c2))
       (check "loaded caster sp" (hero-sp c) (hero-sp c2))

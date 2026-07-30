@@ -21,8 +21,20 @@ OUT     ?=
 
 .PHONY: test assets pack preview clamiga-check install-hooks
 
+# The suite counts failures, but a top-level form that SIGNALS is only
+# reported by the loader and skipped — its checks never run, and the
+# summary stays clean.  So the gate reads the output too: any ERROR line
+# fails the run, whatever the failure count says.
 test: clamiga-check
-	$(CLAMIGA) --heap $(HEAP) --non-interactive --load tests/run-tests.lisp
+	@out=$$($(CLAMIGA) --heap $(HEAP) --non-interactive \
+	          --load tests/run-tests.lisp 2>&1); \
+	 status=$$?; \
+	 printf '%s\n' "$$out"; \
+	 if printf '%s\n' "$$out" | grep -q '^ERROR'; then \
+	   echo "=> a top-level form signalled: its checks never ran"; \
+	   exit 1; \
+	 fi; \
+	 exit $$status
 
 assets: clamiga-check
 	$(CLAMIGA) --heap $(HEAP) --non-interactive --load tools/make-assets.lisp

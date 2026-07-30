@@ -30,25 +30,39 @@
   (gold-dice 0)
   item                ; item this monster may carry, or NIL
   (item-chance 100)   ; percent chance the carried item drops
+  (inflicts '())      ; ((AILMENT PERCENT) ...) rolled on a landed blow
   image)              ; portrait file name, map-relative, or NIL
 
 (defvar *monster-types* (make-hash-table :test 'equalp))
 
 (defun define-monster (name &key (level 1) (hp-dice "1d8") (ac 10)
                                  (damage "1d4") (xp 10) (gold 0)
-                                 item (item-chance 100) image)
+                                 item (item-chance 100) inflicts image)
   "Register monster type NAME (a string).  Campaign data calls this.
 :ITEM names an item the monster carries into the fight — after a
 victory each fallen carrier rolls :ITEM-CHANCE percent, and the first
 success hands the party that item, one find per fight at most (see
-%AWARD-LOOT).  :IMAGE names the type's portrait file, resolved
-beside the map like a location picture (COMBAT-IMAGE-PATH) — the Amiga
-front-end shows it in the view column for as long as the fight lasts."
+%AWARD-LOOT).  :INFLICTS ((AILMENT PERCENT) ...) is what its blows
+carry besides damage — a landed hit rolls each entry's percent chance
+to lay that ailment on the hero it struck (%MONSTER-INFLICT), which is
+how a campaign expresses the Bard's Tale monster powers (poison,
+insanity, paralysis, stone).  :IMAGE names the type's portrait file,
+resolved beside the map like a location picture (COMBAT-IMAGE-PATH) —
+the Amiga front-end shows it in the view column for as long as the
+fight lasts."
+  (dolist (entry inflicts)
+    (unless (and (consp entry) (null (cddr entry))
+                 (ailment-p (first entry))
+                 (integerp (second entry))
+                 (< 0 (second entry) 101))
+      (error "define-monster ~S: :inflicts wants (AILMENT PERCENT) ~
+              entries over ~S, got ~S"
+             name *ailments* entry)))
   (setf (gethash name *monster-types*)
         (%make-monster-type :name name :level level :hp-dice hp-dice
                             :ac ac :damage damage :xp xp :gold-dice gold
                             :item item :item-chance item-chance
-                            :image image))
+                            :inflicts inflicts :image image))
   name)
 
 (defun find-monster-type (name)
@@ -332,6 +346,22 @@ behind a bowstring."
   (%hero-strike game hero monster (stat-bonus (hero-dex hero))
                 (hero-missile-dice hero) 0))
 
+(defun %insane-strike (game hero)
+  "An insane hero's round: the madness spends it on a companion instead
+of on the enemy (Bard's Tale's insanity, which turns a sword inward).
+The blow lands without a to-hit roll — there is no parrying a friend —
+for the hero's own melee dice and STR.  With no companion left standing
+the madness rages at the air and costs the party nothing."
+  (let ((victims (remove hero (alive-heroes game))))
+    (if (null victims)
+        (say game "~A rages at the air." (hero-name hero))
+        (let* ((victim (nth (roll (length victims)) victims))
+               (dmg (max 1 (+ (roll-dice (hero-attack-dice hero))
+                              (stat-bonus (hero-str hero))))))
+          (say game "~A, raving, STRIKES ~A for ~D damage!"
+               (hero-name hero) (hero-name victim) dmg)
+          (damage-hero game victim dmg)))))
+
 (defun hero-can-attack-p (game hero)
   "Can HERO take the attack action this round — standing in melee
 reach (HERO-IN-REACH-P), or shooting over it (HERO-MISSILE-DICE)?
@@ -339,6 +369,19 @@ The orders page asks before offering A; COMBAT-ROUND asks again and
 lets an out-of-reach attack pass as a wasted action."
   (or (hero-in-reach-p game hero)
       (and (hero-missile-dice hero) t)))
+
+(defun %monster-inflict (game monster hero)
+  "What a landed blow carries besides its damage: each of the monster
+type's :INFLICTS entries rolls its percent chance on HERO, in
+*AILMENTS* order so a scripted fight always draws these dice in the
+same order.  A hero the blow felled catches nothing — the ailments are
+the living's to carry."
+  (let ((inflicts (monster-type-inflicts (monster-kind monster))))
+    (when (and inflicts (hero-alive-p hero))
+      (dolist (a *ailments*)
+        (let ((entry (assoc a inflicts)))
+          (when (and entry (< (roll 100) (second entry)))
+            (afflict-hero game hero a)))))))
 
 (defun %monster-attack (game combat monster)
   (let* ((targets (front-ranks game))
@@ -353,7 +396,8 @@ lets an out-of-reach attack pass as a wasted action."
         (let ((dmg (max 1 (roll-dice (monster-type-damage type)))))
           (say game "The ~A HITS ~A for ~D damage."
                (monster-type-name type) (hero-name hero) dmg)
-          (damage-hero game hero dmg))
+          (damage-hero game hero dmg)
+          (%monster-inflict game monster hero))
         (say game "The ~A misses ~A."
              (monster-type-name type) (hero-name hero)))))
 
@@ -409,6 +453,15 @@ simply left behind."
          (say game "The party has been defeated...")
          (emit game :combat-end :defeat)
          :defeat)
+        ;; frozen stiff is beaten too: with nobody able to swing, the
+        ;; fight would run rounds forever while the monsters helped
+        ;; themselves.  Checked after the wipe, so a dead party still
+        ;; reads as defeated rather than as helpless.
+        ((not (party-can-act-p game))
+         (setf (game-combat game) nil)
+         (say game "The party stands helpless...")
+         (emit game :combat-end :defeat)
+         :defeat)
         ((null (alive-monsters combat))
          (%award-victory game combat)
          (setf (game-combat game) nil)
@@ -451,8 +504,10 @@ say where it landed.  Returns the new speed."
 ;;; Rounds
 
 (defun combat-round (game &optional actions)
-  "Fight one round.  ACTIONS lists an action per living hero in party
-order — :attack (the default), :defend, (:cast SPELL [TARGET]) to
+  "Fight one round.  ACTIONS lists an action per ACTING hero in party
+order (ACTING-HEROES — the standing, and neither paralysed nor stone;
+a helpless hero is not asked and spends nothing)
+— :attack (the default), :defend, (:cast SPELL [TARGET]) to
 cast a spell (see CAST-SPELL; a failed cast wastes the round),
 \(:sing SONG) to strike up a song (see SING-SONG; likewise), or
 \(:use ITEM [TARGET]) to use an item (see USE-ITEM — how a Wizhelm
@@ -468,16 +523,28 @@ strike back.  The round costs one clock tick.  Returns :victory,
       (error "combat-round: no combat is in progress"))
     (advance-time game)
     (say game "-- Round ~D --" (incf (combat-round-no combat)))
+    ;; the helpless are named once a round, so a player watching a
+    ;; statue's turn go by knows why nothing happened on it
+    (dolist (h (alive-heroes game))
+      (when (hero-helpless-p h)
+        (say game "~A is ~A and cannot move." (hero-name h)
+             (ailment-title (if (hero-ailment-p h :stone)
+                                :stone
+                                :paralysis)))))
     (let ((pairs (mapcar (lambda (h) (cons h (or (pop actions) :attack)))
-                         (alive-heroes game))))
+                         (acting-heroes game))))
+      ;; madness voids a defence as it voids every other order
       (setf (combat-defenders combat)
             (let ((d '()))
               (dolist (p pairs (nreverse d))
-                (when (eq (cdr p) :defend)
+                (when (and (eq (cdr p) :defend)
+                           (not (hero-ailment-p (car p) :insanity)))
                   (push (car p) d)))))
       (dolist (p pairs)
-        (let ((a (cdr p)))
-          (cond ((eq a :attack)
+        (let ((a (if (hero-ailment-p (car p) :insanity) :insane (cdr p))))
+          (cond ((eq a :insane)
+                 (%insane-strike game (car p)))
+                ((eq a :attack)
                  (let* ((hero (car p))
                         (strike (cond ((hero-in-reach-p game hero)
                                        #'%hero-attack)
@@ -502,6 +569,9 @@ strike back.  The round costs one clock tick.  Returns :victory,
                 ((and (consp a) (eq (first a) :use))
                  (use-item game (car p) (second a) (third a)))))))
     (%monsters-act game combat)
+    ;; the venom takes its round's due before the healer's does, so a
+    ;; mending round can outrun the poison it cannot lift
+    (poison-bite game)
     ;; a :COMBAT-HEAL effect (Zanduvar Carack) mends the party each round
     (dolist (dice (effects-combat-heal game))
       (dolist (h (alive-heroes game))
@@ -555,9 +625,11 @@ strike back.  The round costs one clock tick.  Returns :victory,
   (%make-combat-orders))
 
 (defun combat-orders-hero (game view)
-  "The hero the orders view is asking about, or NIL once every living
-hero has an action."
-  (nth (length (combat-orders-chosen view)) (alive-heroes game)))
+  "The hero the orders view is asking about, or NIL once every hero who
+can act has an action.  The helpless — paralysed, stone — are never
+asked: they are not in ACTING-HEROES, and COMBAT-ROUND resolves against
+the same list, so the orders line up with the heroes who give them."
+  (nth (length (combat-orders-chosen view)) (acting-heroes game)))
 
 (defun %orders-action-label (action)
   "A short display label for a round action."
