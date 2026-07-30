@@ -87,6 +87,17 @@ absolute path under *ENGINE-DIR*."
   "Pixels of clear space between the location plaque and the roster
 header row.")
 
+;;; The drop shadow the view and its plaque cast down-right eats into
+;;; that gap: it hangs +VIEW-SHADOW+ rows below the plaque's bottom, so
+;;; it has to stay strictly shallower than +ROSTER-GAP+ or it runs into
+;;; the roster header and the two read as one heavy band — the more so
+;;; against the bright $AAA chrome.  Named here beside the gap it must
+;;; respect, so the host suite can hold the two against each other
+;;; without opening a screen (see "the view's shadow clears the roster
+;;; header").
+(defconstant +view-shadow+ 2
+  "Depth, in pixels, of the drop shadow under the view and its plaque.")
+
 (defun roster-cell (cell text &optional (width +roster-num-cells+))
   "The character cell TEXT starts at when right-aligned in the
 WIDTH-cell field that begins at CELL.  Text too wide for the field
@@ -202,6 +213,30 @@ SCREEN-HEIGHT rows."
     (if (and display-height cap)
         (max base (min cap display-height))
         base)))
+
+;;; What to ASK the display database for is a third question again, and
+;;; not the layout's height either.  BestModeIDA matches on the nominal
+;;; size it is handed, so the size handed to it decides which display
+;;; the game lands on — and the layout's 200 rows are the wrong ask.
+;;; On a machine carrying both a chipset display and an RTG board,
+;;; 320x200 is an EXACT hit on a 320x200 RTG mode, and BestModeIDA
+;;; rightly prefers it to PAL's 320x256; the game then plays on the
+;;; graphics card, where the picture is resampled to the monitor rather
+;;; than shown as pixels.  Asking for the tallest display the profile
+;;; would accept puts the chipset mode back in front on such a machine
+;;; and changes nothing on any other: an NTSC or RTG-only machine has
+;;; no 320x256 to answer with and returns its own best fit, which
+;;; SCREEN-HEIGHT-FOR then clamps back to the layout.
+;;;
+;;; This is a mode-selection knob, not a size: the screen still opens
+;;; at SCREEN-HEIGHT-FOR's answer, never at the height asked here.
+
+(defun screen-ask-height (profile)
+  "The display height to hand BestModeIDA for PROFILE — the tallest
+display the profile would accept (SCREEN-MAX-HEIGHT), falling back to
+its layout height when it would not grow at all."
+  (or (display-profile-screen-max-height profile)
+      (display-profile-screen-height profile)))
 
 (defvar *display-profile* *lores-profile*
   "The active display profile — :lores, the ECS target, by default.

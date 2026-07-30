@@ -305,10 +305,15 @@ small gap above the effect strip — see %AMIGA-DRAW-BAND)."
          (pg (ui-layout-page-b l))      ; log page bottom
          (lx (ui-layout-log-x l))
          (r (ui-layout-right l)))
-    ;; view + plaque drop shadow (down-right, BT2 style)
+    ;; View + plaque drop shadow (down-right, BT2 style), +VIEW-SHADOW+
+    ;; deep — the same weight as the message page's beside it, and
+    ;; shallower than +ROSTER-GAP+ so a row of clear grey is left
+    ;; between the shadow and the roster's CHARACTER header.
     (amiga.gfx:set-a-pen rp 0)
-    (amiga.gfx:rect-fill rp (+ bx w 1) (+ by 1) (+ bx w 3) (+ pb 3))
-    (amiga.gfx:rect-fill rp (+ bx 1) (1+ pb) (+ bx w 3) (+ pb 3))
+    (amiga.gfx:rect-fill rp (+ bx w 1) (+ by 1)
+                         (+ bx w +view-shadow+) (+ pb +view-shadow+))
+    (amiga.gfx:rect-fill rp (+ bx 1) (1+ pb)
+                         (+ bx w +view-shadow+) (+ pb +view-shadow+))
     ;; white picture frame around the view
     (amiga.gfx:set-a-pen rp 1)
     (%chrome-rect rp (1- bx) (1- by) (+ bx w) (+ by h))
@@ -2009,18 +2014,22 @@ that did."
                   :idcmp +game-idcmp+)
            (funcall fn scr win))))
       (:screen
-       ;; Ask the database for a mode that fits the LAYOUT, then ask
-       ;; that mode how tall its display really is and open the screen
-       ;; at that height (SCREEN-HEIGHT-FOR).  A PAL machine answers
-       ;; 256 and gets its native display; an NTSC one answers 200 and
+       ;; Ask the database for a mode that fits the tallest display the
+       ;; profile would accept (SCREEN-ASK-HEIGHT — NOT the layout's
+       ;; height, which on a machine with an RTG board would land the
+       ;; game on the graphics card; see the note there), then ask that
+       ;; mode how tall its display really is and open the screen at
+       ;; that height (SCREEN-HEIGHT-FOR).  A PAL machine answers 256
+       ;; and gets its native display; an NTSC one answers 200 and
        ;; nothing moves.  The window below stays the layout's size
        ;; either way, so the game is laid out identically on both and
-       ;; only the black band under it differs.  Both numbers go to the
-       ;; debug log — a display that came out unexpected is then a fact
-       ;; in the log rather than a guess.
-       (let* ((mode (amiga.gfx:best-mode-id
+       ;; only the black band under it differs.  All three numbers go to
+       ;; the debug log — a display that came out unexpected is then a
+       ;; fact in the log rather than a guess.
+       (let* ((ask-h (screen-ask-height p))
+              (mode (amiga.gfx:best-mode-id
                      :width (display-profile-screen-width p)
-                     :height (display-profile-screen-height p)
+                     :height ask-h
                      :depth (display-profile-screen-depth p)))
               (display-h (and mode
                               (amiga.intuition:display-mode-height mode)))
@@ -2028,7 +2037,7 @@ that did."
          (dlog "screen: asked ~Dx~Dx~D -> mode $~:[????????~;~:*~8,'0X~], ~
 display ~:[unknown~;~:*~D~] rows, opening ~D"
                (display-profile-screen-width p)
-               (display-profile-screen-height p)
+               ask-h
                (display-profile-screen-depth p)
                mode display-h screen-h)
          (amiga.intuition:with-screen

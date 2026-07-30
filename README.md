@@ -186,6 +186,18 @@ profile** (`play-amiga`'s `:profile` argument):
   machine actually is, RTG included.  A screen shorter than its
   display is one an emulator's auto-zoom crops and rescales and a real
   monitor letterboxes, which is the point of asking.
+
+  Which display it lands on is a third question, and the profile's
+  `screen-max-height` answers that one too: `BestModeIDA` is asked for
+  **256** rows here, not the layout's 200.  It matches on the size it
+  is handed, and on a machine carrying both a chipset display and an
+  RTG board 320x200 is an *exact* hit on an RTG mode — so asking for
+  the layout would put the game on the graphics card, where its pixels
+  are resampled to the monitor instead of shown.  Asking for the
+  tallest display the profile would accept keeps the native mode in
+  front there and changes nothing elsewhere: a machine with no 320x256
+  returns its own best fit, which the clamp above brings back to the
+  layout.
 - **`:hires`** — 640x256 PAL hires, 16 colors, the classic
   presentation with the larger 240x130 viewport.
 

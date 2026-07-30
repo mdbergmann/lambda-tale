@@ -863,6 +863,44 @@ height" d)
                 (<= (display-profile-screen-height p)
                     (screen-height-for p h)))))
 
+;; SCREEN-ASK-HEIGHT: what BestModeIDA is asked for, which is NOT the
+;; layout height.  Handing it :lores' 200 rows on a machine that has
+;; both a chipset display and an RTG board makes 320x200 an exact hit
+;; on an RTG mode, so the game lands on the graphics card and its
+;; pixels get resampled instead of shown; asking for the tallest
+;; display the profile would take (256) puts PAL's own lores mode back
+;; in front.  A machine with no 320x256 answers with its best fit
+;; regardless, and SCREEN-HEIGHT-FOR clamps that back to the layout.
+(check ":lores asks the database for its full 256, not the layout's 200"
+       256 (screen-ask-height *lores-profile*))
+(check ":hires asks for its own height (it declares no cap)"
+       256 (screen-ask-height *hires-profile*))
+(dolist (p *display-profiles*)
+  ;; the ask is never SHORTER than the layout — a mode that cannot show
+  ;; the layout is never the one to prefer
+  (check-true (format nil "~S asks for at least its layout"
+                      (display-profile-name p))
+              (>= (screen-ask-height p) (display-profile-screen-height p)))
+  ;; and never taller than a screen it would actually open, so the mode
+  ;; asked for and the screen opened cannot describe different displays
+  (check (format nil "~S's ask is a height it would open"
+                 (display-profile-name p))
+         (screen-ask-height p)
+         (screen-height-for p (screen-ask-height p))))
+
+;; The view's drop shadow hangs into the gap under the plaque, so it
+;; must stay strictly shallower than the gap or it collides with the
+;; roster's CHARACTER header — which is what a 3px shadow against a
+;; 4px gap did, reading as one heavy band rather than a shadow.
+(check-true "the view's shadow clears the roster header"
+            (< +view-shadow+ +roster-gap+))
+;; Counted in the same inclusive rows %CHROME-FRAMES draws: the shadow's
+;; last row is PB + +VIEW-SHADOW+, the header's first is
+;; PB + +ROSTER-GAP+, so the clear grey between them is the difference
+;; less the header row itself.
+(check "the shadow leaves exactly one clear row above the header" 1
+       (- +roster-gap+ +view-shadow+ 1))
+
 ;; The viewport and the furniture under it have to fit that screen: the
 ;; chrome pad, the view at its full asset height, the plaque, and the
 ;; roster's header plus +PARTY-LIMIT+ solid-set rows, ending on or
@@ -9763,7 +9801,7 @@ never its own"
   ;; on a PAL machine sits in the top 200 rows of a 256-row screen.
   (let* ((mode (amiga.gfx:best-mode-id
                 :width (display-profile-screen-width *display-profile*)
-                :height (display-profile-screen-height *display-profile*)
+                :height (screen-ask-height *display-profile*)
                 :depth (display-profile-screen-depth *display-profile*)))
          (display-h (and mode (amiga.intuition:display-mode-height mode)))
          (screen-h (screen-height-for *display-profile* display-h)))
@@ -10063,8 +10101,7 @@ never its own"
                :mode-id (amiga.gfx:best-mode-id
                          :width (display-profile-screen-width
                                  *display-profile*)
-                         :height (display-profile-screen-height
-                                  *display-profile*)
+                         :height (screen-ask-height *display-profile*)
                          :depth (display-profile-screen-depth
                                  *display-profile*)))
         (%game-screen-palette scr)
