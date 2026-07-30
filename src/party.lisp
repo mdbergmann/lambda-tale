@@ -29,13 +29,16 @@
 (defvar *hero-classes* (make-hash-table :test 'eq))
 
 (defun define-hero-class (name &key (hp-dice "1d8") (damage "1d4") (ac 10)
-                                    caster singer image description
+                                    caster singer sings-with image description
                                     extra-attack-levels crit-chance
                                     ac-per-level trap-skill)
   "Register hero class NAME (a keyword) with its hit dice, attack dice
 and starting armor class; CASTER T marks a spell-casting class (spell
 points from level and IQ, see %HERO-MAX-SP), SINGER T a song-playing
-class (one tune charge per level, see songs.lisp).  IMAGE names the
+class (one tune charge per level, see songs.lisp).  SINGS-WITH names
+an item kind (*ITEM-KINDS*) the singer must have EQUIPPED to play at
+all — the Bard's Tale rule that the music needs an instrument in hand;
+NIL (the default) lets the class sing bare-handed.  IMAGE names the
 class's portrait file (map-relative, like effect icons) — the Amiga
 front-end shows it beside the character sheet; NIL = no portrait.
 DESCRIPTION is the class's lore line (display data).
@@ -65,9 +68,17 @@ see the TRAP op in specials.lisp).  Campaign data calls this."
              (not (and (integerp trap-skill) (< 0 trap-skill 101))))
     (error "define-hero-class ~S: :trap-skill ~S must be a percent ~
             (1-100)" name trap-skill))
+  (when sings-with
+    (unless (member sings-with *item-kinds*)
+      (error "define-hero-class ~S: :sings-with ~S names no item kind ~
+              (see *ITEM-KINDS*)" name sings-with))
+    (unless singer
+      (error "define-hero-class ~S: :sings-with ~S on a class that is ~
+              no singer" name sings-with)))
   (setf (gethash name *hero-classes*)
         (list :hp-dice hp-dice :damage damage :ac ac
-              :caster caster :singer singer :image image
+              :caster caster :singer singer :sings-with sings-with
+              :image image
               :description description
               :extra-attack-levels extra-attack-levels
               :crit-chance crit-chance
@@ -608,8 +619,16 @@ with that CAST-VIEW, else NIL."
                    (let ((cast (begin-cast game hero (cdr pending))))
                      (if cast (list :cast cast) :done))))))
          ((and (eq (car pending) :song) (member char '(#\p #\P)))
-          (sing-song game hero (cdr pending))
-          :done)
+          ;; the same courtesy the spell card pays: a refusal keeps
+          ;; the card up and says why ON it (SONG-REFUSAL), since the
+          ;; sheet has no log beneath to speak through
+          (let ((refusal (song-refusal hero (cdr pending))))
+            (cond (refusal
+                   (setf (magic-view-refusal view) refusal)
+                   nil)
+                  (t
+                   (sing-song game hero (cdr pending))
+                   :done))))
          (t nil)))
       ;; the list
       ((member char '(#\n #\N)) :next)

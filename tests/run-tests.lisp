@@ -3921,6 +3921,96 @@ height" d)
               (find-if (lambda (s) (search "wears off" s))
                        (funcall msgs))))
 
+;; The music needs an instrument in hand: a :SINGER class may name a
+;; :SINGS-WITH item kind, and then a singer with empty hands plays
+;; nothing.  Carrying is not enough — the kind must be EQUIPPED.
+(define-hero-class :t-piper :hp-dice "1d8" :damage "1d4" :ac 9
+                            :singer t :sings-with :instrument)
+(define-item 't-lute :kind :instrument :price 40)
+(define-item 't-drum :kind :instrument :price 60)
+
+(check-error "sings-with must name an item kind"
+  (define-hero-class :t-bogus :singer t :sings-with :kazoo))
+(check-error "sings-with needs a singer to sing"
+  (define-hero-class :t-bogus :sings-with :instrument))
+(check ":sings-with reads back off the class" :instrument
+       (hero-class-property :t-piper :sings-with))
+
+(let* ((m (parse-map *art* :name "test"))
+       (piper (with-rng () (make-hero "Pip" :t-piper)))
+       (bard (with-rng () (make-hero "Mel" :t-bard)))
+       (g (new-game m :party (list piper bard)))
+       (msgs (watch-messages g)))
+  (check "the piper's class names its tool" :instrument
+         (hero-sings-with piper))
+  (check "a bare-handed class names none" nil (hero-sings-with bard))
+  (check "empty hands hold no instrument" nil (hero-song-tool piper))
+  ;; no instrument: refused, and the tune is not spent
+  (check "no instrument, no song" nil (sing-song g piper 'test-march))
+  (check "the tune was not spent" 1 (hero-tunes piper))
+  (check-true "the refusal names the instrument"
+              (find-if (lambda (s) (search "no instrument in hand" s))
+                       (funcall msgs)))
+  (check "no song plays" nil (current-song g))
+  (check "the card's reason is short" "No instrument in hand."
+         (song-refusal piper 'test-march))
+  (check "and it is not playable" nil (song-playable-p piper 'test-march))
+  ;; carrying the lute is not playing it
+  (give-item g piper 't-lute)
+  (check "a packed lute is still no instrument in hand" nil
+         (hero-song-tool piper))
+  (check "so the song is still refused" nil (sing-song g piper 'test-march))
+  ;; equipped: the music plays
+  (equip-item g piper 't-lute)
+  (check "the equipped lute is the tool" 't-lute (hero-song-tool piper))
+  (check-true "and now the piper plays" (song-playable-p piper 'test-march))
+  (check-true "the piper strikes up the march"
+              (sing-song g piper 'test-march))
+  (check "now the tune was spent" 0 (hero-tunes piper))
+  (check "the march plays" "test march" (effect-name (current-song g)))
+  ;; the second instrument replaces the first in the same slot, and the
+  ;; music carries on — any item of the kind will do
+  (give-item g piper 't-drum)
+  (equip-item g piper 't-drum)
+  (check "the drum took the instrument slot" 't-drum (hero-song-tool piper))
+  ;; a class with no :SINGS-WITH sings bare-handed, as before
+  (check "the bare-handed bard needs nothing" nil (hero-song-tool bard))
+  (check-true "and sings all the same" (sing-song g bard 'test-gleam)))
+
+;; Refusal precedence: the book first, then the instrument, then the
+;; tunes — the reason a player can act on comes first.
+(let* ((m (parse-map *art* :name "test"))
+       (piper (with-rng () (make-hero "Pip" :t-piper)))
+       (g (new-game m :party (list piper))))
+  (declare (ignore g))
+  (setf (hero-tunes piper) 0)
+  (check "an unknown song beats the empty hands" "Not in the book."
+         (song-refusal piper 'test-dirge))
+  (check "empty hands beat the empty throat" "No instrument in hand."
+         (song-refusal piper 'test-march)))
+
+;; The song card pays the spell card's courtesy: a refusal keeps the
+;; card up and stands on the page instead of vanishing into the log.
+(let* ((m (parse-map *art* :name "test"))
+       (piper (with-rng () (make-hero "Pip" :t-piper)))
+       (g (new-game m :party (list piper)))
+       (v (make-magic-view piper)))
+  (magic-act g v #\1)                   ; the first song's card
+  (check "the song card is up" '(:song . test-march) (magic-view-pending v))
+  (check "the refused play keeps the card" nil (magic-act g v #\p))
+  (check "the card is still up" '(:song . test-march)
+         (magic-view-pending v))
+  (check "with the reason on it" "No instrument in hand."
+         (magic-view-refusal v))
+  (check-true "and the page shows it"
+              (member "No instrument in hand."
+                      (menu-texts (magic-lines g v)) :test #'equal))
+  (check "the tune was not spent" 1 (hero-tunes piper))
+  (give-item g piper 't-lute)
+  (equip-item g piper 't-lute)
+  (check "with the lute in hand the card plays" :done (magic-act g v #\p))
+  (check "and now the tune is spent" 0 (hero-tunes piper)))
+
 ;; combat-round accepts (:sing SONG) beside :attack and (:cast ...).
 (let* ((m (parse-map *art* :name "test"))
        (grunt (%combat-hero))

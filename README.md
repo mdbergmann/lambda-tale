@@ -1208,11 +1208,17 @@ in a fight (`:regen-sp 2 :extra-attacks 1 :duration 60`).  Singers
 (`define-hero-class ... :singer t`) pay **tunes** — one charge per
 song, one charge per level when rested — and only **one song plays at
 a time**: striking up a new one displaces the old, the Bard's Tale
-rule.  `p` opens the sing menu, and in combat `(:sing SONG)` is a
-party action beside attacking and casting.  The songbook also lists on
-the character sheet's spells/songs page, where a digit opens the
-song's card — its level, the tunes in hand and what the tune does —
-and `p` there strikes it up on the spot.  Tunes come back with a
+rule.  A class may also need something in hand to play at all —
+`:sings-with :instrument` names an item kind (any of `*item-kinds*`)
+the singer must have **equipped**, the Bard's Tale rule that the music
+needs an instrument; carrying one in the pack is not enough, and a
+class without the option sings bare-handed.  `p` opens the sing menu,
+and in combat `(:sing SONG)` is a party action beside attacking and
+casting.  The songbook also lists on the character sheet's
+spells/songs page, where a digit opens the song's card — its level,
+the tunes in hand and what the tune does — and `p` there strikes it up
+on the spot, or says why it will not go (`song-refusal`: not in the
+book, no instrument in hand, no tunes left).  Tunes come back with a
 drink at a **tavern** — a `(location TITLE :tavern :price N)` map
 special; a tavern may also hold the way below (`:down FILE`, the
 trapdoor to the cellar).  The "Bard songs" test section of

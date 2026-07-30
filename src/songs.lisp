@@ -132,6 +132,36 @@ level — every singer learns every song of their level."
   (remove-if-not (lambda (name) (song-known-p hero name))
                  *song-names*))
 
+(defun hero-sings-with (hero)
+  "The item kind HERO's class must have equipped to play a song (the
+class's :SINGS-WITH, e.g. :INSTRUMENT), or NIL when the class sings
+bare-handed."
+  (hero-class-property (hero-class hero) :sings-with))
+
+(defun hero-song-tool (hero)
+  "The equipped item HERO plays their songs on — the :SINGS-WITH kind
+in hand — or NIL when the class needs none or the hands are empty."
+  (let ((kind (hero-sings-with hero)))
+    (and kind (equipped-of-kind hero kind))))
+
+(defun song-refusal (hero name)
+  "Why HERO cannot play NAME right now, as a short line for the song
+card — or NIL when they can: known, an instrument in hand when the
+class needs one, and a tune left to spend.  SONG-PLAYABLE-P answers
+the yes/no of the same rule, and SING-SONG turns it down for the same
+three reasons in the log's own words.  The card is +TAKEOVER-COLUMNS+
+wide, so the reasons stay short."
+  (cond ((not (song-known-p hero name)) "Not in the book.")
+        ((and (hero-sings-with hero) (null (hero-song-tool hero)))
+         "No instrument in hand.")
+        ((< (hero-tunes hero) 1) "No tunes left.")
+        (t nil)))
+
+(defun song-playable-p (hero name)
+  "Can HERO play NAME right now?  SONG-REFUSAL decides; this just asks
+whether it had anything to say."
+  (not (song-refusal hero name)))
+
 (defun current-song (game)
   "The active song's EFFECT (the one whose payload carries the :SONG
 marker), or NIL when no song plays."
@@ -140,14 +170,20 @@ marker), or NIL when no song plays."
 
 (defun sing-song (game hero name)
   "HERO strikes up song NAME.  Says why and returns NIL when the hero
-does not know it or has no tunes left; otherwise spends one tune,
-displaces any song already playing, installs the song's timed effect
-(:SONG-marked), emits :SONG-SUNG and returns T."
+does not know it, has no instrument in hand for a class that plays on
+one (:SINGS-WITH) or has no tunes left — SONG-REFUSAL's three rules,
+here in the log's own words; otherwise spends one tune, displaces any
+song already playing, installs the song's timed effect (:SONG-marked),
+emits :SONG-SUNG and returns T."
   (let ((type (find-song-type name)))
     (cond
       ((not (song-known-p hero name))
        (say game "~A does not know ~A." (hero-name hero)
             (song-type-title type))
+       nil)
+      ((and (hero-sings-with hero) (null (hero-song-tool hero)))
+       (say game "~A has no ~(~A~) in hand — the music needs one."
+            (hero-name hero) (hero-sings-with hero))
        nil)
       ((< (hero-tunes hero) 1)
        (say game "~A has no tunes left — the tavern would help."

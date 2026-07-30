@@ -161,7 +161,9 @@
    #:define-song #:find-song-type #:song-title #:song-known-p
    #:song-description #:song-card-lines
    #:songs-for-hero #:sing-song #:current-song
+   #:song-refusal #:song-playable-p
    #:hero-singer-p #:hero-tunes #:hero-max-tunes
+   #:hero-sings-with #:hero-song-tool
    #:make-sing-view #:sing-view-hero #:sing-view-top
    #:sing-lines #:sing-act
    ;; taverns (drinks refill a singer's tunes)
