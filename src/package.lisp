@@ -83,7 +83,7 @@
    #:menu-texts #:wrap-menu-line #:menu-key-spans
    #:hint-line-p #:wrap-hint-line #:fit-menu-lines
    ;; menu scrolling (long lists window with u/d + the scrollbar)
-   #:+menu-page-size+ #:menu-window #:menu-window-pick
+   #:+menu-page-size+ #:+book-page-size+ #:menu-window #:menu-window-pick
    #:menu-scroll #:menu-scrolled-lines #:*menu-scroll*
    ;; cell specials
    #:trigger-special #:run-special #:teleport-party
@@ -135,7 +135,8 @@
    #:+inventory-limit+ #:hero-items #:hero-equipped #:hero-carrying-p
    #:give-item #:drop-item #:pass-item #:discard-item
    #:equip-item #:unequip-item #:equipped-of-kind
-   #:toggle-equip #:hero-attack-dice #:hero-missile-dice
+   #:toggle-equip #:equipped-instance-p
+   #:hero-attack-dice #:hero-missile-dice
    #:hero-effective-ac
    ;; the pack page ('i' on the character sheet — equip, 'p' to hand
    ;; an item to another party member, 't' to throw one away)

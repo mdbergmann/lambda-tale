@@ -658,7 +658,7 @@ heads back in as it draws."
 (defun magic-lines (game view)
   "The spells/songs page as menu lines — the front-ends draw these
 verbatim (the SHOP-LINES pattern).  On the list: the hero's book
-windowed to +MENU-PAGE-SIZE+ entries (u/d scroll it, the geometry
+windowed to +BOOK-PAGE-SIZE+ entries (u/d scroll it, the geometry
 riding *MENU-SCROLL* for the scrollbar), each row numbered so a digit
 opens its card, with a Spells:/Songs: head standing over the first
 entry of each kind IN THE WINDOW — the heads follow the window rather
@@ -687,7 +687,8 @@ casting key.  Either way the carousel's NEXT row has the last word."
           (append
            (if entries
                (multiple-value-bind (start end above below)
-                   (menu-window (length entries) (magic-view-top view))
+                   (menu-window (length entries) (magic-view-top view)
+                                +book-page-size+)
                  (setf *menu-scroll* (when (or above below)
                                        (list start end (length entries))))
                  (let ((kind nil)
@@ -762,12 +763,14 @@ with that CAST-VIEW, else NIL."
       ((eql char #\Escape) :cancelled)
       (digit
        (let ((entry (menu-window-pick (magic-entries hero)
-                                      (magic-view-top view) digit)))
+                                      (magic-view-top view) digit
+                                      +book-page-size+)))
          (when entry (setf (magic-view-pending view) entry)))
        nil)
       (t
        (let ((top (menu-scroll (magic-view-top view) char
-                               (length (magic-entries hero)))))
+                               (length (magic-entries hero))
+                               +book-page-size+)))
          (when top (setf (magic-view-top view) top)))
        nil))))
 

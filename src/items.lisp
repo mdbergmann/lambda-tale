@@ -179,18 +179,23 @@ a bug)."
         t)))
 
 (defun drop-item (game hero name)
-  "Remove one item NAME from HERO's pack (unequipping it first).
+  "Remove one item NAME from HERO's pack, unequipping it only when the
+copy leaving is the last one — a worn name with a spare copy still in
+the pack gives the spare away, and the hands keep what they hold.
 Returns T, or NIL when the hero does not carry it."
   (declare (ignore game))
   (when (hero-carrying-p hero name)
-    (setf (hero-equipped hero) (remove name (hero-equipped hero) :count 1))
+    (when (<= (count name (hero-items hero))
+              (count name (hero-equipped hero)))
+      (setf (hero-equipped hero) (remove name (hero-equipped hero) :count 1)))
     (setf (hero-items hero) (remove name (hero-items hero) :count 1))
     t))
 
 (defun pass-item (game from to name)
   "Hand one item NAME from FROM's pack to TO's — the pack page's 'p'.
-The item is unequipped on the way (it leaves FROM's hands with FROM's
-pack) and lands at the end of TO's.  Returns T and emits :ITEM-PASSED;
+The last copy is unequipped on the way (it leaves FROM's hands with
+FROM's pack; a spare copy goes instead while one is there — see
+DROP-ITEM) and lands at the end of TO's.  Returns T and emits :ITEM-PASSED;
 says why and returns NIL when FROM does not carry it, TO is FROM, or
 TO's pack is full — the item stays whole with FROM then, never
 destroyed.  Class fit is deliberately no barrier: anyone may CARRY
@@ -219,9 +224,10 @@ POOL-GOLD."
 (defun discard-item (game hero name)
   "Throw one item NAME from HERO's pack away for good — the pack
 page's 't', behind its are-you-sure row (the only pack action that
-destroys; a shop at least pays half).  The item is unequipped on the
-way out.  Returns T and emits :ITEM-DISCARDED; says why and returns
-NIL when the hero does not carry it."
+destroys; a shop at least pays half).  The last copy is unequipped on
+the way out (a spare goes first — see DROP-ITEM).  Returns T and
+emits :ITEM-DISCARDED; says why and returns NIL when the hero does
+not carry it."
   (find-item-type name)                 ; an unknown item is a bug, not a refusal
   (if (not (hero-carrying-p hero name))
       (progn
@@ -288,6 +294,18 @@ was not equipped."
   (when (member name (hero-equipped hero))
     (setf (hero-equipped hero) (remove name (hero-equipped hero) :count 1))
     t))
+
+(defun equipped-instance-p (hero name index)
+  "True when pack position INDEX (0-based) holds the copy of NAME the
+hero actually wears: the name is equipped and INDEX is its first
+occurrence in the pack.  Two identical swords are indistinguishable
+as items, so the first copy stands for the worn one — the pack page
+stars exactly that row, and its digit is the one that takes the item
+off (EQUIP-ACT), so with duplicates in the pack the display and the
+toggle cannot disagree."
+  (and (member name (hero-equipped hero))
+       (eql index (position name (hero-items hero)))
+       t))
 
 (defun toggle-equip (game hero name)
   "Equip pack item NAME, or take it off when it is worn — the pack
@@ -424,14 +442,21 @@ the item picked on the inspect page)."
                             (hero-effective-ac hero game) (hero-attack-dice hero))
                     "")
               (if (hero-items hero)
-                  (menu-scrolled-lines
-                   (hero-items hero) (equip-view-top view)
-                   (lambda (i name)
-                     (menu-numbered
-                      i (format nil "~D) ~A~:[~;*~]~A~A" i (item-title name)
-                                (member name (hero-equipped hero))
-                                (item-hand-marker name)
-                                (item-fit-marker hero name)))))
+                  ;; the star marks the worn COPY, not the worn name —
+                  ;; with a duplicate in the pack only one row wears it
+                  ;; (EQUIPPED-INSTANCE-P), so the window's start joins
+                  ;; the row number to make the pack position absolute
+                  (let ((start (menu-window (length (hero-items hero))
+                                            (equip-view-top view))))
+                    (menu-scrolled-lines
+                     (hero-items hero) (equip-view-top view)
+                     (lambda (i name)
+                       (menu-numbered
+                        i (format nil "~D) ~A~:[~;*~]~A~A" i (item-title name)
+                                  (equipped-instance-p hero name
+                                                       (+ start i -1))
+                                  (item-hand-marker name)
+                                  (item-fit-marker hero name))))))
                   (list "The pack is empty."))
               ;; the give/inspect modes need a prompt row — without it
               ;; the three pack pages would be indistinguishable; the
@@ -467,8 +492,10 @@ the item picked on the inspect page)."
 
 (defun equip-act (game view char)
   "Apply key CHAR to the pack page.  On the pack itself a digit toggles
-that item — worn comes off, equipment goes on (TOGGLE-EQUIP says why
-when it cannot) — p opens the give page, i the inspect page, t the
+that item — the starred worn copy comes off, any other row goes on
+(EQUIP-ITEM says why when it cannot; see EQUIPPED-INSTANCE-P for how
+duplicates keep the star honest) — p opens the give page, i the
+inspect page, t the
 throw-away page, u/d scroll a long pack and Esc closes the page.  On
 the give page a digit chooses the item to hand over, and the recipient
 page then chooses who receives it (PASS-ITEM says why when it cannot);
@@ -565,10 +592,16 @@ front-end closes the pack and opens the next page — else NIL."
               nil)))
       ;; the pack itself
       (digit
-       (let ((name (menu-window-pick (hero-items hero)
-                                     (equip-view-top view) digit)))
+       (multiple-value-bind (name index)
+           (menu-window-pick (hero-items hero)
+                             (equip-view-top view) digit)
          (when name
-           (toggle-equip game hero name)))
+           ;; the starred row (the worn copy) takes the item off; any
+           ;; other row — an unworn duplicate included — puts that one
+           ;; on, so a digit never silently strips a different row
+           (if (equipped-instance-p hero name index)
+               (toggle-equip game hero name)
+               (equip-item game hero name))))
        nil)
       ((member char '(#\p #\P))
        (if (hero-items hero)

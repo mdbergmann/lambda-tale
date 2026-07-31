@@ -1631,41 +1631,69 @@ UI-LAYOUT."
         (incf row-y row-h)))
     (amiga.gfx:set-a-pen rp 1)))
 
-(defun %amiga-draw-help (rp l)
-  "The help page ('h' or '?'): the key-mapping reference (HELP-LINES)
-on a white parchment page over the grey chrome, like the character
-sheet."
+(defun %help-page-box (l lines)
+  "The help page's box and row budget on layout L for the microfont
+LINES: values (PX PY PW PH ROWS).  The page sits centered on the
+content area, as wide as the longest line wants (plus the scrollbar
+gutter) and as tall as the reference or the area affords — ROWS is
+how many small-face rows that height holds, and a reference longer
+than ROWS windows and scrolls (see %AMIGA-DRAW-HELP)."
   (let* ((ox (ui-layout-bx l))
          (oy (ui-layout-by l))
-         (lh (ui-layout-lh l))
-         (cw (ui-layout-cw l))
-         (lines (help-lines t))         ; this UI wires map U/D scroll
-         (px (+ ox (* 2 cw)))           ; the page
+         (lh +microfont-line-height+)
+         (cw +microfont-small-advance+)
          (py (+ oy 8))
-         (pw (min (* 40 cw) (- (ui-layout-right l) px (* 2 cw))))
+         (want (+ 16 6 (* cw (reduce #'max lines :key #'length))))
+         (pw (min want (- (ui-layout-right l) ox 4)))
          (ph (min (- (ui-layout-bottom l) py 4)
                   (+ (* lh (length lines)) 12)))
-         (max-lines (floor (- ph 8) lh))
-         (max-chars (floor (- pw 16) cw)))
-    (amiga.gfx:set-a-pen rp 2)
-    (amiga.gfx:rect-fill rp ox oy (ui-layout-right l) (ui-layout-bottom l))
-    ;; page shadow, sheet, outline — the character-sheet look
-    (amiga.gfx:set-a-pen rp 0)
-    (amiga.gfx:rect-fill rp (+ px 2) (+ py 2) (+ px pw 2) (+ py ph 2))
-    (amiga.gfx:set-a-pen rp 1)
-    (amiga.gfx:rect-fill rp px py (+ px pw) (+ py ph))
-    (amiga.gfx:set-a-pen rp 0)
-    (%chrome-rect rp px py (+ px pw) (+ py ph))
-    (let ((y (+ py 4 (ui-layout-base l)))
-          (n 0))
-      (dolist (text lines)
-        (when (< n max-lines)
-          (amiga.gfx:move-to rp (+ px 8) y)
-          (amiga.gfx:gfx-text rp (if (> (length text) max-chars)
+         (px (+ ox (max 0 (floor (- (ui-layout-right l) ox pw) 2)))))
+    (values px py pw ph (floor (- ph 8) lh))))
+
+(defun %help-scroll (l top char)
+  "The help page's scroll offset after key CHAR (u/d — MENU-SCROLL
+over the page's row window), or NIL when CHAR does not scroll or the
+whole reference fits the page."
+  (let ((lines (help-lines t)))
+    (multiple-value-bind (px py pw ph rows) (%help-page-box l lines)
+      (declare (ignore px py pw ph))
+      (menu-scroll top char (length lines) rows))))
+
+(defun %amiga-draw-help (rp l top &optional lines-cache)
+  "The help page ('h' or '?'): the key-mapping reference (HELP-LINES)
+on a white parchment page over the grey chrome, like the character
+sheet, in the microfont's condensed small face — topaz held barely
+half the reference on the 200-line layout.  A reference still taller
+than the page windows at scroll offset TOP: u/d turn it a page at a
+time, and the scrollbar down the page's right edge clicks as the same
+two keys.  LINES-CACHE as in %AMIGA-DRAW-LOG."
+  (let ((lines (help-lines t)))         ; this UI wires map U/D scroll
+    (multiple-value-bind (px py pw ph rows) (%help-page-box l lines)
+      (amiga.gfx:set-a-pen rp 2)
+      (amiga.gfx:rect-fill rp (ui-layout-bx l) (ui-layout-by l)
+                           (ui-layout-right l) (ui-layout-bottom l))
+      ;; page shadow, sheet, outline — the character-sheet look
+      (amiga.gfx:set-a-pen rp 0)
+      (amiga.gfx:rect-fill rp (+ px 2) (+ py 2) (+ px pw 2) (+ py ph 2))
+      (amiga.gfx:set-a-pen rp 1)
+      (amiga.gfx:rect-fill rp px py (+ px pw) (+ py ph))
+      (amiga.gfx:set-a-pen rp 0)
+      (%chrome-rect rp px py (+ px pw) (+ py ph))
+      (multiple-value-bind (start end above below)
+          (menu-window (length lines) top rows)
+        (let ((max-chars (floor (- pw 16) +microfont-small-advance+))
+              (y (+ py 5)))
+          (dolist (text (subseq lines start end))
+            (%put-microfont-line rp lines-cache
+                                 (if (> (length text) max-chars)
                                      (subseq text 0 max-chars)
-                                     text))
-          (incf y lh)
-          (incf n))))
+                                     text)
+                                 (+ px 8) y)
+            (incf y +microfont-line-height+)))
+        (when (or above below)
+          (%amiga-draw-scrollbar rp (+ px pw -5) (+ py 2)
+                                 3 (- ph 4)
+                                 start end (length lines)))))
     (amiga.gfx:set-a-pen rp 1)))
 
 (defun %amiga-draw-sheet (rp game index l)
@@ -2183,7 +2211,8 @@ Tale's lone far house.  Like DRAW-DEPTH it changes only what is
 drawn, never what the automap records.
 Keys: W forward, S back-step, A/D turn, M map mode (M/Esc leaves it,
 F toggles the debug full view there), H or ? the help page (the key
-reference — H/Esc leaves), 1-7 open a party member's character sheet
+reference, in the microfont; taller than the page it scrolls on U/D
+or the scrollbar — H/Esc leaves), 1-7 open a party member's character sheet
 (1-7 switch heroes there, E opens the hero's pack page — digits
 toggle an item on/off, class-unfit items are marked (u), P hands
 an item to another party member (1-9 the item, then 1-7 who receives
@@ -2237,6 +2266,7 @@ map/help/sheet pages close on a click outside a target — see
          (equipv nil)       ; EQUIP-VIEW while the pack page is open
          (tradev nil)       ; TRADE-VIEW while the trade page is open
          (help-prior-mode :play) ; mode to return to when help closes
+         (help-top 0)       ; help page: the scrolled window's top line
          (locv nil)         ; the location's view (MAKE-LOCATION-VIEW)
                             ; while inside one; NIL for stateless menus
          (castv nil)        ; CAST-VIEW while the cast menu is open
@@ -2476,8 +2506,10 @@ map/help/sheet pages close on a click outside a target — see
                           (redraw))
                         (open-help ()
                           ;; 'h'/'?' from play or map mode: remember
-                          ;; where to return
+                          ;; where to return; the reference opens at
+                          ;; its head every time
                           (setf help-prior-mode mode
+                                help-top 0
                                 mode :help)
                           (redraw))
                         (leave-help ()
@@ -2580,7 +2612,7 @@ map/help/sheet pages close on a click outside a target — see
                             ((eq mode :map)
                              (%amiga-draw-map-page rp game l full map-top))
                             ((eq mode :help)
-                             (%amiga-draw-help rp l))
+                             (%amiga-draw-help rp l help-top log-lines))
                             (t
                              ;; The view column: an overlay menu page
                              ;; (save picker, cast/use/sing), else the
@@ -2922,6 +2954,17 @@ means the player asked to leave (ACT confirms it)."
                                          ((or (eql lc #\h) (eql c #\?)
                                               (eql c :esc))
                                           (leave-help)
+                                          nil)
+                                         ;; a reference taller than the
+                                         ;; page windows it: u/d turn a
+                                         ;; page, the scrollbar's trough
+                                         ;; clicks as the same two keys
+                                         ((member lc '(#\u #\d))
+                                          (let ((next (%help-scroll
+                                                       l help-top lc)))
+                                            (when next
+                                              (setf help-top next)
+                                              (redraw)))
                                           nil)))
                                   ((eq mode :sheet)
                                    (cond ((eql lc #\q) :quit)
@@ -3247,10 +3290,14 @@ means the player asked to leave (ACT confirms it)."
                          (amiga.intuition:+idcmp-vanillakey+ (msg)
                            ;; letter case from the Shift qualifier, not
                            ;; Caps Lock — 's' must step back, never open
-                           ;; the save picker (see src/keys.lisp)
+                           ;; the save picker — and the digit keys from
+                           ;; their raw position, so a shift wedged down
+                           ;; on the host cannot take hero selection out
+                           ;; of play (see src/keys.lisp)
                            (let ((c (vanilla-key-char
                                      (amiga.intuition:msg-code msg)
-                                     (amiga.intuition:msg-qualifier msg))))
+                                     (amiga.intuition:msg-qualifier msg)
+                                     (amiga.intuition:msg-raw-key msg))))
                              (when (eq (act c) :quit)
                                (return))))
                          (amiga.intuition:+idcmp-mousebuttons+ (msg)

@@ -341,20 +341,41 @@ commands would read as one of them."
   (let ((key (menu-line-key line)))
     (and (characterp key) (not (digit-char-p key)))))
 
-(defun %pack-option-runs (lines width)
-  "LINES with each run of two or more consecutive packable option rows
-(%PACKABLE-OPTION-P) put onto as few WIDTH-wide rows as whole options
-allow (%PACK-OPTIONS) — the last squeeze a page can make before it
-starts losing rows off its foot.  A lone option row passes through
-untouched, so a NEXT standing by itself on a page that fits keeps the
-padding that centers it."
+(defun %pack-run-minimally (options width overflow)
+  "OPTIONS — a run of two or more packable rows — packed just far
+enough to save OVERFLOW rows: the shortest prefix whose packing pays
+that much shares rows (%PACK-OPTIONS) and the rest keep their own, so
+the squeeze starts at the run's head and the page's foot — the
+sheet's NEXT — is the last row to give up standing alone.  When even
+the whole run packed cannot save enough, all of it packs.  Returns
+\(VALUES ROWS SAVED)."
+  (loop with n = (length options)
+        for j from 2 to n
+        for packed = (%pack-options (subseq options 0 j) width)
+        for saved = (- j (length packed))
+        when (or (>= saved overflow) (= j n))
+          return (values (append packed (nthcdr j options)) saved)))
+
+(defun %pack-option-runs (lines width overflow)
+  "LINES with runs of two or more consecutive packable option rows
+(%PACKABLE-OPTION-P) put onto shared WIDTH-wide rows until OVERFLOW
+rows are saved — the last squeeze a page can make before it starts
+losing rows off its foot, taken in page order and no further than the
+page actually needs (%PACK-RUN-MINIMALLY): once the overflow is paid,
+the rows that follow keep standing one option each.  A lone option
+row passes through untouched, so a NEXT standing by itself on a page
+that fits keeps the padding that centers it."
   (let ((out '())
         (run '()))
     (flet ((flush ()
              (when run
                (let ((options (nreverse run)))
-                 (dolist (row (if (rest options)
-                                  (%pack-options options width)
+                 (dolist (row (if (and (rest options) (plusp overflow))
+                                  (multiple-value-bind (rows saved)
+                                      (%pack-run-minimally options width
+                                                           overflow)
+                                    (decf overflow saved)
+                                    rows)
                                   options))
                    (push row out)))
                (setf run nil))))
@@ -371,7 +392,9 @@ WRAP-MENU-LINE, then squeezed progressively while they overflow —
 first each run of consecutive footer hint rows packs onto shared rows
 (whole options only, see %PACK-HINT-RUNS), then the blank spacer rows
 go, and last the page's command rows pack (%PACK-OPTION-RUNS — the
-letter options only; a numbered list row keeps its own row).  The
+letter options only, in page order and only as far as the overflow
+demands, so the foot unpacks first when there is room; a numbered
+list row keeps its own row).  The
 generators emit one option per row (the Bard's Tale look), so a roomy
 page lists the options vertically and a tight page — the lores shop and
 character sheet — packs them onto shared rows instead of running its
@@ -386,7 +409,7 @@ caller's to truncate."
                              (equal (menu-line-text line) ""))
                            all)))
     (when (> (length all) rows)
-      (setf all (%pack-option-runs all width)))
+      (setf all (%pack-option-runs all width (- (length all) rows))))
     all))
 
 ;;; Menu scrolling: a list longer than a page shows a full-page window
@@ -404,6 +427,14 @@ caller's to truncate."
 items show whole; a longer list windows to this many rows and scrolls
 with u/d (or the front-end's scrollbar).  Seven keeps every
 party-sized list (+PARTY-LIMIT+ rows) un-scrolled.")
+
+(defconstant +book-page-size+ 8
+  "Entries the character sheet's spells/songs page windows at once —
+one more than +MENU-PAGE-SIZE+, because the book rows are nearly all
+that page carries: its head, the entries, a spacer and NEXT are the
+lores takeover page's eleven rows exactly.  The pack and shop lists
+spend those rows on their own command footers and stay at
++MENU-PAGE-SIZE+.")
 
 (defun menu-window (n top &optional (page +menu-page-size+))
   "The visible window of an N-item list scrolled to offset TOP:

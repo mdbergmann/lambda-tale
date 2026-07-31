@@ -1010,6 +1010,34 @@ height" d)
     (check ":lores gives the message page eleven small-face rows"
            11 rows)))
 
+;; The help page's own budget, walked the way %HELP-PAGE-BOX walks it:
+;; the reference draws in the microfont's small face (topaz held
+;; barely half of it on the 200-line layout), the box runs from BY+8
+;; down to the content bottom, and a reference taller than the box
+;; windows and scrolls (u/d, or the scrollbar).
+(let* ((p *lores-profile*)
+       (by (display-profile-pad-y p))
+       (bottom (- (display-profile-screen-height p)
+                  (display-profile-pad-y p)))
+       (lines (help-lines t))
+       (py (+ by 8))
+       (ph (min (- bottom py 4)
+                (+ (* +microfont-line-height+ (length lines)) 12)))
+       (rows (floor (- ph 8) +microfont-line-height+)))
+  (check ":lores gives the help page twenty small-face rows" 20 rows)
+  ;; the whole reference is two windows at most: one page turn (d)
+  ;; reaches its tail
+  (check-true "one page turn reaches the reference's tail"
+              (>= (* 2 rows) (length lines)))
+  ;; the longest line names the page's width, and the content affords
+  ;; it — no help line may truncate
+  (check-true "the longest help line fits the lores content"
+              (<= (+ 16 6 (* +microfont-small-advance+
+                             (reduce #'max lines :key #'length)))
+                  (- (display-profile-screen-width p)
+                     (* 2 (display-profile-pad-x p))
+                     4))))
+
 ;; Every profile must declare a draw distance the plane set can serve.
 (dolist (p *display-profiles*)
   (check-true (format nil "~S declares a sane draw depth"
@@ -1630,11 +1658,18 @@ height" d)
          '("*** Sheet ***" "Pool gold" "Trade gold"
            "Order party" "           NEXT")
          (menu-texts (fit-menu-lines lines 5 27)))
-  ;; and a page shorter still packs them — NEXT gives up the padding
-  ;; that centered it and rides along rather than falling off the foot
-  (check "a tighter page packs the options, NEXT included"
-         '("*** Sheet ***" "Pool gold  Trade gold" "Order party  NEXT")
+  ;; a page one row short packs no more than that row buys: the head
+  ;; of the run shares, and the foot — NEXT — keeps standing alone
+  (check "a tighter page packs only what the overflow demands"
+         '("*** Sheet ***" "Pool gold  Trade gold"
+           "Order party" "           NEXT")
          (menu-texts (fit-menu-lines lines 4 27)))
+  ;; and a page shorter still packs the whole run — NEXT gives up the
+  ;; padding that centered it and rides along rather than falling off
+  ;; the foot
+  (check "a shorter page still packs the options, NEXT included"
+         '("*** Sheet ***" "Pool gold  Trade gold" "Order party  NEXT")
+         (menu-texts (fit-menu-lines lines 3 27)))
   ;; the packed row still picks per option: each keeps its own span
   (let ((packed (second (fit-menu-lines lines 4 27))))
     (check "a packed row is no longer a whole-row option" nil
@@ -1657,6 +1692,16 @@ height" d)
   (check "the numbered rows keep their own rows, the commands share one"
          '("*** Shop ***" "1) Sword  30 gp" "2) Mace  60 gp"
            "Sell  Pool gold")
+         (menu-texts (fit-menu-lines lines 4 27))))
+
+;; With more than one run the squeeze is taken in page order: the run
+;; nearer the head pays first, and the foot keeps its rows while the
+;; saving above covers the overflow.
+(let ((lines (list (menu-option #\a "Ale") (menu-option #\b "Bread")
+                   "1) Sword"
+                   (menu-option #\s "Sell") (menu-next-option))))
+  (check "an earlier run pays before the foot is touched"
+         '("Ale  Bread" "1) Sword" "Sell" "           NEXT")
          (menu-texts (fit-menu-lines lines 4 27))))
 
 ;; A lone option row is left as it is: NEXT standing by itself keeps
@@ -3959,7 +4004,7 @@ height" d)
   (check-true "a new level's spells appear on the page"
               (find-if (lambda (s) (search "test lore" s))
                        (menu-texts (magic-lines g v))))
-  ;; six spells known at level 3: the book fits +MENU-PAGE-SIZE+ whole,
+  ;; six spells known at level 3: the book fits +BOOK-PAGE-SIZE+ whole,
   ;; so it does not scroll
   (check "a short book does not scroll" nil
          (progn (magic-lines g v) *menu-scroll*))
@@ -6594,10 +6639,19 @@ height" d)
   ;; the log can be read
   (check "p plays the tune" :done (magic-act g bv #\p))
   (check-true "and the song is up" (current-song g))
-  ;; level 3 grows the adept's book past the seven-entry window: ward
-  ;; and dirge arrive, eight entries in all
+  ;; level 3 grows the adept's book to eight entries — ward and dirge
+  ;; arrive — and eight is exactly the book's window
+  ;; (+BOOK-PAGE-SIZE+): head + entries + spacer + NEXT are the lores
+  ;; takeover page's eleven rows whole, so nothing scrolls yet
   (setf (hero-level adept) 3)
-  (check "the grown book windows at the page size" '(0 7 8)
+  (check "an eight-entry book fills its page whole" nil
+         (progn (magic-lines g av) *menu-scroll*))
+  (check "and d moves nothing on it" nil (magic-act g av #\d))
+  ;; the ninth entry is the one that makes the book scroll
+  (define-spell 'test-adept-seal :cost 3 :level 5 :classes '(:t-adept)
+    :buff-ac 2 :duration 5)
+  (setf (hero-level adept) 5)
+  (check "the grown book windows at the page size" '(0 8 9)
          (progn (magic-lines g av) *menu-scroll*))
   (check "d scrolls the spells/songs page" 1
          (progn (magic-act g av #\d) (magic-view-top av)))
@@ -6606,9 +6660,9 @@ height" d)
   ;; say what it is looking at — and the digits number the WINDOW
   (check "a scrolled window still names its section"
          '("Spells:" "1) test adept glow" "2) test adept mend"
-           "3) test adept ward" ""
-           "Songs:" "4) test march" "5) test gleam" "6) test dirge"
-           "7) test road")
+           "3) test adept ward" "4) test adept seal" ""
+           "Songs:" "5) test march" "6) test gleam" "7) test dirge"
+           "8) test road")
          (menu-texts (butlast (magic-lines g av) 2)))
   (check "and the window's first row is its digit 1" '(:spell . test-adept-glow)
          (progn (magic-act g av #\1)
@@ -7079,6 +7133,51 @@ height" d)
               (find-if (lambda (s) (search "removes T Sword" s))
                        (funcall msgs)))
   (check "toggle refuses misc items" nil (toggle-equip g h 't-torch)))
+
+;; Duplicates: two copies of one name are indistinguishable as items,
+;; so the FIRST copy stands for the worn one — the pack page stars
+;; exactly that row, its digit is the one that takes the item off, and
+;; a copy leaving the pack takes the equipment along only when it was
+;; the last one.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (mule (with-rng () (make-hero "Mule" :tester)))
+       (g (new-game m :party (list h mule)))
+       (view (make-equip-view h)))
+  (give-item g h 't-sword)
+  (give-item g h 't-sword)
+  (equip-item g h 't-sword)
+  (check-true "the worn copy's row is the starred instance"
+              (equipped-instance-p h 't-sword 0))
+  (check "the spare copy's row is not" nil
+         (equipped-instance-p h 't-sword 1))
+  (check "the pack page stars one copy, not both"
+         '("1) T Sword*" "2) T Sword")
+         (remove-if-not (lambda (s) (search "T Sword" s))
+                        (menu-texts (equip-lines g view))))
+  ;; a digit on the spare copy puts THAT one on — the same name, so
+  ;; the hands hold what they held — and never silently strips the star
+  (equip-act g view #\2)
+  (check "picking the spare keeps the item worn" 't-sword
+         (equipped-of-kind h :weapon))
+  ;; the starred row's digit is the one that takes it off
+  (equip-act g view #\1)
+  (check "picking the starred copy takes it off" nil
+         (equipped-of-kind h :weapon))
+  (check "and no row is starred then"
+         '("1) T Sword" "2) T Sword")
+         (remove-if-not (lambda (s) (search "T Sword" s))
+                        (menu-texts (equip-lines g view))))
+  ;; a worn name with a spare in the pack gives the SPARE away: the
+  ;; hands keep what they hold until the last copy leaves
+  (equip-item g h 't-sword)
+  (check-true "passing a spare copy leaves the worn one on"
+              (pass-item g h mule 't-sword))
+  (check "the sword stays in hand" 't-sword (equipped-of-kind h :weapon))
+  (check-true "the last copy leaving takes the equipment along"
+              (pass-item g h mule 't-sword))
+  (check "empty-handed once the last copy went" nil
+         (equipped-of-kind h :weapon)))
 
 ;; The pack page model (EQUIP-VIEW): both front-ends feed keys into
 ;; EQUIP-ACT and draw EQUIP-LINES — 'e' on the character sheet.
@@ -8318,12 +8417,16 @@ height" d)
   (setf (hero-gold h) 50)
   (check "full pack refuses the purchase" nil (buy-item g h 't-torch))
   (check "gold untouched on a full pack" 50 (hero-gold h))
-  ;; selling: half price back, equipped items are unequipped
+  ;; selling: half price back; the hands keep the sword while a spare
+  ;; copy covers it (DROP-ITEM), and only the last copy unequips
   (check-true "sell the equipped sword" (sell-item g h 't-sword))
   (check "sell pays half price" 55 (hero-gold h))
-  (check "selling unequips" nil (equipped-of-kind h :weapon))
+  (check "a spare copy keeps the sword in hand" 't-sword
+         (equipped-of-kind h :weapon))
   (check-true "the second sword is still packed"
               (hero-carrying-p h 't-sword))
+  (check-true "sell the spare too" (sell-item g h 't-sword))
+  (check "selling the last copy unequips" nil (equipped-of-kind h :weapon))
   (check "sell without the item" nil (sell-item g h 't-mail)))
 
 ;; A class the armor excludes buys it without auto-equip.
@@ -11374,7 +11477,8 @@ pieces need a mask" pname)
 #+amigaos
 (check "amiga-ui autoplay plays a scripted session and quits" :done
        (let ((*autoplay* (list #\w #\d #\1 #\2 :esc #\w #\a
-                               #\h :esc
+                               #\h #\d #\u :esc   ; help, scrolled there
+                                                  ; and back (u/d)
                                #\m #\f #\f #\? #\h #\m #\s
                                #\q #\n          ; asked, backed out
                                #\s #\q #\y)))   ; asked again, answered
@@ -11766,6 +11870,31 @@ pieces need a mask" pname)
        #\? (vanilla-key-char (char-code #\?) #x0001))
 (check "keys: digits pass through untouched under Caps Lock"
        #\1 (vanilla-key-char (char-code #\1) #x0004))
+
+;; The digit keys translate from their raw POSITION code when the
+;; front-end can supply it (AMIGA.INTUITION:MSG-RAW-KEY): a shift
+;; wedged down on the host — the emulator screenshot-chord classic —
+;; rides the qualifier into the keymap, the digit row arrives as
+;; punctuation, and hero selection silently dies.  The raw code never
+;; moves: 0x01-0x0A is the digit row and the pad its own block on
+;; every Amiga keymap.
+(check "keys: the digit row answers by position, not by keymap"
+       #\1 (vanilla-key-char (char-code #\!) #x0001 #x01))
+(check "keys: ... the whole row, 0 at its end"
+       #\0 (vanilla-key-char (char-code #\)) #x0001 #x0a))
+(check "keys: the numeric pad answers by position too"
+       #\7 (vanilla-key-char (char-code #\7) 0 #x3d))
+(check "keys: a digit key with no shift wedged is the same digit"
+       #\4 (vanilla-key-char (char-code #\4) 0 #x04))
+(check "keys: a letter key's raw code changes nothing"
+       #\s (vanilla-key-char (char-code #\s) 0 #x21))
+(check "keys: Shift-S still opens by case, raw code or none"
+       #\S (vanilla-key-char (char-code #\S) #x0001 #x21))
+(check "keys: Escape stays :ESC beside its raw code"
+       :esc (vanilla-key-char 27 0 #x45))
+(check "keys: raw-key-digit ignores every other key" nil
+       (raw-key-digit #x40))
+(check "keys: ... and a missing raw code" nil (raw-key-digit nil))
 
 ;;; ---------------------------------------------------------------------
 ;;; Version (src/version.lisp)

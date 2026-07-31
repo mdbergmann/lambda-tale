@@ -148,7 +148,9 @@ open as a centered dialog over the page instead, all four the same
 size: each of them lists names, a name has no room in the view
 column, and nothing worth watching happens beside a picker while it
 is open.
-The key reference lives on the help page under `h`/`?`.  The full
+The key reference lives on the help page under `h`/`?` — set in the
+same condensed small face as the message page, and scrolling
+(`u`/`d`, or its scrollbar) when the reference outgrows the page.  The full
 automap lives under `m` — black ink on the grey page, doors and the
 party amber, with a legend beside the map listing the special places
 the party has found (shops, taverns and the like, each marker also
