@@ -8816,16 +8816,55 @@ height" d)
                   :test #'equal))))
 (delete-file "tests/tmp-save.lisp")
 
-;; Old save versions are rejected with a clear error.
+;; Save versions: an older save is attempted, not refused — every
+;; format bump only added plist keys, so the keys an old save lacks
+;; fall back to the defaults.  Only a save from a newer build, or one
+;; that actually fails to restore, is an error.
 (with-open-file (s "tests/tmp-save.lisp" :direction :output
                    :if-exists :supersede)
   (write-string "(:lambda-tale-save 1 :map-file \"tests/tmp-town.map\")" s))
-(check-error "v1 saves are rejected" (load-game "tests/tmp-save.lisp"))
+(let ((g (load-game "tests/tmp-save.lisp")))
+  (check "a v1 save loads its map" "Testville" (map-title (game-map g)))
+  (check "missing position defaults to the map start" '(0 0)
+         (list (game-x g) (game-y g)))
+  (check "missing clock defaults to a fresh game's" *new-game-minutes*
+         (game-time g))
+  (check "missing party defaults to none" '() (game-party g)))
+;; a v4-era save: hero plists knew nothing of :race, :ailments or
+;; :class-levels yet — the loaded hero defaults them and keeps the rest
 (with-open-file (s "tests/tmp-save.lisp" :direction :output
                    :if-exists :supersede)
-  (write-string "(:lambda-tale-save 2 :map-file \"tests/tmp-town.map\" :x 0 :y 0 :facing 0)" s))
-(check-error "v2 saves are rejected" (load-game "tests/tmp-save.lisp"))
+  (write-string "(:lambda-tale-save 4 :map-file \"tests/tmp-town.map\" :x 1 :y 0 :facing 1 :time 300 :party ((:name \"Rip\" :class :tester :level 2 :xp 50 :max-hp 12 :hp 9)))" s))
+(let* ((g (load-game "tests/tmp-save.lisp"))
+       (h (first (game-party g))))
+  (check "an old hero keeps what its day wrote" '("Rip" 2 9)
+         (list (hero-name h) (hero-level h) (hero-hp h)))
+  (check "and defaults what it never knew" '(nil () ())
+         (list (hero-race h) (hero-ailments h) (hero-class-levels h)))
+  (check "the clock an old save did write is kept" 300 (game-time g))
+  (check "position from the old save" '(1 0 1)
+         (list (game-x g) (game-y g) (game-facing g))))
+;; a newer build's save is still refused — its keys and their meaning
+;; are unknowable here
+(with-open-file (s "tests/tmp-save.lisp" :direction :output
+                   :if-exists :supersede)
+  (write-string "(:lambda-tale-save 99 :map-file \"tests/tmp-town.map\")" s))
+(check-error "a save from a newer build is refused"
+             (load-game "tests/tmp-save.lisp"))
+;; and an old save that cannot restore (its map is gone) is an error,
+;; not a crash into the debugger with half a game built
+(with-open-file (s "tests/tmp-save.lisp" :direction :output
+                   :if-exists :supersede)
+  (write-string "(:lambda-tale-save 3 :map-file \"tests/no-such.map\")" s))
+(check-error "an old save that fails to restore is an error"
+             (load-game "tests/tmp-save.lisp"))
 (delete-file "tests/tmp-save.lisp")
+;; saving where no file can be written signals (the front-ends catch
+;; this and put it in the log — see SAVES-ACT in both UIs)
+(let* ((m (load-map-file "tests/tmp-town.map"))
+       (g (new-game m)))
+  (check-error "saving into a missing directory is an error"
+               (save-game g "tests/no-such-dir/tmp-save.lisp")))
 
 ;;; ---------------------------------------------------------------------
 ;;; Named saves: the save/load slot menu (src/save-menu.lisp)

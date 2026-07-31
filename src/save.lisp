@@ -8,6 +8,13 @@
 ;;; party.  Zones other than the current one reload lazily when the
 ;;; party travels back to them.  Story flag keys and values must print
 ;;; readably (symbols, numbers, strings, lists thereof).
+;;;
+;;; Every format bump so far only ADDED plist keys — that is what lets
+;;; LOAD-GAME attempt any save up to +SAVE-VERSION+ instead of turning
+;;; older ones away: a key an old save never wrote falls back to the
+;;; defstruct default (heroes, effects) or the fresh game's own slot
+;;; value (the clock, the position).  Keep bumps additive, or teach
+;;; %RESTORE-GAME the migration when one day a key must change shape.
 
 (in-package :tale)
 
@@ -102,41 +109,57 @@ is not allowed.  Returns PATH."
         (terpri s))))
   path)
 
+(defun %restore-game (data)
+  "Rebuild a GAME from DATA, the body of a save form.  A key an older
+save never wrote is simply absent: GETF falls back to the fresh game's
+slot value, and the hero/effect constructors default the plist keys
+their day did not know."
+  (let* ((map-file (getf data :map-file))
+         (map (load-map-file map-file))
+         (game (new-game map
+                         :party (mapcar (lambda (plist)
+                                          (apply #'%make-hero plist))
+                                        (getf data :party)))))
+    (setf (game-x game) (getf data :x (game-x game))
+          (game-y game) (getf data :y (game-y game))
+          (game-facing game) (getf data :facing (game-facing game))
+          ;; Clock and effects must be back before the final OBSERVE:
+          ;; a game saved at night must not map at daylight depth.
+          (game-time game) (getf data :time (game-time game))
+          (game-effects game)
+          (mapcar (lambda (plist) (apply #'%make-effect plist))
+                  (getf data :effects)))
+    (dolist (zone (getf data :zones))
+      (if (equal (car zone) map-file)
+          (%rows->knowledge (game-knowledge game) (cdr zone))
+          (push zone (game-zone-knowledge game))))
+    (dolist (kv (getf data :flags))
+      (set-flag game (car kv) (cdr kv)))
+    (observe game)
+    game))
+
 (defun load-game (path)
   "Load the save at PATH: reload its current map file and return a
 fresh GAME with position, per-zone automap knowledge, flags and party
 restored.  Other visited zones' maps reload lazily on travel.  Event
-handlers are not saved — subscribe them again on the returned game."
+handlers are not saved — subscribe them again on the returned game.
+
+A save from an older build is attempted, not refused — the format only
+ever grew keys, and %RESTORE-GAME defaults the ones an old save lacks.
+Only a save from a NEWER build than this one, or one that actually
+fails to restore, signals an error."
   (let ((form (with-open-file (s path)
                 (let ((*read-eval* nil)
                       (*package* (find-package :tale)))
                   (read s)))))
     (unless (and (consp form) (eq (first form) :lambda-tale-save))
       (error "~A is not a Lambda's Tale save file" path))
-    (unless (eql (second form) +save-version+)
-      (error "~A: save version ~S, this build reads version ~D"
-             path (second form) +save-version+))
-    (let* ((data (cddr form))
-           (map-file (getf data :map-file))
-           (map (load-map-file map-file))
-           (game (new-game map
-                           :party (mapcar (lambda (plist)
-                                            (apply #'%make-hero plist))
-                                          (getf data :party)))))
-      (setf (game-x game) (getf data :x)
-            (game-y game) (getf data :y)
-            (game-facing game) (getf data :facing)
-            ;; Clock and effects must be back before the final OBSERVE:
-            ;; a game saved at night must not map at daylight depth.
-            (game-time game) (getf data :time)
-            (game-effects game)
-            (mapcar (lambda (plist) (apply #'%make-effect plist))
-                    (getf data :effects)))
-      (dolist (zone (getf data :zones))
-        (if (equal (car zone) map-file)
-            (%rows->knowledge (game-knowledge game) (cdr zone))
-            (push zone (game-zone-knowledge game))))
-      (dolist (kv (getf data :flags))
-        (set-flag game (car kv) (cdr kv)))
-      (observe game)
-      game)))
+    (let ((version (second form)))
+      (unless (and (integerp version) (<= version +save-version+))
+        (error "~A: save version ~S, this build reads up to version ~D"
+               path version +save-version+))
+      (handler-case (%restore-game (cddr form))
+        (error (e)
+          (error "~A: version ~D save did not restore (this build ~
+                  writes ~D): ~A"
+                 path version +save-version+ e))))))

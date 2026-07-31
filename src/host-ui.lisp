@@ -339,18 +339,34 @@ engine has no default world; the game names its starting map."
                  ((:done :cancelled) (setf sing nil)))
                nil)
              (saves-act (c)
+               ;; a save the host has locked, a full disk, a save this
+               ;; build cannot read — all land in the log; none may
+               ;; tear the session down
                (let ((r (save-menu-act game menu c)))
                  (cond ((eq r :closed) (setf menu nil))
                        ((and (consp r) (eq (first r) :save))
-                        (ensure-save-dir)
-                        (save-game game (second r))
-                        (note (format nil "Game saved to ~A." (second r)))
+                        (handler-case
+                            (progn
+                              (ensure-save-dir)
+                              (save-game game (second r))
+                              (note (format nil "Game saved to ~A."
+                                            (second r))))
+                          (error (e)
+                            (note (format nil "Save failed: ~A" e))))
                         (setf menu nil))
                        ((and (consp r) (eq (first r) :load))
-                        (setf game (wire (load-game (second r)))
-                              over nil
-                              mode :play)
-                        (note "Game loaded."))))
+                        (handler-case
+                            (progn
+                              (setf game (wire (load-game (second r)))
+                                    over nil
+                                    mode :play)
+                              (note "Game loaded."))
+                          (error (e)
+                            ;; WIRE (which closes the picker) never
+                            ;; ran — close it ourselves; the old game
+                            ;; plays on
+                            (note (format nil "Load failed: ~A" e))
+                            (setf menu nil))))))
                nil)
              (map-act (c)
                (case c

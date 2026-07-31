@@ -532,8 +532,11 @@ The Amiga front-end supports two displays, selected by
 - World: zone-form parsing (kind/title/wrap/start-facing, bad kinds
   rejected), relative path resolution (incl. Amiga volumes), travel
   with per-zone knowledge persistence and zone reuse, ops-after-travel
-  skipping, travel-loop depth cap, save v2 round-trip across zones with
-  lazy knowledge restore, old save versions rejected.
+  skipping, travel-loop depth cap, save round-trip across zones with
+  lazy knowledge restore; older saves load with defaults standing in
+  for the keys their day lacked, newer-than-build saves and saves that
+  fail to restore signal clear errors (the front-ends log them instead
+  of crashing).
 - Items: registry (titles, bad kinds), pack limit, equip rules (one
   per kind, class restrictions, misc rejected), attack dice and
   effective AC — including scripted combat rounds where the weapon

@@ -2867,33 +2867,57 @@ map/help/sheet pages close on a click outside a target — see
                                    (setf savem nil)
                                    (fresh-play saves-prior-mode))
                                   ((and (consp r) (eq (first r) :save))
-                                   (ensure-save-dir)
-                                   (save-game game (second r))
-                                   (log-message
-                                    log
-                                    (format nil "Saved ~A." (second r)))
+                                   ;; a save file the host side holds
+                                   ;; open, a full disk — the log gets
+                                   ;; the news, the session plays on
+                                   (handler-case
+                                       (progn
+                                         (ensure-save-dir)
+                                         (save-game game (second r))
+                                         (log-message
+                                          log
+                                          (format nil "Saved ~A."
+                                                  (second r))))
+                                     (error (e)
+                                       (log-message
+                                        log
+                                        (format nil "Save failed: ~A" e))))
                                    (setf savem nil)
                                    (fresh-play saves-prior-mode))
                                   ((and (consp r) (eq (first r) :load))
-                                   (%call-with-busy-pointer win
-                                    (lambda ()
-                                      (setf game
-                                            (wire (load-game (second r))))
-                                      (setf over nil
-                                            mode :play
-                                            zone-dirty nil)
-                                      ;; loading may land in a zone
-                                      ;; with its own tile pack — swap
-                                      ;; packs and repaint the chrome
-                                      ;; (the plaque carries the zone
-                                      ;; name)
-                                      (ensure-walls)
-                                      (amiga-sound-open
-                                       (zone-sfx-dir game))))
-                                   (clear-inner)
-                                   (%chrome-frames rp game l)
-                                   (log-message log "Game loaded.")
-                                   (redraw))
+                                   (handler-case
+                                       (progn
+                                         (%call-with-busy-pointer win
+                                          (lambda ()
+                                            (setf game
+                                                  (wire (load-game
+                                                         (second r))))
+                                            (setf over nil
+                                                  mode :play
+                                                  zone-dirty nil)
+                                            ;; loading may land in a
+                                            ;; zone with its own tile
+                                            ;; pack — swap packs and
+                                            ;; repaint the chrome (the
+                                            ;; plaque carries the zone
+                                            ;; name)
+                                            (ensure-walls)
+                                            (amiga-sound-open
+                                             (zone-sfx-dir game))))
+                                         (clear-inner)
+                                         (%chrome-frames rp game l)
+                                         (log-message log "Game loaded.")
+                                         (redraw))
+                                     (error (e)
+                                       ;; WIRE (which closes the
+                                       ;; picker) may not have run —
+                                       ;; close it ourselves and play
+                                       ;; on with whatever game we hold
+                                       (log-message
+                                        log
+                                        (format nil "Load failed: ~A" e))
+                                       (setf savem nil)
+                                       (fresh-play saves-prior-mode))))
                                   (t (redraw))))
                           nil)
                         (request-quit ()
