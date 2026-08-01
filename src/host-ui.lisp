@@ -113,6 +113,8 @@ engine has no default world; the game names its starting map."
          (magic nil)         ; MAGIC-VIEW while the spells/songs page is up
          (ordering nil)      ; sheet: picking the hero's new slot (o)
          (changing nil)      ; sheet: picking the hero's new art (c)
+         (sheet-notes nil)   ; the just-taken rise's messages, up as a
+                             ; page of their own (see LEVEL-NOTES-LINES)
          (equip nil)         ; EQUIP-VIEW while the pack page is open
          (trade nil)         ; TRADE-VIEW while the trade page is open
          (locv nil)          ; the location's view (MAKE-LOCATION-VIEW)
@@ -259,7 +261,9 @@ engine has no default world; the game names its starting map."
                (dolist (line (help-lines))
                  (format t "~A~%" line)))
              (draw-sheet-page ()
-               (dolist (line (cond (equip (equip-lines game equip))
+               (dolist (line (cond (sheet-notes
+                                    (level-notes-lines sheet-notes))
+                                   (equip (equip-lines game equip))
                                    (trade (trade-lines game trade))
                                    (magic (magic-lines game magic))
                                    (t (hero-sheet-lines game sheet-hero
@@ -391,6 +395,7 @@ engine has no default world; the game names its starting map."
                        trade nil
                        ordering nil
                        changing nil
+                       sheet-notes nil
                        mode :sheet))
                nil)
              (sheet-next ()
@@ -425,6 +430,10 @@ engine has no default world; the game names its starting map."
                nil)
              (sheet-act (c)
                (cond
+                 (sheet-notes
+                  ;; the rise's page: any key turns back to the sheet
+                  (setf sheet-notes nil)
+                  nil)
                  (equip
                   ;; the pack page: the shared model eats the keys
                   ;; (digits toggle or pick, p opens the give flow,
@@ -520,11 +529,14 @@ engine has no default world; the game names its starting map."
                              (setf ordering t))
                            nil)
                           ((member c '(#\l #\L))
-                           ;; a banked level rises here — one per press
+                           ;; a banked level rises here — one per
+                           ;; press, its messages on a page of their
+                           ;; own (the sheet hides the log they land in)
                            (let ((hero (nth sheet-hero
-                                            (game-party game))))
-                             (when hero
-                               (advance-level game hero)))
+                                            (game-party game)))
+                                 (mark (log-length log)))
+                             (when (and hero (advance-level game hero))
+                               (setf sheet-notes (log-since log mark))))
                            nil)
                           ((member c '(#\c #\C))
                            ;; the second ladder: pick an art to take up

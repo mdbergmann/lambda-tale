@@ -1706,12 +1706,47 @@ height" d)
 
 ;; A lone option row is left as it is: NEXT standing by itself keeps
 ;; the padding that centers it on the takeover column, even on a page
-;; too short to hold it (the caller truncates; the packer does not
-;; strip a row it cannot pack with anything).
+;; too short to hold it — the overflow falls on the plain rows at the
+;; head instead (%DROP-INFO-ROWS, below).
 (check "a run of one option is not packed"
-       '("A" "           NEXT" "B")
+       '("           NEXT" "B")
        (menu-texts (fit-menu-lines (list "A" "" (menu-next-option) "" "B")
                                    2 27)))
+
+;; The last resort behind all three squeezes: a line that WRAPPED — a
+;; long header over a narrow page, a stock row whose title and price
+;; run past it — can push the page over even after the spacers went
+;; and the commands packed.  The overflow then drops plain
+;; informational rows from the head (the title, the header) rather
+;; than losing the picks or the command foot off the bottom edge.
+(let ((lines (list "*** Shop ***"
+                   "A very long header line that wraps"
+                   (menu-numbered 1 "1) Sword  30 gp")
+                   (menu-option #\s "Sell")
+                   (menu-option #\p "Pool gold"))))
+  (check "still overflowing, the plain head rows go before the foot"
+         '("that wraps" "1) Sword  30 gp" "Sell  Pool gold")
+         (menu-texts (fit-menu-lines lines 3 27))))
+;; ... but a bracket-hint row is navigation, not garnish: it stands
+;; while the plain rows pay
+(check "a hint row is not dropped"
+       '("info" "[Esc] back")
+       (menu-texts (fit-menu-lines (list "*** Shop ***" "info" "[Esc] back")
+                                   2 27)))
+
+;; A plain informational line that overflows and carries a two-space
+;; gap breaks at the gap — the shop header splits into its name and
+;; purse halves, whole — while one that fits passes through untouched.
+(check "an overflowing gapped line breaks at its gap"
+       '("Wolfhardt the Bold buys." "Gold: 12345 gp")
+       (menu-texts (fit-menu-lines
+                    (list "Wolfhardt the Bold buys.  Gold: 12345 gp")
+                    4 26)))
+(check "a fitting gapped line keeps its row"
+       '("Kestrel buys.  Gold: 250 gp")
+       (menu-texts (fit-menu-lines
+                    (list "Kestrel buys.  Gold: 250 gp")
+                    4 27)))
 
 ;; The two pages that drove this — the lores takeover column is 27
 ;; cells wide (+TAKEOVER-COLUMNS+) and 11 rows tall on the 200-line
@@ -1760,6 +1795,40 @@ height" d)
                                (menu-option #\t "Trade gold") ""
                                (menu-option #\o "Order party") ""
                                (menu-next-option)))))))
+
+;; The same shop page at its worst: the stock scrolled (its scrollbar
+;; costs a cell — 26), a hero name that breaks the header in two, and
+;; one stock row wrapped by a long title and price.  The squeezes and
+;; the head drop together must still leave every command reachable.
+(let* ((rows 11)
+       (fitted (fit-menu-lines
+                (append
+                 (list "*** The Armoury ***" ""
+                       "Wolfhardt the Bold buys.  Gold: 12345 gp" "")
+                 (loop for i from 1 to +menu-page-size+
+                       collect (menu-numbered
+                                i (format nil "~D) ~A  ~D gp" i
+                                          (if (= i 4)
+                                              "Stone Servant Fgn"
+                                              "Longsword")
+                                          (if (= i 4) 1250 120))))
+                 (list ""
+                       (menu-option #\s "Sell")
+                       (menu-option #\i "Inspect")
+                       (menu-option #\p "Pool gold")))
+                rows (1- +takeover-columns+)))
+       (keys (mapcan (lambda (line)
+                       (let ((key (menu-line-key line)))
+                         (if key
+                             (list key)
+                             (mapcar #'third (menu-line-spans line)))))
+                     fitted)))
+  (check-true "the wrapped stock page fits its rows"
+              (<= (length fitted) rows))
+  (check-true "every stock digit still shows"
+              (subsetp '(#\1 #\2 #\3 #\4 #\5 #\6 #\7) keys))
+  (check-true "Sell, Inspect and Pool gold all still stand"
+              (subsetp '(#\s #\i #\p) keys)))
 
 ;; Menu scrolling: a list longer than +MENU-PAGE-SIZE+ (7) windows to
 ;; a full page of rows — no rows spent on marker hints; the scroll
@@ -3040,27 +3109,59 @@ height" d)
   (check "the next call takes the next one" 4
          (with-rng (4) (advance-level g h))))
 
+;; The rise's own page: the character sheet takeover hides the log the
+;; rise's messages land in, so a front-end marks the log, takes the
+;; level, and shows what was said since (LOG-SINCE the mark) as a page
+;; of its own — LEVEL-NOTES-LINES — turning back to the sheet on the
+;; next key or the NEXT row's click.
+(let* ((m (parse-map *art* :name "test"))
+       (h (with-rng (5) (make-hero "A" :tester)))
+       (g (new-game m :party (list h)))
+       (log (attach-message-log g)))
+  (award-xp g h 100)
+  (let ((mark (log-length log)))
+    (with-rng (4) (advance-level g h))
+    (let ((lines (level-notes-lines (log-since log mark))))
+      (check-true "the rise's page tells the new level"
+                  (search "rises to level 2" (first lines)))
+      (check "a spacer parts the notes from the closing row" ""
+             (menu-line-text (nth (- (length lines) 2) lines)))
+      (check "the page closes with the carousel's NEXT row" #\n
+             (menu-line-key (first (last lines)))))))
+
 ;; Bard's Tale stat growth: each level-up draws a d18 per stat in
-;; str dex iq con lck order after the hit die — the score rises when
-;; the draw lands at or above it, so gains thin out toward the 18 cap.
+;; str dex iq con lck order after the hit die — a draw at or above the
+;; score is a gain, so gains thin out toward the 18 cap — but at most
+;; ONE ability rises per level: the first success pays out and the
+;; later draws are spent unheeded (still five draws every level, so
+;; scripted rolls stay fixed).
 (let* ((m (parse-map *art* :name "test"))
        (h (with-rng (5) (make-hero "B" :tester)))   ; all abilities 3
        (g (new-game m :party (list h)))
        (msgs (watch-messages g)))
-  ;; hit die 4, then str 17 (rises), dex 0 (stays), iq 3 (rises),
-  ;; con 2 (stays), lck 17 (rises)
+  ;; hit die 4, then str 17 (rises), dex 0 (stays), iq 3 (would rise,
+  ;; but str took the level's one), con 2, lck 17 (likewise unheeded)
   (award-xp g h 100)
   (with-rng (4 17 0 3 2 17) (advance-level g h))
   (check "str rose on the level-up" 4 (hero-str h))
   (check "dex stayed" 3 (hero-dex h))
-  (check "iq rose" 4 (hero-iq h))
+  (check "iq stayed — one rise per level" 3 (hero-iq h))
   (check "con stayed" 3 (hero-con h))
-  (check "lck rose" 4 (hero-lck h))
+  (check "lck stayed — one rise per level" 3 (hero-lck h))
   (check-true "the gain is announced"
               (member "B's STR rises to 4!" (funcall msgs) :test #'equal))
+  (check "and announced alone" 1
+         (count-if (lambda (s) (and (search "rises to" s)
+                                    (not (search "rises to level" s))))
+                   (funcall msgs)))
+  ;; a failed early draw leaves the level's one rise to a later stat
+  (award-xp g h 200)                               ; to level 3
+  (with-rng (4 0 0 17 0 0) (advance-level g h))
+  (check "the rise falls to the first success" 4 (hero-iq h))
+  (check "str keeps its score" 4 (hero-str h))
   ;; the cap: a d18 draws 0-17, so a score of 18 can never rise
   (setf (hero-str h) 18)
-  (award-xp g h 200)                               ; to level 3
+  (award-xp g h 300)                               ; to level 4
   (with-rng (0 17 0 0 0 0) (advance-level g h))
   (check "a score of 18 never rises" 18 (hero-str h)))
 
@@ -8554,6 +8655,29 @@ height" d)
   (check "escape from the pick page leaves" :left
          (shop-act g view #\Escape))
   (check "location closed by the model" nil (game-location g)))
+
+;; Duplicate copies on the sell page: the star marks the worn COPY —
+;; the pack page's rule (EQUIPPED-INSTANCE-P) — not every row of the
+;; worn name.
+(let* ((m (load-map-file "tests/tmp-town.map"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (view (make-shop-view)))
+  (setf (hero-gold h) 40)
+  (turn-right g)
+  (move-party g :forward)               ; into the shop
+  (shop-act g view #\1)                 ; the hero shops
+  (shop-act g view #\1)                 ; buys a sword (auto-equips)
+  (shop-act g view #\1)                 ; and a spare copy
+  (shop-act g view #\s)                 ; to the sell page
+  (let ((texts (menu-texts (shop-lines g view))))
+    (check-true "the worn copy wears the star"
+                (find-if (lambda (s) (search "1) T Sword*" s)) texts))
+    (check "the spare copy does not" nil
+           (find-if (lambda (s) (search "2) T Sword*" s)) texts))
+    (check-true "but the spare is listed"
+                (find-if (lambda (s) (search "2) T Sword " s)) texts)))
+  (leave-location g))
 
 ;; More than one hero: the bare prompt names the whole digit range.
 (let* ((g (new-game (parse-map *art* :name "test")

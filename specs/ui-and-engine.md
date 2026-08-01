@@ -109,7 +109,16 @@ campaign data, never as code that knows about "the" town.
   The older bracket-hint convention (`[S]ell  [Esc] back`) is still
   understood: `fit-menu-lines` packs such rows back together (whole
   options only, never mid-hint) when a page runs out of rows, and
-  `menu-key-spans` locates the tokens.  A pointing front-end maps
+  `menu-key-spans` locates the tokens.  The fitter squeezes in page
+  order — hint rows pack, spacers drop, command rows pack — and as
+  the **last resort** (2026-08-01) drops plain informational rows
+  from the head (`%drop-info-rows`: the title, the header — never a
+  pick, a command or a hint), so a page a wrapped line pushed over
+  keeps its navigation instead of losing the foot to truncation.  A
+  plain line that overflows the page and carries a two-space gap (the
+  shop header's `NAME buys.  Gold: N gp`) wraps **at its gaps**
+  (`wrap-menu-line`), each segment a whole row, instead of
+  mid-sentence.  A pointing front-end maps
   clicks on either straight to the model's keys — the Amiga UI's
   hotspot list (`*hotspots*` in amiga-ui.lisp) is rebuilt on every
   redraw from exactly what was drawn, so the whole game plays by
@@ -262,11 +271,21 @@ with pictures in the view column.)
   **character sheet** (`1`-`7`) does not cover the view column with a
   menu page: the interaction **takes over the message area** — its
   menu lines render at the top of the log page (microfont on the
-  Amiga, `%amiga-draw-takeover`), and the trailing log lines keep
-  scrolling below a separator rule, so game feedback (a purchase, a
-  drink) stays visible while the menu is up.  The page interior
+  Amiga, `%amiga-draw-takeover`).  The menu owns the whole page — the
+  log-tail split under a separator rule it first shipped with read
+  poorly and is gone — so game feedback waits for the page to close;
+  what must be seen NOW gets a page of its own (a refused cast on the
+  spell card, a level-up's notes, below).  The page interior
   repaints wholesale on every redraw (a `cls`) — switching pages
   never leaves stale text.
+- **A level-up's notes page** (2026-08-01): the sheet's `l` takes the
+  banked level, whose messages (the new level, the one stat gain, the
+  spells learned) would land in the hidden log.  Both front-ends mark
+  the log first (`log-length`), then show what the rise said
+  (`log-since`) as a takeover page of its own — `level-notes-lines`:
+  the notes, a spacer, the carousel's centered `NEXT` row — and any
+  key (or the NEXT row's click) turns back to the sheet.  One level
+  per press, so each rise gets its own page.
 - The **view column** meanwhile shows a picture when the campaign
   ships one: the location op's `:image`, or the sheet hero's class
   portrait (`define-hero-class :image`) — both resolved relative to

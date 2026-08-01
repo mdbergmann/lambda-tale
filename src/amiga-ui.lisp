@@ -2263,6 +2263,8 @@ map/help/sheet pages close on a click outside a target — see
          (magic nil)        ; MAGIC-VIEW while the spells/songs page is up
          (ordering nil)     ; sheet: picking the hero's new slot (o)
          (changing nil)     ; sheet: picking the hero's new art (c)
+         (sheet-notes nil)  ; the just-taken rise's messages, up as a
+                            ; page of their own (see LEVEL-NOTES-LINES)
          (equipv nil)       ; EQUIP-VIEW while the pack page is open
          (tradev nil)       ; TRADE-VIEW while the trade page is open
          (help-prior-mode :play) ; mode to return to when help closes
@@ -2454,6 +2456,7 @@ map/help/sheet pages close on a click outside a target — see
                                   tradev nil
                                   ordering nil
                                   changing nil
+                                  sheet-notes nil
                                   mode :sheet)
                             (redraw)))
                         (sheet-next ()
@@ -2502,6 +2505,7 @@ map/help/sheet pages close on a click outside a target — see
                           (setf tradev nil)
                           (setf ordering nil)
                           (setf changing nil)
+                          (setf sheet-notes nil)
                           (setf mode :play)
                           (redraw))
                         (open-help ()
@@ -2690,7 +2694,10 @@ map/help/sheet pages close on a click outside a target — see
                              (cond ((or savem castv usev singv))
                                    ((eq mode :sheet)
                                     (%amiga-draw-takeover
-                                     rp (cond (equipv
+                                     rp (cond (sheet-notes
+                                               (level-notes-lines
+                                                sheet-notes))
+                                              (equipv
                                                (equip-lines game equipv))
                                               (tradev
                                                (trade-lines game tradev))
@@ -2991,7 +2998,14 @@ means the player asked to leave (ACT confirms it)."
                                               (redraw)))
                                           nil)))
                                   ((eq mode :sheet)
-                                   (cond ((eql lc #\q) :quit)
+                                   (cond (sheet-notes
+                                          ;; the rise's page: any key
+                                          ;; (or the NEXT row's click)
+                                          ;; turns back to the sheet
+                                          (setf sheet-notes nil)
+                                          (redraw)
+                                          nil)
+                                         ((eql lc #\q) :quit)
                                          (equipv
                                           ;; the pack page: the shared
                                           ;; model eats the keys (digits
@@ -3148,13 +3162,19 @@ means the player asked to leave (ACT confirms it)."
                                           nil)
                                          ((eql lc #\l)
                                           ;; a banked level rises here —
-                                          ;; one level per press
+                                          ;; one level per press, its
+                                          ;; messages on a page of
+                                          ;; their own (the takeover
+                                          ;; hides the log they land in)
                                           (let ((hero (nth sheet-hero
                                                            (game-party
-                                                            game))))
+                                                            game)))
+                                                (mark (log-length log)))
                                             (when (and hero
                                                        (advance-level
                                                         game hero))
+                                              (setf sheet-notes
+                                                    (log-since log mark))
                                               (redraw)))
                                           nil)
                                          ((eql lc #\c)

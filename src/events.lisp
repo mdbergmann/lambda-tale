@@ -271,12 +271,23 @@ A single option wider than WIDTH falls back to WRAP-TEXT."
   "Wrap a menu line like WRAP-TEXT, carrying its key (when it has one)
 onto every wrapped row — a click on any row of a wrapped option picks
 it.  A footer hint row (HINT-LINE-P) wraps at its option boundaries
-instead, so hints never break mid-option."
-  (let ((key (menu-line-key line)))
-    (if (and (null key) (hint-line-p line))
-        (wrap-hint-line line width)
-        (mapcar (lambda (row) (if key (menu-option key row) row))
-                (wrap-text (menu-line-text line) width)))))
+instead, so hints never break mid-option.  A plain informational line
+that OVERFLOWS the page and carries a two-space gap — the shop
+header's \"NAME buys.  Gold: N gp\", any tabular row — breaks at its
+gaps the same way, each segment keeping a whole row, instead of
+mid-sentence where WRAP-TEXT happens to land; a line that fits passes
+through untouched, gaps and all."
+  (let ((key (menu-line-key line))
+        (text (menu-line-text line)))
+    (cond ((and (null key) (hint-line-p line))
+           (wrap-hint-line text width))
+          ((and (null key)
+                (> (length text) width)
+                (search "  " (string-trim " " text)))
+           (wrap-hint-line (string-trim " " text) width))
+          (t
+           (mapcar (lambda (row) (if key (menu-option key row) row))
+                   (wrap-text text width))))))
 
 (defun %pack-hint-runs (lines width)
   "LINES with each run of consecutive hint rows re-packed onto as few
@@ -386,20 +397,38 @@ that fits keeps the padding that centers it."
       (flush))
     (nreverse out)))
 
+(defun %drop-info-rows (lines overflow)
+  "LINES with the first OVERFLOW plain informational rows dropped — the
+rows that carry no key, no spans and no bracket hint: the page's title
+and header, and never a pick, a command or a hint.  The true last
+resort, after every squeeze: a page that still overflows loses its
+FOOT to the caller's truncation, and the foot is the navigation — a
+wrapped header or stock row must cost the garnish at the head, not the
+keys at the bottom."
+  (loop for line in lines
+        if (and (plusp overflow)
+                (null (menu-line-key line))
+                (null (menu-line-spans line))
+                (not (hint-line-p line)))
+          do (decf overflow)
+        else collect line))
+
 (defun fit-menu-lines (lines rows width)
   "LINES wrapped for a ROWS x WIDTH page: each line through
 WRAP-MENU-LINE, then squeezed progressively while they overflow —
 first each run of consecutive footer hint rows packs onto shared rows
 (whole options only, see %PACK-HINT-RUNS), then the blank spacer rows
-go, and last the page's command rows pack (%PACK-OPTION-RUNS — the
+go, then the page's command rows pack (%PACK-OPTION-RUNS — the
 letter options only, in page order and only as far as the overflow
 demands, so the foot unpacks first when there is room; a numbered
 list row keeps its own row).  The
 generators emit one option per row (the Bard's Tale look), so a roomy
 page lists the options vertically and a tight page — the lores shop and
 character sheet — packs them onto shared rows instead of running its
-navigation off the bottom edge.  A page that still overflows is the
-caller's to truncate."
+navigation off the bottom edge.  As the last resort the plain
+informational rows drop from the head (%DROP-INFO-ROWS), so a page a
+wrapped line pushed over can never lose its picks or its command foot.
+A page that still overflows even then is the caller's to truncate."
   (let ((all (mapcan (lambda (line) (wrap-menu-line line width))
                      lines)))
     (when (> (length all) rows)
@@ -410,6 +439,8 @@ caller's to truncate."
                            all)))
     (when (> (length all) rows)
       (setf all (%pack-option-runs all width (- (length all) rows))))
+    (when (> (length all) rows)
+      (setf all (%drop-info-rows all (- (length all) rows))))
     all))
 
 ;;; Menu scrolling: a list longer than a page shows a full-page window

@@ -1069,13 +1069,16 @@ Heroes have Bard's Tale-ish stats (str/dex/iq/con/lck, descending AC,
 hit dice per class) and bank experience toward xp thresholds; a
 crossed threshold flags the hero in the roster (a white up-arrow
 beside the name) and the rise itself is taken by hand on the
-character sheet — `l`, one level per press.  A level-up rolls
+character sheet — `l`, one level per press, each rise reporting its
+story (the new level, the stat gain, the spells learned) on a page of
+its own before the sheet returns.  A level-up rolls
 the class hit dice again (plus the CON bonus) and gives every ability
 a Bard's Tale chance to rise by one — a d18 per stat, the score rises
 when the draw lands at or above it, so gains thin out toward the cap
-of 18.  High CON pays into hit points and high DEX into the effective
-armor class (never the reverse: low scores cost nothing, the Bard's
-Tale kindness — see `stat-gift`).  A class may carry
+of 18 — though at most one ability rises per level: the first
+successful draw takes it.  High CON pays into hit points and high DEX
+into the effective armor class (never the reverse: low scores cost
+nothing, the Bard's Tale kindness — see `stat-gift`).  A class may carry
 a fighting art: `define-hero-class ... :extra-attack-levels 4` grants
 an extra strike per four levels beyond the first (the warrior's way),
 `:crit-chance N` a percent chance — growing one point per level — that

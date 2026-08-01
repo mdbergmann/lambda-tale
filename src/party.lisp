@@ -1067,20 +1067,24 @@ have drawn.  Returns the number of heroes bitten."
 
 (defun %maybe-raise-stats (game hero)
   "Bard's Tale stat growth on a level-up: every ability, in str dex iq
-con lck order, draws a d18 and rises by 1 when the draw lands at or
-above the current score — the higher the score, the rarer the gain,
-and a score of 18 (the cap) can never rise.  Always five draws, so
+con lck order, draws a d18, and a draw at or above the current score
+is a gain — the higher the score, the rarer, and a score of 18 (the
+cap) can never rise.  At most ONE ability rises per level: the first
+successful draw pays out and the rest are spent unheeded, so a rise
+stays a moment and not a shower.  Still always five draws, so
 scripted tests spend a fixed number of rolls per level."
-  (macrolet ((try (place label)
-               `(when (>= (roll 18) ,place)
-                  (incf ,place)
-                  (say game "~A's ~A rises to ~D!"
-                       (hero-name hero) ,label ,place))))
-    (try (hero-str hero) "STR")
-    (try (hero-dex hero) "DEX")
-    (try (hero-iq hero)  "IQ")
-    (try (hero-con hero) "CON")
-    (try (hero-lck hero) "LCK")))
+  (let ((risen nil))
+    (macrolet ((try (place label)
+                 `(when (and (>= (roll 18) ,place) (not risen))
+                    (setf risen t)
+                    (incf ,place)
+                    (say game "~A's ~A rises to ~D!"
+                         (hero-name hero) ,label ,place))))
+      (try (hero-str hero) "STR")
+      (try (hero-dex hero) "DEX")
+      (try (hero-iq hero)  "IQ")
+      (try (hero-con hero) "CON")
+      (try (hero-lck hero) "LCK"))))
 
 (defun level-up (game hero)
   ;; the spellbook before the rise — level-gated, so comparing it
@@ -1133,6 +1137,16 @@ level, or NIL when none is due."
   (when (hero-level-up-pending-p hero)
     (level-up game hero)
     (hero-level hero)))
+
+(defun level-notes-lines (notes)
+  "A rise's own page: NOTES — the messages ADVANCE-LEVEL said, oldest
+first — as takeover lines, closed by the carousel's NEXT row.  The
+character sheet owns the message area while it is up, so the rise's
+story (the new level, the stat gains, the spells learned) would land
+in a log nobody sees; the front-ends show it on a page of its own
+instead and turn back to the sheet on the next key (or the NEXT row's
+click)."
+  (append notes (list "" (menu-next-option))))
 
 (defun award-xp (game hero amount)
   "Grant HERO experience.  The level is never taken automatically:

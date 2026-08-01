@@ -271,6 +271,9 @@ the inspect page — the same stock, a digit showing that item's card
                             (when (> n 1) n)))))
            ((member (shop-view-mode view) '(:buy :inspect))
             (append
+             ;; the two-space gap before Gold: is where a page too
+             ;; narrow for the one-liner breaks it (WRAP-MENU-LINE),
+             ;; name and purse each keeping a whole row
              (list (format nil "~A ~A.  Gold: ~D gp"
                            (hero-name hero)
                            (if (eq (shop-view-mode view) :buy)
@@ -302,15 +305,23 @@ the inspect page — the same stock, a digit showing that item's card
              (list (format nil "~A sells.  Gold: ~D gp"
                            (hero-name hero) (hero-gold hero))
                    "")
-             (menu-scrolled-lines
-              (hero-items hero) (shop-view-top view)
-              (lambda (i name)
-                (menu-numbered i (format nil "~D) ~A~:[~;*~]~A~A  ~D gp"
-                                         i (item-title name)
-                                         (member name (hero-equipped hero))
-                                         (item-hand-marker name)
-                                         (item-fit-marker hero name)
-                                         (item-sell-price name)))))
+             ;; the star marks the worn COPY, not the worn name — with
+             ;; a duplicate in the pack only one row wears it, the same
+             ;; rule as the pack page (EQUIPPED-INSTANCE-P), so the
+             ;; window's start joins the row number to make the pack
+             ;; position absolute
+             (let ((start (menu-window (length (hero-items hero))
+                                       (shop-view-top view))))
+               (menu-scrolled-lines
+                (hero-items hero) (shop-view-top view)
+                (lambda (i name)
+                  (menu-numbered i (format nil "~D) ~A~:[~;*~]~A~A  ~D gp"
+                                           i (item-title name)
+                                           (equipped-instance-p
+                                            hero name (+ start i -1))
+                                           (item-hand-marker name)
+                                           (item-fit-marker hero name)
+                                           (item-sell-price name))))))
              (when (zerop (shop-view-top view))
                (list ""
                      (menu-option #\b "Buy")
