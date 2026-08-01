@@ -18,7 +18,10 @@
 
 (in-package :tale)
 
-(defconstant +save-version+ 7)
+(defconstant +save-version+ 8)
+;; v8: the portrait stamped on a hero at creation (:portrait in the
+;; hero plists; :NONE for a class with none, NIL falls back to the
+;; class :image, which is also what every pre-v8 hero gets).
 ;; v7: the arts a hero has left behind (:class-levels in the hero
 ;; plists; NIL for one who never changed class).
 ;; v6: hero ailments (:ailments in the hero plists; NIL for a hale hero).
@@ -57,6 +60,7 @@
 
 (defun %hero->plist (h)
   (list :name (hero-name h) :class (hero-class h) :race (hero-race h)
+        :portrait (hero-portrait h)
         :level (hero-level h) :xp (hero-xp h)
         :max-hp (hero-max-hp h) :hp (hero-hp h)
         :max-sp (hero-max-sp h) :sp (hero-sp h)

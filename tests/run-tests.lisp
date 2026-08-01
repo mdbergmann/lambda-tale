@@ -2637,7 +2637,16 @@ height" d)
 
 ;; Class portraits: DEFINE-HERO-CLASS :IMAGE resolves map-relative
 ;; (the effect-icon rule); a class without one has no portrait.
+;; MAKE-HERO stamps the portrait onto the hero at creation — :WOMAN
+;; picks a class's second portrait (:IMAGE-WOMAN) — and the face is
+;; the person's, not the job's: CHANGE-CLASS leaves it alone.
 (define-hero-class :t-faced :image "gfx/face.iff")
+(define-hero-class :t-two-faced :image "gfx/man.iff"
+                                :image-woman "gfx/woman.iff"
+                                :change-at 1 :change-group :t-guise)
+(define-hero-class :t-new-guise :image "gfx/other.iff"
+                                :change-at 1 :change-group :t-guise)
+(define-hero-class :t-faceless :change-at 1 :change-group :t-guise)
 (let* ((m (parse-map *art* :name "world/deep/test"))
        (g (new-game m :party (with-rng ()
                                (list (make-hero "F" :t-faced)
@@ -2647,7 +2656,34 @@ height" d)
   (check "the portrait resolves beside the map" "world/deep/gfx/face.iff"
          (hero-image-path g (first (game-party g))))
   (check "a class without :image has no portrait" nil
-         (hero-image-path g (second (game-party g)))))
+         (hero-image-path g (second (game-party g))))
+  (check "creation stamped the portrait onto the hero" "gfx/face.iff"
+         (hero-portrait (first (game-party g)))))
+(check "without :woman the default portrait is stamped" "gfx/man.iff"
+       (hero-image (with-rng () (make-hero "Mordec" :t-two-faced))))
+(check-error ":woman on a class without a second portrait is refused"
+  (make-hero "X" :t-faced :woman t))
+(check "a hero from before portraits stuck falls back to the class"
+       "gfx/face.iff"
+       (hero-image (%make-hero :name "old" :class :t-faced)))
+(let* ((h (with-rng () (make-hero "Mab" :t-two-faced :woman t)))
+       (m (parse-map *art* :name "test"))
+       (g (new-game m :party (list h))))
+  (check "with :woman the woman's portrait is stamped" "gfx/woman.iff"
+         (hero-image h))
+  (change-class g h :t-new-guise)
+  (check "the stamped face outlives a class change" "gfx/woman.iff"
+         (hero-image h)))
+(let* ((h (with-rng () (make-hero "Grey" :t-faceless)))
+       (m (parse-map *art* :name "test"))
+       (g (new-game m :party (list h))))
+  (check "a portrait-less class stamps :none, not nil" :none
+         (hero-portrait h))
+  (check "a portrait-less class starts with no image" nil
+         (hero-image h))
+  (change-class g h :t-new-guise)
+  (check "changing into a class with a portrait grows no new face" nil
+         (hero-image h)))
 
 ;;; ---------------------------------------------------------------------
 ;;; Races (ability-score modifiers + which classes a race may take)
@@ -8814,6 +8850,18 @@ height" d)
     (check "pending knowledge consumed" nil
            (assoc "tests/tmp-dung.map" (game-zone-knowledge g2)
                   :test #'equal))))
+(delete-file "tests/tmp-save.lisp")
+
+;; v8: the portrait stamped at creation rides the save — a woman's
+;; face comes back as hers, not as the class default's.
+(let ((g (new-game (load-map-file "tests/tmp-town.map")
+                   :party (with-rng ()
+                            (list (make-hero "Mab" :t-two-faced
+                                             :woman t))))))
+  (save-game g "tests/tmp-save.lisp")
+  (check "the stamped portrait round-trips" "gfx/woman.iff"
+         (hero-image
+          (first (game-party (load-game "tests/tmp-save.lisp"))))))
 (delete-file "tests/tmp-save.lisp")
 
 ;; Save versions: an older save is attempted, not refused — every

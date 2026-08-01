@@ -123,7 +123,7 @@ songs and spells differ in resource, gating and replacement:
 
 - **Who sings**: `define-hero-class` grows `:singer t`;
   `hero-singer-p` mirrors `hero-caster-p`.  Closure: the bard class
-  gets it (Melody sings at last).
+  gets it (the shipped bard sings at last).
 - **Resource**: `hero-tunes` / `hero-max-tunes` (= level, like Bard's
   Tale songs-per-day).  One tune per song.  Refill: **drinking at a
   tavern** — a new `:tavern` location kind (trivial next to :shop —

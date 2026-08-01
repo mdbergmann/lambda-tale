@@ -110,7 +110,8 @@
    #:afflict-hero #:cure-ailment #:cure-hero #:poison-bite
    #:hero-extra-attacks #:hero-trap-skill
    #:hero-class-title #:hero-class-abbrev #:hero-summary-lines
-   #:hero-image #:hero-image-path #:hero-sheet-lines #:hero-sheet-scroll
+   #:hero-image #:hero-image-path #:hero-portrait
+   #:hero-sheet-lines #:hero-sheet-scroll
    ;; the sheet carousel's spells/songs page (a digit opens the card,
    ;; the card casts or plays)
    #:hero-magic-p #:make-magic-view #:magic-view-hero

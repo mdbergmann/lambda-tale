@@ -11,6 +11,15 @@
   name
   class               ; keyword registered via DEFINE-HERO-CLASS
   race                ; keyword registered via DEFINE-RACE, or NIL
+  portrait            ; portrait file stamped at creation (the class's
+                      ; :image or :image-woman), or :NONE when that
+                      ; class carries neither — the face is the
+                      ; person's, not the job's, so CHANGE-CLASS never
+                      ; touches it and HERO-IMAGE never substitutes the
+                      ; new class's portrait for a stamped :NONE; a
+                      ; bare NIL instead means a hero from before
+                      ; portraits stuck (a save older than v8), where
+                      ; HERO-IMAGE falls back to the class :image
   (level 1)
   (xp 0)
   (max-hp 1)
@@ -34,7 +43,8 @@
 (defvar *hero-classes* (make-hash-table :test 'eq))
 
 (defun define-hero-class (name &key (hp-dice "1d8") (damage "1d4") (ac 10)
-                                    caster singer sings-with image description
+                                    caster singer sings-with
+                                    image image-woman description
                                     extra-attack-levels crit-chance
                                     ac-per-level trap-skill
                                     (startable t) change-at change-group
@@ -48,6 +58,9 @@ all — the Bard's Tale rule that the music needs an instrument in hand;
 NIL (the default) lets the class sing bare-handed.  IMAGE names the
 class's portrait file (map-relative, like effect icons) — the Amiga
 front-end shows it beside the character sheet; NIL = no portrait.
+IMAGE-WOMAN names a second portrait for a class open to both men and
+women: MAKE-HERO stamps one of the two onto the hero at creation
+(:WOMAN picks this one), and the face stays the hero's for life.
 DESCRIPTION is the class's lore line (display data).
 EXTRA-ATTACK-LEVELS N grants one extra strike per N levels beyond the
 first (the warrior's art, see HERO-EXTRA-ATTACKS); CRIT-CHANCE N is
@@ -113,7 +126,7 @@ asks for several at once.  Campaign data calls this."
   (setf (gethash name *hero-classes*)
         (list :hp-dice hp-dice :damage damage :ac ac
               :caster caster :singer singer :sings-with sings-with
-              :image image
+              :image image :image-woman image-woman
               :description description
               :extra-attack-levels extra-attack-levels
               :crit-chance crit-chance
@@ -182,14 +195,18 @@ it opened long after its owner has moved on, and never opens another."
            (assoc class (hero-class-levels hero)))
        t))
 
-(defun make-hero (name class &key race (gold 0))
+(defun make-hero (name class &key race woman (gold 0))
   "Create a level-1 hero of CLASS: hp from the class hit dice plus the
 CON bonus (minimum 1 — a sickly hero still lives), abilities rolled 3d6
 in the order str, dex, iq, con, lck, then adjusted by RACE's ability
 modifiers when a race is given (see DEFINE-RACE).  A RACE that does not
 permit CLASS is an error, and so is a CLASS registered :STARTABLE NIL —
-those are reached by CHANGE-CLASS alone.  GOLD is the starting purse
-(campaign data decides; dice strings welcome)."
+those are reached by CHANGE-CLASS alone.  WOMAN T picks the class's
+woman's portrait (:IMAGE-WOMAN) over the default :IMAGE — an error on
+a class that carries no second portrait; either way the chosen file,
+or the lack of one, is stamped onto the hero for life (see the
+PORTRAIT slot).  GOLD is the starting purse (campaign data decides;
+dice strings welcome)."
   ;; A class that is closed to new characters is caught with the race
   ;; check below: both are design errors, both before any dice roll, so
   ;; a scripted roll order never half-runs.
@@ -207,6 +224,12 @@ those are reached by CHANGE-CLASS alone.  GOLD is the starting purse
            (race-title race)
            (string-capitalize (substitute #\Space #\- (string class)))
            (mapcar #'race-title (race-classes (find-race race)))))
+  ;; Asking for a woman's portrait where the class carries none is a
+  ;; design error too, caught with the others before any dice roll.
+  (when (and woman (not (hero-class-property class :image-woman)))
+    (error "The ~A carries no woman's portrait — :image-woman in ~
+            define-hero-class adds one"
+           (string-capitalize (substitute #\Space #\- (string class)))))
   ;; Keep the roll order (hp, str, dex, iq, con, lck, gold) — the test
   ;; suite scripts heroes through *RNG* and depends on it.  Racial
   ;; modifiers adjust the rolled scores in place (they draw no dice), so
@@ -228,6 +251,9 @@ those are reached by CHANGE-CLASS alone.  GOLD is the starting purse
     (incf hp (stat-gift con))
     (let ((sp (%hero-max-sp class 1 iq)))
       (%make-hero :name name :class class :race race
+                  :portrait (or (hero-class-property
+                                 class (if woman :image-woman :image))
+                                :none)
                   :max-hp hp :hp hp
                   :max-sp sp :sp sp
                   :str str :dex dex :iq iq :con con :lck lck
@@ -522,8 +548,16 @@ same source."
            (remove-if-not (lambda (a) (hero-ailment-p hero a)) *ailments*))))
 
 (defun hero-image (hero)
-  "HERO's portrait file name (the class's :IMAGE), or NIL."
-  (hero-class-property (hero-class hero) :image))
+  "HERO's portrait file name — the one stamped at creation (the
+class's :IMAGE or :IMAGE-WOMAN, see MAKE-HERO).  A hero stamped :NONE
+(made in a class with neither) always answers NIL, class change or
+not; a hero stamped with nothing at all predates portraits (a save
+older than v8) and falls back to the current class's :IMAGE instead."
+  (let ((portrait (hero-portrait hero)))
+    (case portrait
+      ((:none) nil)
+      ((nil) (hero-class-property (hero-class hero) :image))
+      (t portrait))))
 
 (defun hero-image-path (game hero)
   "HERO's portrait file resolved like an effect icon — relative to the

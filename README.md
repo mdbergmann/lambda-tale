@@ -67,6 +67,8 @@ rejects a race/class pairing the race does not allow:
 (make-hero "Grod" :warrior :race :dwarf)   ; a stout dwarf warrior
 (make-hero "Grod" :conjurer :race :dwarf)  ; error: dwarves cast no spells
 (make-hero "Nym"  :rogue)                  ; raceless is still fine
+(make-hero "Mab"  :rogue :woman t)         ; wears the class's woman's
+                                           ; portrait (:image-woman)
 ```
 
 The race rules are exercised end to end in `tests/run-tests.lisp`
@@ -821,7 +823,11 @@ plus an optional street-facing **facade** — `:facade
 faces the location's door from outside (see the "Facades from the
 street" test section); and a hero class a **portrait** —
 `(define-hero-class ... :image "gfx/hero-warrior.iff")` — shown
-beside the character sheet, and a monster type one too —
+beside the character sheet.  A class open to both men and women may
+carry a second one (`:image-woman`); `make-hero` stamps the chosen
+portrait onto the hero at creation (`:woman t` picks the woman's),
+and the face stays theirs through every later class change.  A
+monster type carries a portrait too —
 `(define-monster ... :image "gfx/mon-rat.iff")` — shown for as long as
 the fight lasts.  All of them resolve relative to the map
 file, like effect icons and zone tile packs, so a world directory
