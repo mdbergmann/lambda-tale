@@ -23,9 +23,10 @@
 (defun %preview-load-pack (dir planes)
   "Load the tile pack in DIR the way %LOAD-WALL-ASSETS does: a hash of
 piece key -> vector of IMAGEs (index 0 the base file, then the -vN
-variants, probed until one is missing), plus (:CEILING)/(:FLOOR) when
-the pack ships backdrops.  Signals on a missing or mis-sized piece,
-with the same message shape the Amiga loader uses."
+variants, probed until one is missing), plus (:CEILING)/(:FLOOR) and
+(:SKY)/(:GROUND) when the pack ships those backdrops.  Signals on a
+missing or mis-sized piece, with the same message shape the Amiga
+loader uses."
   (let ((walls (make-hash-table :test #'equal)))
     (flet ((add (key file w h)
              (let ((img (read-ilbm file)))
@@ -49,9 +50,9 @@ PRINT-TILE-MANIFEST)"
                   while (probe-file vfile)
                   do (add piece vfile w h)))))
       (destructuring-bind (ceiling floor) (backdrop-rects planes)
-        (loop for key in '((:ceiling) (:floor))
-              for name in '("ceiling.iff" "floor.iff")
-              for rect in (list ceiling floor)
+        (loop for key in '((:ceiling) (:floor) (:sky) (:ground))
+              for name in '("ceiling.iff" "floor.iff" "sky.iff" "ground.iff")
+              for rect in (list ceiling floor ceiling floor)
               do (let ((file (concatenate 'string dir name)))
                    (when (probe-file file)
                      (add key file (third rect) (fourth rect)))))))
@@ -92,16 +93,24 @@ shows."
            (out (make-image *fp-view-width* *fp-view-height* screen-depth
                             :palette palette))
            (slices (compute-view map x y facing depth)))
-      ;; the backdrop first: ceiling above the horizon, floor below
+      ;; the backdrop first: ceiling above the horizon, floor below —
+      ;; and, as %AMIGA-COMPOSE-FP does, the pair the zone's own kind
+      ;; calls for.  A blank slot leaves the flat fill the Amiga would
+      ;; lay down: pen 5/6 in the open, black in a dark zone.
       (destructuring-bind (ceiling floor) (backdrop-rects planes)
-        (loop for key in '((:ceiling) (:floor))
-              for (bx by bw bh) in (list ceiling floor)
-              do (let ((entry (gethash key walls)))
-                   (declare (ignorable bw bh))
-                   (when entry
-                     (%preview-blit out (aref entry 0) bx by 0
-                                    (image-width (aref entry 0))
-                                    (image-height (aref entry 0)))))))
+        (let ((outdoor (not (dungeon-map-dark map))))
+          (loop for key in (if outdoor '((:sky) (:ground)) '((:ceiling) (:floor)))
+                for pen in (list +art-pen-sky+ +art-pen-ground+)
+                for (bx by bw bh) in (list ceiling floor)
+                do (let ((entry (gethash key walls)))
+                     (if entry
+                         (%preview-blit out (aref entry 0) bx by 0
+                                        (image-width (aref entry 0))
+                                        (image-height (aref entry 0)))
+                         (dotimes (y bh)
+                           (dotimes (x bw)
+                             (setf (pixel-ref out (+ bx x) (+ by y))
+                                   (if outdoor pen 0)))))))))
       ;; then the pieces, back to front, each cookie-cut over it
       (dolist (rec (view-blit-list slices planes) out)
         (destructuring-bind (piece style bx by bw bh sx) rec
@@ -128,10 +137,16 @@ shows."
 | |@| |
 +-+-+-+")
 
-(defun preview-pack (dir file &key (profile *display-profile*))
+(defun preview-pack (dir file &key (profile *display-profile*) dark)
   "Composite *PREVIEW-STREET* from the tile pack in DIR and write it to
 FILE as an ILBM — the one-shot look at a pack without booting an Amiga.
-Returns FILE."
+Returns FILE.
+
+DARK previews the pack as a lightless zone, which is what picks the
+backdrop pair: a dungeon pack keeps its ceiling.iff/floor.iff under
+DARK, an outdoor pack its sky.iff/ground.iff without.  Preview a pack
+the way its zone declares itself or the backdrop will be the wrong one."
   (with-display-profile (profile)
     (let ((map (parse-map *preview-street* :name "preview")))
+      (setf (dungeon-map-dark map) dark)
       (write-ilbm (preview-view map 1 3 :north :dir dir) file))))

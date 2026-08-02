@@ -599,7 +599,7 @@ split at the horizon (the vertical center of the innermost plane)."
 
 (defparameter *gfx-dir* (display-profile-gfx-dir *display-profile*)
   "The active tile pack: the directory holding the wall-piece ILBMs
-(and the optional floor.iff / ceiling.iff / palette.iff), relative to
+\(and the optional backdrops and palette.iff), relative to
 the game directory.  Defaults to the active display profile's pack;
 PLAY-AMIGA's :GFX-DIR argument and WITH-DISPLAY-PROFILE rebind it.")
 
@@ -707,11 +707,23 @@ IFF ILBM files):~%"
         (format stream "  ~24A ~3Dx~D~%" (wall-piece-file piece) w h)
         (incf n)))
     (destructuring-bind (ceiling floor) (backdrop-rects planes)
-      (format stream "  ~24A ~3Dx~D  (optional backdrop above the horizon)~%"
+      (format stream "  ~24A ~3Dx~D  (optional backdrop, dark zones)~%"
               "ceiling.iff" (third ceiling) (fourth ceiling))
-      (format stream "  ~24A ~3Dx~D  (optional backdrop below the horizon)~%"
+      (format stream "  ~24A ~3Dx~D  (optional backdrop, dark zones)~%"
               "floor.iff" (third floor) (fourth floor))
-      (incf n 2))
+      (format stream "  ~24A ~3Dx~D  (optional backdrop, zones with a sky)~%"
+              "sky.iff" (third ceiling) (fourth ceiling))
+      (format stream "  ~24A ~3Dx~D  (optional backdrop, zones with a sky)~%"
+              "ground.iff" (third floor) (fourth floor))
+      (format stream "A zone takes ONE pair: ceiling/floor when it is ~
+:DARK, sky/ground~%when it is not; the other pair is ignored, and a ~
+missing file leaves a~%flat fill (pens 5 and 6 in the open, black ~
+underground).  The two~%cannot be one pair: a dungeon floor is drawn ~
+in pen 5, which in the~%open is the sky.  Only pens 5 and 6 follow the ~
+day bands, so anything~%in sky.iff or ground.iff that should darken ~
+with the hour must BE one~%of those two pens — art on any other pen ~
+keeps its noon brightness at~%midnight.~%")
+      (incf n 4))
     (let* ((depth (display-profile-screen-depth *display-profile*))
            (figures (figure-pens depth)))
       (format stream "Palette: these pens belong to THIS PACK — sky, ~

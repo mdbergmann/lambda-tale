@@ -386,8 +386,9 @@ the window directly, as it always did."
 
 (defun %amiga-compose-fp (rp game ox oy w h walls)
   "The view composition %AMIGA-DRAW-FP wraps: the blitted view starts
-from the ceiling/floor backdrop (black where the pack has none); the
-walls carve the perspective on top of it."
+from the ceiling/floor backdrop (black underground, the day-band
+colour outdoors, where the pack has none); the walls carve the
+perspective on top of it."
   (let ((slices (compute-view (game-map game) (game-x game) (game-y game)
                               (game-facing game) (render-view-depth game)))
         (planes (view-planes w h)))
@@ -395,17 +396,32 @@ walls carve the perspective on top of it."
         (progn
           ;; ceiling above the horizon, floor below, then the walls
           ;; cookie-cut on top so the corners they don't cover let the
-          ;; backdrop show through.  Outdoors (a non-:DARK zone) the sky
-          ;; and ground are a flat fill in pens +ART-PEN-SKY+/-GROUND+,
-          ;; whose colour %APPLY-DAYTIME-PALETTE has set for the hour —
-          ;; that is the whole day/night effect.  Indoor/dark zones keep
-          ;; their pack's opaque ceiling.iff/floor.iff (black where none):
-          ;; there is no sky underground and no hour to track.
+          ;; backdrop show through.
+          ;;
+          ;; Which backdrop a zone takes depends on whether it has a
+          ;; sky.  A dark zone blits the pack's ceiling.iff/floor.iff —
+          ;; a roof and a floor, banded for distance.  An outdoor zone
+          ;; cannot use those: their pens are the dungeon's (the stock
+          ;; floor is drawn in pen 5, which out here is the SKY
+          ;; register), so it takes sky.iff/ground.iff instead — the
+          ;; slots a pack fills when it wants a painted street rather
+          ;; than one flat colour.  Either way a missing file falls back
+          ;; to the flat fill that was once the only outdoor option.
+          ;;
+          ;; The day/night effect survives a blit because it was never
+          ;; the fill doing the work — %APPLY-DAYTIME-PALETTE turns the
+          ;; two colour REGISTERS, so painted pixels drawn in pens 5/6
+          ;; follow the hour exactly as the fill did.  What sky.iff and
+          ;; ground.iff must respect is that ONLY those two pens move:
+          ;; art inked anywhere else keeps its noon brightness at
+          ;; midnight (see PRINT-TILE-MANIFEST for the contract).
           (let ((outdoor (not (dungeon-map-dark (game-map game)))))
-            (loop for key in '((:ceiling) (:floor))
+            (loop for key in (if outdoor
+                                 '((:sky) (:ground))
+                                 '((:ceiling) (:floor)))
                   for pen in (list +art-pen-sky+ +art-pen-ground+)
                   for (x y pw ph) in (backdrop-rects planes)
-                  do (let ((entry (and (not outdoor) (gethash key walls))))
+                  do (let ((entry (gethash key walls)))
                        (if entry
                            (amiga.gfx:blt-bitmap-rastport (car (svref entry 0))
                                                           0 0 rp
@@ -521,8 +537,9 @@ would fold every plane twice."
 draw distance can show (*DRAW-DEPTH*) into an offscreen bitmap — the
 pieces at deeper levels must still be PRESENT (the pack contract is
 the full set whatever this machine draws), they are just not decoded —
-plus the optional floor.iff / ceiling.iff backdrops
-under the keys (:FLOOR) / (:CEILING).  Returns (VALUES WALLS PALETTE):
+plus the optional backdrops floor.iff / ceiling.iff (dark zones) and
+ground.iff / sky.iff (zones with a sky), under the keys (:FLOOR) /
+\(:CEILING) / (:GROUND) / (:SKY).  Returns (VALUES WALLS PALETTE):
 a hash of piece key -> vector of (BITMAP . MASK) entries — index 0 the
 base piece file, further entries the optional -v1.iff/-v2.iff/...
 style variants, probed in order until one is missing (see
@@ -641,10 +658,15 @@ PRINT-TILE-MANIFEST)"
                           while (probe-file vfile)
                           do (load-piece piece vfile w h t))))))
             ;; The backdrops are optional and always opaque: a pack
-            ;; without them keeps the black ceiling/floor.
+            ;; without them keeps the flat fill.  Two pairs, one per
+            ;; kind of zone — ceiling/floor underground, sky/ground in
+            ;; the open (see %AMIGA-COMPOSE-FP for why they cannot be
+            ;; the same files).  Both pairs share the two slot rects.
             (destructuring-bind (ceiling floor) (backdrop-rects planes)
               (dolist (entry (list (list '(:ceiling) "ceiling.iff" ceiling)
-                                   (list '(:floor) "floor.iff" floor)))
+                                   (list '(:floor) "floor.iff" floor)
+                                   (list '(:sky) "sky.iff" ceiling)
+                                   (list '(:ground) "ground.iff" floor)))
                 (destructuring-bind (key name (x y w h)) entry
                   (declare (ignore x y))
                   (let ((file (concatenate 'string *gfx-dir* name)))
@@ -2192,8 +2214,8 @@ geometry, viewport and default tile pack.  A zone may declare its own
 pack with (ZONE :GFX DIR) — see ZONE-GFX-DIR — swapped in when travel
 enters it; GFX-DIR here overrides both (precedence: GFX-DIR, then the
 zone's :GFX, then the profile's pack).  A pack is a directory of
-wall-piece ILBMs plus the optional floor.iff / ceiling.iff /
-palette.iff (see PRINT-TILE-MANIFEST for the contract, which depends
+wall-piece ILBMs plus the optional backdrops and palette.iff (see
+PRINT-TILE-MANIFEST for the contract, which depends
 on the profile); the pack's colors show on the custom screen — a
 Workbench window keeps the Workbench palette.
 DRAW-DEPTH is the speed knob for slower machines: how many of the

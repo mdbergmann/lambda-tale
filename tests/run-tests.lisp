@@ -837,13 +837,20 @@ height" d)
 
 (let ((manifest (with-output-to-string (s) (print-tile-manifest s))))
   (check "manifest lists every pack file"
-         (+ 2 (length (wall-piece-names)))
+         (+ 4 (length (wall-piece-names)))
          (print-tile-manifest (make-broadcast-stream)))
   (check-true "manifest names the wall pieces"
               (search "side-door-2-l.iff" manifest))
-  (check-true "manifest names the backdrops"
+  ;; both backdrop pairs: a zone takes one or the other, and a pack
+  ;; author who only ever hears about ceiling/floor cannot paint a street
+  (check-true "manifest names the dark zone's backdrops"
               (and (search "ceiling.iff" manifest)
                    (search "floor.iff" manifest)))
+  (check-true "manifest names the open zone's backdrops"
+              (and (search "sky.iff" manifest)
+                   (search "ground.iff" manifest)))
+  (check-true "manifest says only pens 5 and 6 follow the day bands"
+              (search "day bands" manifest))
   (check-true "manifest lists the pens this pack owns"
               (search "5 6 7 8 9 10 11 12 13 14 15 16 20 21 22 23" manifest))
   (check-true "manifest states what the engine keeps"
@@ -10605,7 +10612,46 @@ never its own"
         (check-true "the preview drew walls over the backdrop"
                     (> (length (remove-duplicates
                                 (coerce (image-pixels view) 'list)))
-                       2))))
+                       2)))
+      ;; Which backdrop pair a zone takes.  ground.iff is the open
+      ;; zone's floor and floor.iff the dark one's, and neither may
+      ;; stand in for the other: a dungeon floor is drawn in pen 5,
+      ;; which outdoors is the sky, so a zone reaching for the wrong
+      ;; pair paints the street with the sky colour.  Compared as whole
+      ;; images rather than by probing a pixel, so the checks do not
+      ;; depend on where the walls happen to leave the floor showing.
+      (let* ((m (parse-map *art* :name "preview"))
+             (ground (concatenate 'string dir "ground.iff"))
+             (bare-open (image-pixels (preview-view m 0 0 :east :dir dir))))
+        (setf (dungeon-map-dark m) t)
+        (let ((bare-dark (image-pixels (preview-view m 0 0 :east :dir dir))))
+          ;; a floor that could not be mistaken for either flat fill
+          (destructuring-bind (ceiling floor) (backdrop-rects
+                                               (view-planes *fp-view-width*
+                                                            *fp-view-height*))
+            (declare (ignore ceiling))
+            (let ((img (make-image (third floor) (fourth floor) 5)))
+              (dotimes (y (fourth floor))
+                (dotimes (x (third floor))
+                  (setf (pixel-ref img x y) 15)))
+              (write-ilbm img ground)))
+          ;; CHECK compares with EQUAL, which on two arrays is identity —
+          ;; pixel buffers have to be held up to EQUALP by hand.
+          (check-true "a dark zone ignores ground.iff and keeps floor.iff"
+                      (equalp bare-dark
+                              (image-pixels
+                               (preview-view m 0 0 :east :dir dir))))
+          (setf (dungeon-map-dark m) nil)
+          (check-true "an open zone paints its street from ground.iff"
+                      (not (equalp bare-open
+                                   (image-pixels
+                                    (preview-view m 0 0 :east :dir dir)))))
+          (delete-file ground)
+          (check-true "removing ground.iff returns the open zone to the ~
+flat fill"
+                      (equalp bare-open
+                              (image-pixels
+                               (preview-view m 0 0 :east :dir dir)))))))
     ;; tidy up
     (dolist (piece (wall-piece-names))
       (delete-file (concatenate 'string dir (wall-piece-file piece))))
