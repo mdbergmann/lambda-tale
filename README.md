@@ -806,8 +806,14 @@ wounds one at a time with what is left.  A purse that buys nothing
 leaves *Not enough Gold* as the menu's last line.  An **energy fount** — `(location TITLE :energy :price
 N)` — refills a living caster's spell points at `N` gold apiece
 (default 3), the Roscoe's of the piece; singers refill at the tavern
-instead.  The "Temples" and "The energy fount" test sections of
-`tests/run-tests.lisp` are the executable specification.
+instead.  It asks the same two questions as the temple: *Who wants to
+refresh spell points?* — a bare prompt, since the roster pane below it
+already shows every hero's spell points and purse (a digit or a click
+on a roster row picks, and a hero the waters have no work for is told
+so) — then *Who will pay?* over the party's purses, with the same
+*Not enough Gold* notice for one that falls short.  The "Temples" and
+"The energy fount" test sections of `tests/run-tests.lisp` are the
+executable specification.
 
 Any location may keep **hours** — `(location ... :closed :night)`, a
 day-band or a list of them — and its door will not open while the

@@ -183,7 +183,8 @@
    #:temple-wounds #:temple-cost #:temple-heal
    #:make-temple-view #:temple-view-patient #:temple-view-note
    #:temple-lines #:temple-act
-   #:energy-price #:energy-cost #:energy-restore
+   #:energy-price #:energy-cost #:energy-work-p #:energy-restore
+   #:make-energy-view #:energy-view-hero #:energy-view-note
    #:energy-lines #:energy-act
    ;; combat
    #:define-monster #:find-monster-type #:monster-type-name

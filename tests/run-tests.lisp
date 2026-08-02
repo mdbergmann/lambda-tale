@@ -5376,66 +5376,104 @@ height" d)
   (temple-act g v #\Escape))
 
 ;; The energy fount: spell points at so many gold apiece, living
-;; casters only — singers have the tavern, the fallen the temple.
+;; casters only — singers have the tavern, the fallen the temple.  Two
+;; pages, the temple's shape: who wants refreshing, then who pays.
 (let* ((m (parse-map *art* :name "test"))
        (grunt (%combat-hero))              ; "Alva", no spell points
        (wiz (%combat-hero "Wanda"))
        (g (new-game m :party (list grunt wiz)))
-       (msgs (watch-messages g)))
+       (msgs (watch-messages g))
+       (v (progn (enter-location g '("The Test Well" :energy :price 4))
+                 (make-location-view g))))
   (setf (hero-max-sp wiz) 6                ; a caster by the numbers
         (hero-sp wiz) 1
         (hero-gold wiz) 20
         (hero-gold grunt) 50)
-  (enter-location g '("The Test Well" :energy :price 4))
   (check "the rate is the location's" 4
          (energy-price (game-location g)))
   (check "the cost is the rate over the missing points" 20
          (energy-cost (game-location g) wiz))
+  (check-true "the fount's view is an energy-view" (energy-view-p v))
   (check "location-lines serves the fount menu"
-         (menu-texts (energy-lines g))
-         (menu-texts (location-lines g nil)))
+         (menu-texts (energy-lines g v))
+         (menu-texts (location-lines g v)))
   (check-true "the menu shows the rate"
               (find-if (lambda (s) (search "4 gold apiece" s))
-                       (menu-texts (energy-lines g))))
-  (check-true "a caster's row shows sp, purse and cost"
+                       (menu-texts (energy-lines g v))))
+  ;; the pick page is a bare prompt: the roster pane below already
+  ;; lists the party, their spell points and their purses
+  (check-true "the pick page asks who wants refreshing"
               (find-if (lambda (s)
-                         (search "2) Wanda  SP 1/6  (20 gp)  costs 20" s))
-                       (menu-texts (energy-lines g))))
-  (check-true "a spell-less row says so"
-              (find-if (lambda (s) (search "1) Alva  no spells  (50 gp)" s))
-                       (menu-texts (energy-lines g))))
-  (check "a spell-less hero is turned away" nil
-         (energy-restore g grunt))
+                         (search "Who wants to refresh spell points?  (1-2)"
+                                 s))
+                       (menu-texts (energy-lines g v))))
+  (check "and lists no party rows of its own" nil
+         (find-if (lambda (s) (search "Wanda" s))
+                  (menu-texts (energy-lines g v))))
+  (check "the waters have work for a drained caster" t
+         (energy-work-p (game-location g) wiz))
+  (check "and none for a hero with no spell points at all" nil
+         (energy-work-p (game-location g) grunt))
+  ;; a spell-less pick is turned away aloud, and the page stands
+  (check "picking the grunt keeps the pick page" nil (energy-act g v #\1))
+  (check "no caster was chosen" nil (energy-view-hero v))
   (check-true "no-spell-points message"
               (find-if (lambda (s)
                          (search "has no spell points to fill" s))
                        (funcall msgs)))
   (check "spurned, the grunt keeps his gold" 50 (hero-gold grunt))
-  (check-true "a digit refills through the menu"
-              (progn (energy-act g #\2) (= (hero-sp wiz) 6)))
-  (check "the fee is paid" 0 (hero-gold wiz))
+  ;; the caster picked, the menu asks for a purse
+  (check "picking the caster opens the payer page" nil (energy-act g v #\2))
+  (check "the caster is on the view" wiz (energy-view-hero v))
+  (check-true "the payer page quotes the cost"
+              (find-if (lambda (s) (search "Who will pay Wanda's 20 gold?" s))
+                       (menu-texts (energy-lines g v))))
+  (check-true "and rows every purse in the party"
+              (let ((rows (menu-texts (energy-lines g v))))
+                (and (find-if (lambda (s) (search "1) Alva  50 gp" s)) rows)
+                     (find-if (lambda (s) (search "2) Wanda  20 gp" s))
+                              rows))))
+  ;; Esc backs off the payer page rather than leaving the fount
+  (check "Esc backs off the payer page" nil (energy-act g v #\Escape))
+  (check "the caster is let go" nil (energy-view-hero v))
+  (check-true "and the fount is still standing" (game-location g))
+  ;; a purse too short leaves the notice and spends nothing
+  (energy-act g v #\2)                     ; Wanda again
+  (setf (hero-gold grunt) 3)
+  (check "a short purse is refused" nil (energy-act g v #\1))
+  (check "Not enough Gold" "Not enough Gold" (energy-view-note v))
+  (check-true "the notice reaches the menu"
+              (find-if (lambda (s) (search "Not enough Gold" s))
+                       (menu-texts (energy-lines g v))))
+  (check "the refusal keeps the points dry" 1 (hero-sp wiz))
+  (check "and the purse full" 3 (hero-gold grunt))
+  (check-true "the caster stays picked" (eq wiz (energy-view-hero v)))
+  ;; another purse pays for her, and the notice clears
+  (setf (hero-gold grunt) 50)
+  (check "a fat purse fills her" nil (energy-act g v #\1))
+  (check "the notice is gone" nil (energy-view-note v))
+  (check "the caster brims" 6 (hero-sp wiz))
+  (check "the payer paid, not the caster" 30 (hero-gold grunt))
+  (check "the caster's own purse is untouched" 20 (hero-gold wiz))
+  (check "and the menu is back on the pick page" nil (energy-view-hero v))
   (check-true "the surge is announced"
               (find-if (lambda (s) (search "Power floods back into Wanda" s))
                        (funcall msgs)))
-  (check "a full caster is turned away" nil (energy-restore g wiz))
+  ;; a brimming caster, and the fallen
+  (check "a full caster is turned away" nil (energy-act g v #\2))
   (check-true "brims-already message"
               (find-if (lambda (s) (search "brims with power" s))
                        (funcall msgs)))
-  ;; a short purse, and the fallen
-  (setf (hero-sp wiz) 0
-        (hero-gold wiz) 3)
-  (check "a short purse is refused" nil (energy-restore g wiz))
-  (check-true "cannot-pay message"
-              (find-if (lambda (s) (search "cannot pay the 24 gold" s))
-                       (funcall msgs)))
-  (check "refusals keep the points dry" 0 (hero-sp wiz))
-  (setf (hero-gold wiz) 100)
+  (setf (hero-sp wiz) 0)
   (damage-hero g wiz 999)
-  (check "the fallen are beyond the waters" nil (energy-restore g wiz))
+  (check "the fallen are beyond the waters" nil
+         (energy-restore g wiz grunt))
   (check-true "and sent to the temple instead"
               (find-if (lambda (s) (search "the temple, perhaps" s))
                        (funcall msgs)))
-  (check "Esc leaves the fount" :left (energy-act g #\Escape))
+  (check "the fallen cost the payer nothing" 30 (hero-gold grunt))
+  (check "Esc leaves the fount from the pick page" :left
+         (energy-act g v #\Escape))
   (check "the fount is left behind" nil (game-location g)))
 
 ;; the default rate: three gold a point
@@ -5444,6 +5482,11 @@ height" d)
   (enter-location g '("Roscoe's Energy Emporium" :energy))
   (check "three gold apiece by default" 3
          (energy-price (game-location g)))
+  (check "a lone party's prompt names no range" t
+         (and (find-if (lambda (s)
+                         (search "Who wants to refresh spell points?  (1)" s))
+                       (menu-texts (energy-lines g (make-energy-view))))
+              t))
   (check "location-act routes the fount" :left
          (location-act g nil #\Escape)))
 

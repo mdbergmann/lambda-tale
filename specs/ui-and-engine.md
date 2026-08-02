@@ -66,8 +66,14 @@ campaign data, never as code that knows about "the" town.
   stateful shape — front-ends get the right view per kind from
   `make-location-view`).  An **energy fount** (`:energy`) refills a
   caster's spell points at `:price` gold apiece (default 3), living
-  casters only (`energy-lines`/`energy-act`).  Both emit `:coin` on
-  payment, plus `:temple-heal`/`:energy-restored`.
+  casters only (`energy-lines`/`energy-act` over an `energy-view`).
+  It asks the same two questions (2026-08-02): *Who wants to refresh
+  spell points?* — a bare prompt with no rows of its own, the shop's
+  who-is-shopping shape, since the roster pane already shows the spell
+  points and the purses (the Amiga front-end lets the roster rows click
+  as their digits) — then *Who will pay?*, any purse in the party, with
+  the same **Not enough Gold** notice.  Both emit `:coin` on payment,
+  plus `:temple-heal`/`:energy-restored`.
 - **Items are campaign data** (`define-item`): kind (`:weapon` /
   `:armor` / `:shield` / `:misc`), price, damage dice, AC bonus
   (descending AC — the bonus subtracts), optional class restrictions,

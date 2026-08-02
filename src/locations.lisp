@@ -819,28 +819,50 @@ missing points.  Zero for a full (or spell-less) hero."
   (* (energy-price location)
      (- (hero-max-sp hero) (hero-sp hero))))
 
-(defun energy-restore (game hero)
-  "Refill HERO's spell points for ENERGY-COST gold out of HERO's own
-purse.  Returns T and emits :COIN and :ENERGY-RESTORED; says why and
-returns NIL when HERO casts no spells, is down, brims already, or
-cannot pay."
+(defstruct (energy-view (:constructor %make-energy-view))
+  hero                ; the caster the waters will fill, or NIL while
+                      ; the menu asks who wants refreshing
+  note)               ; a notice for the menu's last line ("Not enough
+                      ; Gold"), or NIL; cleared by the next key
+
+(defun make-energy-view ()
+  (%make-energy-view))
+
+(defun energy-work-p (location hero)
+  "Have LOCATION's waters anything to sell HERO — a living caster with
+points to fill?  The menu's pick asks this one question, so a hero the
+waters turn away is a hero they never had work for."
+  (and (hero-caster-p hero)
+       (hero-alive-p hero)
+       (plusp (energy-cost location hero))))
+
+(defun %energy-turn-away (game hero)
+  "Say why the waters will not take HERO: no spell points at all, one
+foot past them, or brimming already."
+  (cond ((not (hero-caster-p hero))
+         (say game "~A has no spell points to fill." (hero-name hero)))
+        ((not (hero-alive-p hero))
+         (say game "~A is beyond these waters -- the temple, perhaps."
+              (hero-name hero)))
+        (t
+         (say game "~A brims with power already." (hero-name hero)))))
+
+(defun energy-restore (game hero payer)
+  "Fill HERO's spell points out of PAYER's purse for ENERGY-COST gold.
+Returns T and emits :COIN and :ENERGY-RESTORED when the waters run;
+otherwise returns (VALUES NIL REASON) — :DRY when there is nothing to
+sell HERO at all (said aloud: no spells, beyond the waters, or
+brimming), :POOR when PAYER's purse falls short (quiet: the fount menu
+shows the notice, see ENERGY-LINES)."
   (let* ((loc (game-location game))
          (cost (energy-cost loc hero)))
-    (cond ((not (hero-caster-p hero))
-           (say game "~A has no spell points to fill." (hero-name hero))
-           nil)
-          ((not (hero-alive-p hero))
-           (say game "~A is beyond these waters -- the temple, perhaps."
-                (hero-name hero))
-           nil)
-          ((zerop cost)
-           (say game "~A brims with power already." (hero-name hero))
-           nil)
-          ((< (hero-gold hero) cost)
-           (say game "~A cannot pay the ~D gold." (hero-name hero) cost)
-           nil)
+    (cond ((not (energy-work-p loc hero))
+           (%energy-turn-away game hero)
+           (values nil :dry))
+          ((< (hero-gold payer) cost)
+           (values nil :poor))
           (t
-           (decf (hero-gold hero) cost)
+           (decf (hero-gold payer) cost)
            (setf (hero-sp hero) (hero-max-sp hero))
            (emit game :coin cost)
            (say game "Power floods back into ~A.  (~D gold)"
@@ -848,55 +870,90 @@ cannot pay."
            (emit game :energy-restored hero)
            t))))
 
-(defun energy-lines (game)
-  "The energy-fount menu as menu lines: the rate, then one numbered
-row per party member — spell points for the casters, the purse, and
-the cost of a refill."
-  (let ((loc (game-location game)))
+(defun energy-lines (game view)
+  "The energy-fount menu as menu lines, two pages riding VIEW (an
+ENERGY-VIEW).  First the rate and a bare prompt naming the digit range
+— the roster pane already lists the party with their spell points and
+their purses, so the pick page keeps no rows of its own (the shop's
+who-is-shopping shape, and the Amiga front-end lets the roster rows
+click as their digits here).  With the caster chosen: Who will pay?
+over one row per party member and their purse.  The view's NOTE (the
+payer page's Not enough Gold) is the last line."
+  (let* ((loc (game-location game))
+         (hero (and view (energy-view-hero view)))
+         (note (and view (energy-view-note view))))
     (append
      (list (format nil "*** ~A ***" (location-title loc)) ""
            (format nil "Spell points, ~D gold apiece."
                    (energy-price loc))
            "")
-     (let ((i 0))
-       (mapcar (lambda (h)
-                 (incf i)
-                 (menu-numbered
-                  i (if (hero-caster-p h)
-                        (format nil "~D) ~A  SP ~D/~D  (~D gp)~
-                                     ~@[  costs ~D~]"
-                                i (hero-name h) (hero-sp h)
-                                (hero-max-sp h) (hero-gold h)
-                                (let ((c (energy-cost loc h)))
-                                  (when (plusp c) c)))
-                        (format nil "~D) ~A  no spells  (~D gp)"
-                                i (hero-name h) (hero-gold h)))))
-               (game-party game))))))
+     (if hero
+         (append
+          (list (format nil "Who will pay ~A's ~D gold?"
+                        (hero-name hero) (energy-cost loc hero))
+                "")
+          (let ((i 0))
+            (mapcar (lambda (h)
+                      (incf i)
+                      (menu-numbered
+                       i (format nil "~D) ~A  ~D gp"
+                                 i (hero-name h) (hero-gold h))))
+                    (game-party game))))
+         (let ((n (length (game-party game))))
+           (list (format nil "Who wants to refresh spell points?  ~
+                              (1~@[-~D~])"
+                         (when (> n 1) n)))))
+     (when note (list "" note)))))
 
-(defun energy-act (game char)
-  "Apply key CHAR to the energy-fount menu: a digit refills that
-hero's spell points, Esc leaves.  Returns :LEFT when the party leaves
-the location, else NIL."
-  (let ((digit (digit-char-p char)))
-    (cond ((and digit (<= 1 digit (length (game-party game))))
-           (energy-restore game (nth (1- digit) (game-party game)))
+(defun energy-act (game view char)
+  "Apply key CHAR to the energy-fount menu (VIEW is its ENERGY-VIEW):
+on the first page a digit picks the caster to refresh — one the waters
+have no work for is turned away aloud and the page stands — and on the
+payer page a digit picks whose purse pays, a purse too short leaving
+the Not enough Gold notice.  Esc backs off the payer page, else
+leaves.  Returns :LEFT when the party leaves the location, else NIL."
+  (let ((digit (digit-char-p char))
+        (hero (and view (energy-view-hero view))))
+    (when view (setf (energy-view-note view) nil))
+    (cond ((and view digit (<= 1 digit (length (game-party game))))
+           (let ((h (nth (1- digit) (game-party game))))
+             (if hero
+                 (multiple-value-bind (filled reason)
+                     (energy-restore game hero h)
+                   (declare (ignore filled))
+                   (if (eq reason :poor)
+                       (setf (energy-view-note view) "Not enough Gold")
+                       ;; filled — or dry after another purse already
+                       ;; paid: back to picking a caster either way
+                       (setf (energy-view-hero view) nil)))
+                 (if (energy-work-p (game-location game) h)
+                     (setf (energy-view-hero view) h)
+                     (%energy-turn-away game h))))
            nil)
-          ((member char '(#\Escape #\l #\L #\q #\Q))
+          ((eql char #\Escape)
+           (cond (hero
+                  (setf (energy-view-hero view) nil)
+                  nil)
+                 (t
+                  (leave-location game)
+                  :left)))
+          ((and (null hero) (member char '(#\l #\L #\q #\Q)))
            (leave-location game)
            :left)
           (t nil))))
 
 (defun make-location-view (game)
   "A fresh view for the current location's menu, of the kind that
-menu needs: the shop model for :SHOP, the temple's for :TEMPLE, NIL
-for kinds whose menus keep no state (and with no location at all).
-The front-ends call this on :ENTER-LOCATION and hand the view to
-LOCATION-LINES and LOCATION-ACT."
+menu needs: the shop model for :SHOP, the temple's for :TEMPLE, the
+fount's for :ENERGY, NIL for kinds whose menus keep no state (and with
+no location at all).  The front-ends call this on :ENTER-LOCATION and
+hand the view to LOCATION-LINES and LOCATION-ACT."
   (let ((loc (game-location game)))
     (when loc
       (case (location-kind loc)
         (:shop (make-shop-view))
         (:temple (make-temple-view))
+        (:energy (make-energy-view))
         (t nil)))))
 
 (defun location-lines (game view)
@@ -910,7 +967,7 @@ clickable EXIT."
       (:shop (shop-lines game view))
       (:tavern (tavern-lines game))
       (:temple (temple-lines game view))
-      (:energy (energy-lines game))
+      (:energy (energy-lines game view))
       (t (list (format nil "*** ~A ***" (location-title loc)) ""
                "There is nothing to do here."
                "" (menu-option #\Escape "EXIT"))))))
@@ -923,7 +980,7 @@ TAVERN-ACT, TEMPLE-ACT and ENERGY-ACT)."
       (:shop (shop-act game view char))
       (:tavern (tavern-act game char))
       (:temple (temple-act game view char))
-      (:energy (energy-act game char))
+      (:energy (energy-act game view char))
       (t (when (member char '(#\Escape #\e #\E #\l #\L #\q #\Q))
            (leave-location game)
            :left)))))

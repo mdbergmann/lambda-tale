@@ -2527,14 +2527,18 @@ map/help/sheet pages close on a click outside a target — see
                           (not (or quitting
                                    savem castv usev singv equipv tradev
                                    (game-location game))))
-                        (%shop-picking-p ()
-                          ;; the shop is asking who shops: digits mean
-                          ;; the roster, so its rows may click
+                        (%roster-picking-p ()
+                          ;; a location is asking who — the shop's who
+                          ;; is shopping, the fount's who wants
+                          ;; refreshing, both bare prompts with no rows
+                          ;; of their own: digits mean the roster, so
+                          ;; its rows may click
                           (let ((loc (game-location game)))
-                            (and loc
-                                 (eq (location-kind loc) :shop)
-                                 locv
-                                 (null (shop-view-hero locv)))))
+                            (and loc locv
+                                 (case (location-kind loc)
+                                   (:shop (null (shop-view-hero locv)))
+                                   (:energy
+                                    (null (energy-view-hero locv)))))))
                         (idle-clock ()
                           ;; one heartbeat of the living-world clock: drip
                           ;; game time forward while the party stands idle
@@ -2732,12 +2736,13 @@ map/help/sheet pages close on a click outside a target — see
                                     (%amiga-draw-log rp log l log-lines)))
                              ;; roster rows click as their digits when
                              ;; digits mean the roster: sheet picks in
-                             ;; free exploration, and the shop's bare
-                             ;; who-is-shopping prompt (its page lists
-                             ;; no rows of its own — see SHOP-LINES)
+                             ;; free exploration, and the bare who-is-it
+                             ;; prompts of the shop and the fount (their
+                             ;; pages list no rows of their own — see
+                             ;; SHOP-LINES and ENERGY-LINES)
                              (%amiga-party rp game l
                                            (and (or (menus-idle-p)
-                                                    (%shop-picking-p))
+                                                    (%roster-picking-p))
                                                 (not (game-combat game))
                                                 (not over)))))
                           ;; the quit confirmation floats over whatever
