@@ -233,10 +233,13 @@ click would make."
          (col-h (- (1+ plaque-b) by))
          (log-x (+ bx *fp-view-width* (display-profile-view-gap p)))
          ;; the effect strip sits at the foot of the log column, its
-         ;; bottom flush with the plaque's; the white log page ends a
-         ;; small gap above it
+         ;; bottom row the column's last (flush with the plaque's
+         ;; bottom); the white log page ends a small gap above it —
+         ;; outline plus three chrome rows, air the icons need under
+         ;; the page's black edge (see *LORES-PROFILE* for how the
+         ;; strip's height was paid for)
          (band-h (min (display-profile-band-height p) (- col-h 8)))
-         (band-y (- (+ by col-h -1) band-h))
+         (band-y (- (+ by col-h) band-h))
          (page-b (- band-y 4))
          (hdr-y (+ plaque-b +roster-gap+))
          (party-y (+ hdr-y row-h)))
@@ -1276,9 +1279,9 @@ instead of seconds at 14MHz."
 (defun %amiga-draw-band (rp game l &optional icons log)
   "The effect strip below the log page, on the grey chrome (a small
 gap separates it from the page above; :BAND-HEIGHT sets the strip's
-height per profile — hires keeps it 20px, clearing the 16px icons with
-a 4px margin, while lores' strip is 16px, flush with the icons, so the
-log page above gets the room).
+height per profile — hires keeps it 24px, clearing the 16px icons with
+an 8px margin, while lores' strip is 20px, clearing the 16px icons
+with a 4px margin, so the log page above gets the room).
 One slot per active effect, laid out left to right in effect order —
 no labels; casting/expiry is announced in the log.  An effect's slot
 shows its icon (ICONS is the session's icon cache, see %EFFECT-ICON),

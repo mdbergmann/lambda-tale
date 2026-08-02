@@ -126,7 +126,10 @@ its column rather than backing up into the column before it."
    ;; The classic single flank per side; :DRAW-FLANKS up to 8 fills a
    ;; distant street with houses on a machine with blit headroom.
    :draw-flanks 1
-   :pad-x 12 :pad-y 10 :view-gap 12 :band-height 20
+   ;; 24 clears the 16px effect icons with an 8px margin and still
+   ;; leaves the message page its fourteen small-face rows — the same
+   ;; seam harvest as the lores strip (see there).
+   :pad-x 12 :pad-y 10 :view-gap 12 :band-height 24
    :roster-cols '(:no 0 :name 2 :ac 22 :hit 27 :hpts 32
                   :spl 38 :spts 43 :cl 48)))
 
@@ -176,13 +179,22 @@ its column rather than backing up into the column before it."
                                         ; viewport can afford it
    :draw-flanks 1                       ; the classic single flank; see
                                         ; the hires profile's note
-   ;; The effect strip is the icons' own 16 pixels and not one more:
-   ;; the four the hires profile spends on clearance buy the message
-   ;; page above it a whole extra row of small-face type, and the page
-   ;; is where the shop and the character sheet run out of room.  Do
-   ;; not go below 16 — %AMIGA-DRAW-BAND skips an icon taller than the
-   ;; strip, so a shorter one shows no effects at all.
-   :pad-x 10 :pad-y 10 :view-gap 12 :band-height 16
+   ;; The effect strip is 20 pixels bought entirely from dead seams,
+   ;; not from the message page — the page keeps its eleven small-face
+   ;; rows (the suite checks), and the page is where the shop and the
+   ;; character sheet run out of room, so it must not pay.  The
+   ;; harvest, against the old 16px strip: 3px of slack the page kept
+   ;; below its last text row (eleven rows use 88 of its 91 interior
+   ;; lines) and 1px from the strip's bottom, which sat one row shy
+   ;; of the plaque bottom it means to be flush with.  The page gap's
+   ;; 2px stayed where they were: icons flush under the page's black
+   ;; edge read as crowding, so the classic 4px of air survives.
+   ;; That lands the page interior at exactly eleven rows with zero
+   ;; slack: one more strip pixel drops a row.  Do not shrink the
+   ;; strip below the tallest shipped icon either — %AMIGA-DRAW-BAND
+   ;; skips an icon taller than the strip, so a short strip shows no
+   ;; effects at all.
+   :pad-x 10 :pad-y 10 :view-gap 12 :band-height 20
    :roster-cols '(:no 0 :name 2 :ac 15 :hit 19 :hpts 23
                   :spl 27 :spts 31 :cl 35)))
 

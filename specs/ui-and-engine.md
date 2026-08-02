@@ -202,22 +202,27 @@ profile, not a patch.)
   bitmap and blitted; since 2026-07-26, matching the ~6px advance of
   the actual Bard's Tale II text), well under topaz 8's 8px so the
   narrow column holds more text.
-- **Effect strip** (below the log page, separated by a small gap, on
-  the grey chrome; the profiles keep it **20px** — just clearing the
-  16px icons, so the log page above gets the room): the party's
-  active effects — shield, light and friends, Bard's Tale style — as
-  **icons only, laid out left to right in effect order**; no text
-  labels (the log announces casting and expiry).  The engine carries
-  them as `game-effects`: **records** with a display name, an
-  optional expiry on the game clock (`add-effect`'s `:duration`;
+- **Effect strip** (at the log column's foot on the grey chrome, its
+  bottom row flush with the plaque's, the white page ending a small
+  gap above it; **20px in lores, 24 in hires** — bought entirely
+  from dead seams in the old layout, so the log page keeps its
+  eleven small-face rows; the lores profile's comment itemizes the
+  harvest): the party's active effects —
+  shield, light and friends, Bard's Tale style — as **icons only,
+  laid out left to right in effect order**; no text labels (the log
+  announces casting and expiry).  The engine carries them as
+  `game-effects`: **records** with a display name, an optional
+  expiry on the game clock (`add-effect`'s `:duration`;
   `advance-time` announces and drops the expired), a payload plist of
   engine facts — `(:ac N)` feeds the party's effective AC, `(:light
   t)` defeats darkness, `(:compass t)` orients the party — and an
   optional icon image: a file name resolved against the current map's
-  directory (`effect-image-path`, the zone tile-pack rule) — 16x16
-  ILBMs with pen 0 as the transparent key (`draw-effect-icon` in
-  tools/gen-walls.lisp draws placeholder art; a file that will not
-  load logs once and the effect shows nothing in the strip).  The
+  directory (`effect-image-path`, the zone tile-pack rule) — ILBMs
+  with pen 0 as the transparent key, any width, up to the strip's
+  height tall (an icon taller than the strip is skipped;
+  `draw-effect-icon` in tools/gen-walls.lisp draws 16x16 placeholder
+  art; a file that will not load logs once and the effect shows
+  nothing in the strip).  The
   host UI stays text.  Re-adding a name refreshes it in place.
   Effects live in save games.  An effect that carries `(:compass t)`
   shows the **live compass rose** in its own slot instead of its

@@ -994,21 +994,38 @@ height" d)
          bottom last-row)
   ;; The message column's own budget, walked the same way
   ;; %AMIGA-LAYOUT walks it: the column runs from BY to the plaque's
-  ;; bottom, the effect strip takes its foot, and the white page ends
-  ;; four pixels above the strip.  What is left is what the log, the
-  ;; shop and the character sheet have to say their piece in, and it
-  ;; is measured in whole small-face rows — a page short of one is a
-  ;; page that drops its last option (see FIT-MENU-LINES).
+  ;; bottom, the effect strip takes its foot (bottom row flush with
+  ;; the plaque's), and the white page ends four pixels of gap above
+  ;; the strip.  What is left is what the log, the shop and the
+  ;; character sheet have to say their piece in, and it is measured
+  ;; in whole small-face rows — a page short of one is a page that
+  ;; drops its last option (see FIT-MENU-LINES).
   (let* ((col-h (- (1+ plaque-b) by))
          (band-h (display-profile-band-height p))
-         (page-b (- (+ by col-h -1) band-h 4))
+         (page-b (- (+ by col-h) band-h 4))
          (rows (floor (- (- page-b by) 2) +microfont-line-height+)))
-    ;; the strip is the effect icons' own height and not one pixel
-    ;; more: %AMIGA-DRAW-BAND skips an icon taller than the strip, so
-    ;; anything under 16 shows no effects at all
-    (check ":lores keeps the effect strip at the icons' height" 16 band-h)
+    ;; the 20px strip is paid for out of dead seams (the profile's
+    ;; comment itemizes them), NOT out of the page — the rows check
+    ;; below is the receipt.  One more strip pixel would take a row.
+    (check ":lores spends the seam harvest on the effect strip" 20 band-h)
     (check ":lores gives the message page eleven small-face rows"
            11 rows)))
+
+;; *HIRES-PROFILE*'s comment claims the same kind of receipt as
+;; lores' eleven rows above: fourteen small-face rows, out of its
+;; taller 130px viewport and its own 24px strip — walked the same way.
+(let* ((line-h 10)
+       (p *hires-profile*)
+       (by (display-profile-pad-y p))
+       (plaque-y (+ by (display-profile-fp-height p) 1))
+       (plaque-b (+ plaque-y line-h 2))
+       (col-h (- (1+ plaque-b) by))
+       (band-h (display-profile-band-height p))
+       (page-b (- (+ by col-h) band-h 4))
+       (rows (floor (- (- page-b by) 2) +microfont-line-height+)))
+  (check ":hires spends its band-height on the effect strip" 24 band-h)
+  (check ":hires gives the message page fourteen small-face rows"
+         14 rows))
 
 ;; The help page's own budget, walked the way %HELP-PAGE-BOX walks it:
 ;; the reference draws in the microfont's small face (topaz held
@@ -10799,6 +10816,9 @@ never its own"
                              (ui-layout-bottom l)))
              (check "the log page ends a gap above the effect strip"
                     (ui-layout-band-y l) (+ (ui-layout-page-b l) 4))
+             (check "the effect strip's bottom row is the column's last"
+                    (+ (ui-layout-by l) (ui-layout-col-h l) -1)
+                    (+ (ui-layout-band-y l) (ui-layout-band-h l) -1))
              (%amiga-draw-fp rp g (ui-layout-bx l) (ui-layout-by l)
                              (ui-layout-fp-w l) (ui-layout-fp-h l))
              ;; the live session's path: the frame composes in the

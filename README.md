@@ -184,8 +184,9 @@ profile** (`play-amiga`'s `:profile` argument):
   pads, view, plaque and the seven solid-set roster rows fill it
   exactly — roster row 7 ends on the last usable line, with the chrome
   ring's clearance below it.  The effect strip at the message column's
-  foot is the icons' own 16 pixels and no more, so the message page
-  above it clears eleven rows of text: enough that the shop's and the
+  foot is 20 pixels bought from dead seams in the layout — page
+  slack, flush strip bottom — so the message page above it still
+  clears eleven rows of text: enough that the shop's and the
   character sheet's last option stays on the page.
 
   The **screen** is a separate question from the layout, and it grows
