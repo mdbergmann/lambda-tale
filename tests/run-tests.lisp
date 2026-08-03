@@ -10704,6 +10704,61 @@ flat fill"
     (delete-file var)))
 
 ;;; ---------------------------------------------------------------------
+;;; The shipped packs, composited: the three pens the Amiga suite reads
+;;; back off the screen, read here off PREVIEW-VIEW's image instead.
+;;;
+;;; The Amiga counterpart of this (search "read-back probes") is the
+;;; check that matters — it proves the OS blits land where the geometry
+;;; says.  But it is hand-run, and hand-run is how it went stale: its
+;;; lores probe rows were written for the 112-row viewport and outlived
+;;; its move to 100 (Engine 0.21.0's 200-line layout) unnoticed for a
+;;; dozen releases, because nothing on the host was watching.  Now
+;;; something is: PREVIEW-VIEW composites the same slices and backdrops
+;;; in pure Lisp, so the pens are checkable here every `make test`, and
+;;; both suites read the same rows out of %FP-PROBE-ROWS.
+
+(defun %fp-probe-rows ()
+  "The three viewport rows the view's read-back probes read, for the
+active display profile: the front piece's top row (its white edge
+highlight), the sky row just above it, and a ground row below the
+piece's foot.  Derived from the plane geometry rather than written
+down, so a viewport resize carries the probes with it."
+  (let ((planes (view-planes *fp-view-width* *fp-view-height*)))
+    (destructuring-bind (px0 py0 px1 py1) (aref planes 1)
+      (declare (ignore px0 px1))
+      (list py0 (1- py0) (floor (+ py1 *fp-view-height*) 2)))))
+
+;; The columns, one triple per profile: an X the front piece covers and
+;; the nearer side/flank pieces do not, so the probe reads the piece
+;; (or, a row higher, the open sky) and not a neighbour blitted over it.
+(defparameter *fp-probe-columns*
+  '((:lores 80 43 70)
+    (:hires 100 100 90))
+  "(PROFILE FRONT-X SKY-X GROUND-X) — the columns the view's read-back
+probes read; the rows come from %FP-PROBE-ROWS.")
+
+(dolist (spec *fp-probe-columns*)
+  (destructuring-bind (pname front-x sky-x ground-x) spec
+    (with-display-profile (pname)
+      (let* ((m (parse-map *art* :name "test"))
+             (g (new-game m))
+             (img (preview-view m (game-x g) (game-y g) (game-facing g)
+                                :depth (render-view-depth g))))
+        (destructuring-bind (front-y sky-y ground-y) (%fp-probe-rows)
+          (check (format nil "~A: the front piece's top row is its white ~
+edge highlight" pname)
+                 1 (pixel-ref img front-x front-y))
+          ;; the fixture map declares no zone, so it is an OUTDOOR one:
+          ;; with no sky.iff/ground.iff in the shipped packs both
+          ;; backdrops are the flat day-band fills
+          (check (format nil "~A: the row above it is the flat sky-pen ~
+fill" pname)
+                 +art-pen-sky+ (pixel-ref img sky-x sky-y))
+          (check (format nil "~A: below the piece's foot is the flat ~
+ground-pen fill" pname)
+                 +art-pen-ground+ (pixel-ref img ground-x ground-y)))))))
+
+;;; ---------------------------------------------------------------------
 ;;; The help page: pure text both front-ends draw verbatim.
 
 (let ((lines (help-lines)))
@@ -11299,6 +11354,17 @@ flat fill"
   ;; it here is the point — the layout invariants below are only worth
   ;; anything if they hold on the window the game really opens, which
   ;; on a PAL machine sits in the top 200 rows of a 256-row screen.
+  ;;
+  ;; The FONT is part of that path and not an afterthought: every row
+  ;; %AMIGA-LAYOUT spends below the viewport is a multiple of the
+  ;; rastport's glyph height, so the layout the game gets is topaz 8's
+  ;; — which is why the session opens that font itself (%WITH-GAME-FONT)
+  ;; and selects it (%GAME-RASTPORT) before laying anything out.  Measured
+  ;; with the bare window rastport instead, this test would be measuring
+  ;; whatever font the Workbench happens to default to: on a machine
+  ;; whose default is 13 pixels tall the roster alone eats 45 rows more
+  ;; and the viewport clamps to 55, which is a true reading of that font
+  ;; and tells us nothing about the game.
   (let* ((mode (amiga.gfx:best-mode-id
                 :width (display-profile-screen-width *display-profile*)
                 :height (screen-ask-height *display-profile*)
@@ -11306,165 +11372,171 @@ flat fill"
          (display-h (and mode (amiga.intuition:display-mode-height mode)))
          (screen-h (screen-height-for *display-profile* display-h)))
    (check "amiga-ui draws on an own custom screen" t
-         (amiga.intuition:with-screen
-             (scr :width (display-profile-screen-width *display-profile*)
-                  :height screen-h
-                  :depth (display-profile-screen-depth *display-profile*)
-                  :title "Lambda's Tale Test"
-                  :mode-id mode)
-           (%game-screen-palette scr)
-           (check "custom screen reports its width"
-                  (display-profile-screen-width *display-profile*)
-                  (amiga.intuition:screen-width scr))
-           (check "the screen is at least the layout tall"
-                  t (>= (amiga.intuition:screen-height scr)
-                        (display-profile-screen-height *display-profile*)))
-           (amiga.intuition:with-window
-               (win :title nil          ; the game's backdrop is untitled
-                    :left 0 :top 0
-                    :width (amiga.intuition:screen-width scr)
-                    :height (min (display-profile-screen-height
-                                  *display-profile*)
-                                 (amiga.intuition:screen-height scr))
-                    :screen scr
-                    :flags (logior amiga.intuition:+wflg-borderless+
-                                   amiga.intuition:+wflg-backdrop+
-                                   amiga.intuition:+wflg-activate+)
-                    :idcmp amiga.intuition:+idcmp-closewindow+)
-             (let* ((rp (amiga.intuition:window-rastport win))
-                    (l (%amiga-layout win rp)))
-               ;; Layout invariants on the game's own presentation: the
-               ;; taller plaque, the roster set solid right under it
-               ;; (no status line, no leading between rows).
-               (check "plaque is two pixels taller than a text line"
-                      (+ (ui-layout-plaque-y l) (ui-layout-lh l) 2)
-                      (ui-layout-plaque-b l))
-               (check "roster header sits right under the plaque"
-                      (+ (ui-layout-plaque-b l) +roster-gap+)
-                      (ui-layout-hdr-y l))
-               (check "roster rows carry no leading"
-                      (- (ui-layout-lh l) 2) (ui-layout-row-h l))
-               (check "the header row is one roster row tall"
-                      (+ (ui-layout-hdr-y l) (ui-layout-row-h l))
-                      (ui-layout-party-y l))
-               ;; The viewport gets its full asset height and the column
-               ;; ends exactly on the last usable row — the live
-               ;; counterpart of the ":lores fills its 200 lines" test
-               ;; above, measured here with the real font.  Miss either
-               ;; and a US NTSC machine loses its wall graphics:
-               ;; %AMIGA-COMPOSE-FP only blits pieces at their full
-               ;; size and falls back to the wireframe below it (see
-               ;; *LORES-PROFILE*).
-               (check "the viewport keeps its full asset height"
-                      *fp-view-height* (ui-layout-fp-h l))
-               (let ((last-row (+ (ui-layout-party-y l)
-                                  (* (ui-layout-row-h l) +party-limit+)
-                                  -1)))
-                 (check-true "seven roster rows fit above the bottom edge"
-                             (<= last-row (ui-layout-bottom l)))
-                 (check "roster row 7 ends on the last usable row"
-                        (ui-layout-bottom l) last-row)
-                 ;; the ornate ring is drawn 6 pixels in from the window
-                 ;; edge (%CHROME-BG), so the roster must clear it — the
-                 ;; bottom pad is what stands between the two
-                 (check-true "the roster clears the chrome ring"
-                             (< last-row
-                                (- (amiga.intuition:window-height win)
-                                   1 6))))
-               (%amiga-draw-fp rp g (ui-layout-bx l) (ui-layout-by l)
-                               (ui-layout-fp-w l) (ui-layout-fp-h l))
-               (%amiga-draw-band rp g l)
-               (%amiga-draw-log rp log l)
-               ;; G is a bare walkabout, so this draws a roster of
-               ;; nothing but slot numbers — the empty-slot path
-               (%amiga-party rp g l)
-               ;; A part-filled roster: the claimed rows carry heroes
-               ;; and click as their digits, the slots below them show
-               ;; their number and nothing else, and clicking one of
-               ;; those does nothing (there is no sheet to open).  The
-               ;; numbered empty rows are the point — they are what
-               ;; shows on screen that the seventh row really fits.
-               (let ((party-g (new-game (parse-map *art* :name "roster")
-                                        :party (list (%combat-hero "A")
-                                                     (%combat-hero "B"))))
-                     (row-h (ui-layout-row-h l))
-                     (py (ui-layout-party-y l))
-                     (px (+ (ui-layout-bx l) 3)))
-                 (let ((*hotspots* '()))
-                   (%amiga-party rp party-g l t)
-                   (check "roster: a filled row clicks as its digit" #\1
-                          (%hotspot-at px (+ py 2)))
-                   (check "roster: the second filled row too" #\2
-                          (%hotspot-at px (+ py row-h 2)))
-                   (check "roster: an empty slot is not a click target" nil
-                          (%hotspot-at px (+ py (* 2 row-h) 2)))
-                   (check "roster: nor is the last slot" nil
-                          (%hotspot-at px (+ py (* (1- +party-limit+) row-h)
-                                             2))))
-                 (let ((*hotspots* '()))
-                   (%amiga-party rp party-g l)
-                   (check "roster: not clickable unless asked" nil
-                          (%hotspot-at px (+ py 2)))))
-               ;; the map page (all small-face type) and the
-               ;; save/load page draw on the custom screen too
-               (%amiga-draw-map-page rp g l nil)
-               (%amiga-draw-page rp (save-menu-lines
-                                     g (make-save-menu :save))
-                                 l nil)
-               ;; the dialog box every picker draws in: four fifths of
-               ;; the content width, the leftover split evenly so it
-               ;; sits centered, and wide enough that a full slot name
-               ;; never truncates in the lores view column
-               (multiple-value-bind (px py pw ph) (%menu-page-box l)
-                 (declare (ignore py ph))
-                 (let ((span (- (ui-layout-right l) (ui-layout-bx l))))
-                   (check "the dialog page is four fifths of the content"
-                          (floor (* 4 span) 5) pw)
-                   (check-true "the dialog page is narrower than the content"
-                               (< pw span))
-                   (check-true "the dialog page is wider than the view column"
-                               (> pw (ui-layout-fp-w l)))
-                   (check-true "the dialog page is horizontally centered"
-                               (<= (abs (- (- px (ui-layout-bx l))
-                                           (- (ui-layout-right l) (+ px pw))))
-                                   1))
-                   (check-true "a full slot name fits the dialog page"
-                               (>= (floor (- pw 16 6) +microfont-small-advance+)
-                                   (+ 3 +slot-name-limit+)))))
-               ;; the view-column picture contract, on the game's own
-               ;; screen: a real ILBM draws and centers; a missing
-               ;; file defers to the caller (falls back to the
-               ;; first-person view) after logging once
-               (let ((images (make-hash-table :test #'equal))
-                     (path "tests/tmp-pic.iff"))
-                 (write-ilbm (draw-location-scene :shop 40 30) path)
-                 (check-true "a location picture draws in the view column"
-                             (%amiga-draw-picture rp images path l log))
-                 (check "a missing picture defers to the caller" nil
-                        (%amiga-draw-picture rp images "tests/no-such.iff"
-                                             l log))
-                 (check-true "the missing picture said so in the log"
-                             (find-if (lambda (s) (search "No image" s))
-                                      (log-recent log 5)))
-                 (%free-images images)
-                 (delete-file path))
-               ;; The game hides the OS screen bar: ShowTitle NIL plus
-               ;; the full-height backdrop window (%CALL-WITH-GAME-WINDOW
-               ;; does the same).  Probe the screen's own rastport
-               ;; (offset 84 in struct Screen): were the bar layer
-               ;; still in front, the screen bitmap's top rows would
-               ;; hold the bar's rendering, not our pixels.
-               (amiga.intuition:show-title scr nil)
-               (amiga.gfx:set-a-pen rp 3)
-               (amiga.gfx:rect-fill rp 0 0 50 3)
-               (amiga.gfx:set-a-pen rp 1)
-               (check "the screen bar stays hidden behind the backdrop"
-                      3
-                      (amiga.gfx:read-pixel
-                       (ffi:make-foreign-pointer
-                        (+ (ffi:foreign-pointer-address scr) 84))
-                       25 1))
-               t)))))
+    (%with-game-font
+     (lambda (font)
+       (amiga.intuition:with-screen
+           (scr :width (display-profile-screen-width *display-profile*)
+                :height screen-h
+                :depth (display-profile-screen-depth *display-profile*)
+                :title "Lambda's Tale Test"
+                :mode-id mode)
+         (%game-screen-palette scr)
+         (check "custom screen reports its width"
+                (display-profile-screen-width *display-profile*)
+                (amiga.intuition:screen-width scr))
+         (check "the screen is at least the layout tall"
+                t (>= (amiga.intuition:screen-height scr)
+                      (display-profile-screen-height *display-profile*)))
+         (amiga.intuition:with-window
+             (win :title nil          ; the game's backdrop is untitled
+                  :left 0 :top 0
+                  :width (amiga.intuition:screen-width scr)
+                  :height (min (display-profile-screen-height
+                                *display-profile*)
+                               (amiga.intuition:screen-height scr))
+                  :screen scr
+                  :flags (logior amiga.intuition:+wflg-borderless+
+                                 amiga.intuition:+wflg-backdrop+
+                                 amiga.intuition:+wflg-activate+)
+                  :idcmp amiga.intuition:+idcmp-closewindow+)
+           (let* ((rp (%game-rastport win font))
+                  (l (%amiga-layout win rp)))
+             ;; the font the layout is designed around, selected the way
+             ;; the session selects it — see the note above
+             (check "the game font gives the designed line height"
+                    10 (ui-layout-lh l))
+             ;; Layout invariants on the game's own presentation: the
+             ;; taller plaque, the roster set solid right under it
+             ;; (no status line, no leading between rows).
+             (check "plaque is two pixels taller than a text line"
+                    (+ (ui-layout-plaque-y l) (ui-layout-lh l) 2)
+                    (ui-layout-plaque-b l))
+             (check "roster header sits right under the plaque"
+                    (+ (ui-layout-plaque-b l) +roster-gap+)
+                    (ui-layout-hdr-y l))
+             (check "roster rows carry no leading"
+                    (- (ui-layout-lh l) 2) (ui-layout-row-h l))
+             (check "the header row is one roster row tall"
+                    (+ (ui-layout-hdr-y l) (ui-layout-row-h l))
+                    (ui-layout-party-y l))
+             ;; The viewport gets its full asset height and the column
+             ;; ends exactly on the last usable row — the live
+             ;; counterpart of the ":lores fills its 200 lines" test
+             ;; above, measured here with the real font.  Miss either
+             ;; and a US NTSC machine loses its wall graphics:
+             ;; %AMIGA-COMPOSE-FP only blits pieces at their full
+             ;; size and falls back to the wireframe below it (see
+             ;; *LORES-PROFILE*).
+             (check "the viewport keeps its full asset height"
+                    *fp-view-height* (ui-layout-fp-h l))
+             (let ((last-row (+ (ui-layout-party-y l)
+                                (* (ui-layout-row-h l) +party-limit+)
+                                -1)))
+               (check-true "seven roster rows fit above the bottom edge"
+                           (<= last-row (ui-layout-bottom l)))
+               (check "roster row 7 ends on the last usable row"
+                      (ui-layout-bottom l) last-row)
+               ;; the ornate ring is drawn 6 pixels in from the window
+               ;; edge (%CHROME-BG), so the roster must clear it — the
+               ;; bottom pad is what stands between the two
+               (check-true "the roster clears the chrome ring"
+                           (< last-row
+                              (- (amiga.intuition:window-height win)
+                                 1 6))))
+             (%amiga-draw-fp rp g (ui-layout-bx l) (ui-layout-by l)
+                             (ui-layout-fp-w l) (ui-layout-fp-h l))
+             (%amiga-draw-band rp g l)
+             (%amiga-draw-log rp log l)
+             ;; G is a bare walkabout, so this draws a roster of
+             ;; nothing but slot numbers — the empty-slot path
+             (%amiga-party rp g l)
+             ;; A part-filled roster: the claimed rows carry heroes
+             ;; and click as their digits, the slots below them show
+             ;; their number and nothing else, and clicking one of
+             ;; those does nothing (there is no sheet to open).  The
+             ;; numbered empty rows are the point — they are what
+             ;; shows on screen that the seventh row really fits.
+             (let ((party-g (new-game (parse-map *art* :name "roster")
+                                      :party (list (%combat-hero "A")
+                                                   (%combat-hero "B"))))
+                   (row-h (ui-layout-row-h l))
+                   (py (ui-layout-party-y l))
+                   (px (+ (ui-layout-bx l) 3)))
+               (let ((*hotspots* '()))
+                 (%amiga-party rp party-g l t)
+                 (check "roster: a filled row clicks as its digit" #\1
+                        (%hotspot-at px (+ py 2)))
+                 (check "roster: the second filled row too" #\2
+                        (%hotspot-at px (+ py row-h 2)))
+                 (check "roster: an empty slot is not a click target" nil
+                        (%hotspot-at px (+ py (* 2 row-h) 2)))
+                 (check "roster: nor is the last slot" nil
+                        (%hotspot-at px (+ py (* (1- +party-limit+) row-h)
+                                           2))))
+               (let ((*hotspots* '()))
+                 (%amiga-party rp party-g l)
+                 (check "roster: not clickable unless asked" nil
+                        (%hotspot-at px (+ py 2)))))
+             ;; the map page (all small-face type) and the
+             ;; save/load page draw on the custom screen too
+             (%amiga-draw-map-page rp g l nil)
+             (%amiga-draw-page rp (save-menu-lines
+                                   g (make-save-menu :save))
+                               l nil)
+             ;; the dialog box every picker draws in: four fifths of
+             ;; the content width, the leftover split evenly so it
+             ;; sits centered, and wide enough that a full slot name
+             ;; never truncates in the lores view column
+             (multiple-value-bind (px py pw ph) (%menu-page-box l)
+               (declare (ignore py ph))
+               (let ((span (- (ui-layout-right l) (ui-layout-bx l))))
+                 (check "the dialog page is four fifths of the content"
+                        (floor (* 4 span) 5) pw)
+                 (check-true "the dialog page is narrower than the content"
+                             (< pw span))
+                 (check-true "the dialog page is wider than the view column"
+                             (> pw (ui-layout-fp-w l)))
+                 (check-true "the dialog page is horizontally centered"
+                             (<= (abs (- (- px (ui-layout-bx l))
+                                         (- (ui-layout-right l) (+ px pw))))
+                                 1))
+                 (check-true "a full slot name fits the dialog page"
+                             (>= (floor (- pw 16 6) +microfont-small-advance+)
+                                 (+ 3 +slot-name-limit+)))))
+             ;; the view-column picture contract, on the game's own
+             ;; screen: a real ILBM draws and centers; a missing
+             ;; file defers to the caller (falls back to the
+             ;; first-person view) after logging once
+             (let ((images (make-hash-table :test #'equal))
+                   (path "tests/tmp-pic.iff"))
+               (write-ilbm (draw-location-scene :shop 40 30) path)
+               (check-true "a location picture draws in the view column"
+                           (%amiga-draw-picture rp images path l log))
+               (check "a missing picture defers to the caller" nil
+                      (%amiga-draw-picture rp images "tests/no-such.iff"
+                                           l log))
+               (check-true "the missing picture said so in the log"
+                           (find-if (lambda (s) (search "No image" s))
+                                    (log-recent log 5)))
+               (%free-images images)
+               (delete-file path))
+             ;; The game hides the OS screen bar: ShowTitle NIL plus
+             ;; the full-height backdrop window (%CALL-WITH-GAME-WINDOW
+             ;; does the same).  Probe the screen's own rastport
+             ;; (offset 84 in struct Screen): were the bar layer
+             ;; still in front, the screen bitmap's top rows would
+             ;; hold the bar's rendering, not our pixels.
+             (amiga.intuition:show-title scr nil)
+             (amiga.gfx:set-a-pen rp 3)
+             (amiga.gfx:rect-fill rp 0 0 50 3)
+             (amiga.gfx:set-a-pen rp 1)
+             (check "the screen bar stays hidden behind the backdrop"
+                    3
+                    (amiga.gfx:read-pixel
+                     (ffi:make-foreign-pointer
+                      (+ (ffi:foreign-pointer-address scr) 84))
+                     25 1))
+             t)))))))
 
 ;; The same probe through the production path: %CALL-WITH-GAME-WINDOW
 ;; (RTG-aware mode-id promotion + backdrop window + ShowTitle).  The
@@ -11584,13 +11656,25 @@ flat fill"
 ;; ceiling and floor draw as flat fills in the sky and ground pens
 ;; (+ART-PEN-SKY+/+ART-PEN-GROUND+, re-tinted by the hour) — the packs'
 ;; banded backdrop tiles blit only in indoor (:DARK) zones.
+;;
+;; The rows come from %FP-PROBE-ROWS and the columns from
+;; *FP-PROBE-COLUMNS*, the same pair the host counterpart reads (search
+;; "The shipped packs, composited").  Written-down rows are what went
+;; wrong here before: they were measured on the 112-row lores viewport
+;; and stayed behind when Engine 0.21.0's 200-line layout cut it to
+;; 100, so these four checks read the wall body where they meant to
+;; read its highlight and the sky — for a dozen releases, because a
+;; hand-run suite is only as current as the last hand that ran it.
 #+amigaos
-(dolist (spec '((:lores (80 22) (43 21) (70 96))
-                (:hires (100 26) (100 25) (90 110))))
- (destructuring-bind (pname front-xy ceiling-xy floor-xy) spec
+(dolist (spec *fp-probe-columns*)
+ (destructuring-bind (pname front-x sky-x ground-x) spec
   (with-display-profile (pname)
    (let* ((m (parse-map *art* :name "test"))
-          (g (new-game m)))
+          (g (new-game m))
+          (rows (%fp-probe-rows))
+          (front-y (first rows))
+          (sky-y (second rows))
+          (ground-y (third rows)))
     (%with-game-font
      (lambda (font)
       (amiga.intuition:with-screen
@@ -11666,29 +11750,26 @@ full asset-size viewport" pname)
               (%amiga-draw-fp rp g (ui-layout-bx l) (ui-layout-by l)
                               (ui-layout-fp-w l) (ui-layout-fp-h l)
                               walls)
-              (destructuring-bind (fx fy) front-xy
-                (check (format nil "~A: blitted front wall edge pixel"
-                               pname)
-                       1
-                       (amiga.gfx:read-pixel rp (+ (ui-layout-bx l) fx)
-                                             (+ (ui-layout-by l) fy))))
+              (check (format nil "~A: blitted front wall edge pixel"
+                             pname)
+                     1
+                     (amiga.gfx:read-pixel rp (+ (ui-layout-bx l) front-x)
+                                           (+ (ui-layout-by l) front-y)))
               ;; the fixture map has no :DARK, so it is an outdoor
               ;; zone: since day/night the ceiling and floor are flat
               ;; fills in the sky/ground pens (%APPLY-DAYTIME-PALETTE
               ;; tints them per hour) — the pack's backdrop bitmaps
               ;; only cover indoor/dark zones
-              (destructuring-bind (cx cy) ceiling-xy
-                (check (format nil "~A: outdoor ceiling is the flat ~
+              (check (format nil "~A: outdoor ceiling is the flat ~
 sky-pen fill" pname)
-                       +art-pen-sky+
-                       (amiga.gfx:read-pixel rp (+ (ui-layout-bx l) cx)
-                                             (+ (ui-layout-by l) cy))))
-              (destructuring-bind (sx sy) floor-xy
-                (check (format nil "~A: outdoor floor is the flat ~
+                     +art-pen-sky+
+                     (amiga.gfx:read-pixel rp (+ (ui-layout-bx l) sky-x)
+                                           (+ (ui-layout-by l) sky-y)))
+              (check (format nil "~A: outdoor floor is the flat ~
 ground-pen fill" pname)
-                       +art-pen-ground+
-                       (amiga.gfx:read-pixel rp (+ (ui-layout-bx l) sx)
-                                             (+ (ui-layout-by l) sy))))
+                     +art-pen-ground+
+                     (amiga.gfx:read-pixel rp (+ (ui-layout-bx l) ground-x)
+                                           (+ (ui-layout-by l) ground-y)))
               ;; The back-buffered path (the live session's) must land
               ;; the SAME pens on screen as the direct compose above:
               ;; spoil the viewport, redraw through the back buffer,
@@ -11710,27 +11791,24 @@ on the custom screen" pname)
                                         (ui-layout-fp-w l)
                                         (ui-layout-fp-h l)
                                         walls back)
-                        (destructuring-bind (fx fy) front-xy
-                          (check (format nil "~A: back-buffered front ~
+                        (check (format nil "~A: back-buffered front ~
 wall edge pixel" pname)
-                                 1
-                                 (amiga.gfx:read-pixel
-                                  rp (+ (ui-layout-bx l) fx)
-                                  (+ (ui-layout-by l) fy))))
-                        (destructuring-bind (cx cy) ceiling-xy
-                          (check (format nil "~A: back-buffered ceiling ~
+                               1
+                               (amiga.gfx:read-pixel
+                                rp (+ (ui-layout-bx l) front-x)
+                                (+ (ui-layout-by l) front-y)))
+                        (check (format nil "~A: back-buffered ceiling ~
 is the sky-pen fill" pname)
-                                 +art-pen-sky+
-                                 (amiga.gfx:read-pixel
-                                  rp (+ (ui-layout-bx l) cx)
-                                  (+ (ui-layout-by l) cy))))
-                        (destructuring-bind (sx sy) floor-xy
-                          (check (format nil "~A: back-buffered floor ~
+                               +art-pen-sky+
+                               (amiga.gfx:read-pixel
+                                rp (+ (ui-layout-bx l) sky-x)
+                                (+ (ui-layout-by l) sky-y)))
+                        (check (format nil "~A: back-buffered floor ~
 is the ground-pen fill" pname)
-                                 +art-pen-ground+
-                                 (amiga.gfx:read-pixel
-                                  rp (+ (ui-layout-bx l) sx)
-                                  (+ (ui-layout-by l) sy)))))
+                               +art-pen-ground+
+                               (amiga.gfx:read-pixel
+                                rp (+ (ui-layout-bx l) ground-x)
+                                (+ (ui-layout-by l) ground-y))))
                     (amiga.gfx:free-bitmap back))))
               ;; The planar fast path (*WALL-LOAD-PLANAR*, the default)
               ;; pokes ILBM plane rows into a scratch BitMap and lets
