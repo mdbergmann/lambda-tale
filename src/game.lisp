@@ -27,6 +27,48 @@
   ;; revisited: alist path -> knowledge row lists (see save.lisp).
   zone-knowledge)
 
+;;; ---------------------------------------------------------------------
+;;; Seams for tooling
+;;;
+;;; Three hooks the engine itself never uses.  They exist so a game can
+;;; hang a debug build off a running session — a console, a cheat menu,
+;;; a recorder — without the engine learning anything about it, and
+;;; without a front-end fork.  All three are inert until something sets
+;;; them, and a release build simply never does.
+
+(defvar *game* nil
+  "The game the running front-end is playing, or NIL outside a session.
+ASSIGNED — never bound — by PLAY and PLAY-AMIGA as they wire a game up,
+whether it is a fresh one or one just restored from a save, and left
+standing when the session ends so tooling can still inspect what the
+party walked away from.
+
+The assignment is deliberate: bindings are per-thread in this runtime,
+so a LET here would be invisible to any other thread and would vanish
+the moment the front-end returned.  The engine never reads this.")
+
+(defvar *key-hook* nil
+  "NIL, or a function of (GAME CHAR) that both front-ends offer every
+key before their own dispatch — ahead even of the quit confirmation, so
+a console stays reachable when a page has wedged.  A true return means
+the hook consumed the key: the front-end redraws and no page sees it.")
+
+(defvar *tick-hook* nil
+  "NIL, or a function of (GAME) the Amiga front-end calls once per
+heartbeat, beside the *AUTOPLAY* step.  It is where work that arrives
+from outside the event loop gets run ON the loop's own task — the
+front-end draws from that task and the game state has no locks, so a
+debug channel posts its forms here rather than evaluating them wherever
+they were typed.
+
+A true return means the hook changed something the frame does not show
+yet, and the front-end redraws.  An idle hook MUST return NIL: the
+heartbeat runs about ten times a second, and a full redraw at that rate
+is more than a 68020 has to give.
+
+The host front-end blocks on the keyboard and has no heartbeat, so it
+never calls this.")
+
 (defun observe (game)
   "Record what the party can see from its position into the automap:
 the standing cell fully, and for each cell in the view cone its front and

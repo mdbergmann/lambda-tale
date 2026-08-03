@@ -2327,6 +2327,9 @@ combat round owns the keys."
           map-file display (display-profile-name *display-profile*)
           (%draw-depth) (%draw-flanks))
     (labels ((wire (g)
+               ;; the session's game, reachable from outside this loop
+               ;; (see *GAME* — assigned, never bound)
+               (setf *game* g)
                (setf log (attach-message-log g))
                (attach-sounds g)
                (setf locv (make-location-view g))
@@ -3041,7 +3044,14 @@ combat round owns the keys."
                         (act (c)
                           "Handle key C; :quit means leave the event loop."
                           (dlog "key ~S mode ~S" c mode)
-                          (cond (quitting
+                          (cond ((and *key-hook* (funcall *key-hook* game c))
+                                 ;; a tool claimed the key; ahead of the
+                                 ;; quit confirmation on purpose — a
+                                 ;; console is worth most when a page has
+                                 ;; wedged
+                                 (redraw)
+                                 nil)
+                                (quitting
                                  ;; the confirmation eats every key until
                                  ;; it is answered
                                  (case (quit-confirm-act c)
@@ -3498,6 +3508,15 @@ means the player asked to leave (ACT confirms it)."
                                           +anim-ticks-per-step+))
                              (setf anim-ticks 0)
                              (%anim-blit-step rp))
+                           ;; work posted from outside the event loop
+                           ;; runs HERE, on the loop's own task (see
+                           ;; *TICK-HOOK*).  A true return means it
+                           ;; changed something the frame does not show
+                           ;; yet — an idle hook must return NIL, or
+                           ;; every tick would cost a full redraw
+                           (when (and *tick-hook*
+                                      (funcall *tick-hook* game))
+                             (redraw))
                            (when *autoplay*
                              ;; a scripted entry is a key, or a
                              ;; (:click X Y) resolved through the same

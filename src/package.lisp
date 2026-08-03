@@ -41,6 +41,9 @@
    #:view-slice-rx #:view-slice-ry #:view-slice-right-front
    #:view-slice-left-fronts #:view-slice-right-fronts
    #:compass-points
+   ;; seams for tooling: the running game, and the two hooks a debug
+   ;; build hangs itself off (see src/game.lisp)
+   #:*game* #:*key-hook* #:*tick-hook*
    ;; game state / movement
    #:new-game #:game-map #:game-knowledge #:game-x #:game-y #:game-facing
    #:game-party #:game-flags #:game-combat

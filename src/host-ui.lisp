@@ -128,6 +128,9 @@ engine has no default world; the game names its starting map."
          (quitting nil)      ; the quit confirmation is up (see ACT)
          (over nil))
     (labels ((wire (g)
+               ;; the session's game, reachable from outside this loop
+               ;; (see *GAME* — assigned, never bound)
+               (setf *game* g)
                (setf log (attach-message-log g))
                ;; cues go through *SOUND-BACKEND* — silence on the host,
                ;; but the wiring matches the Amiga front-end
@@ -594,7 +597,13 @@ engine has no default world; the game names its starting map."
                      (t (explore-act c))))
              (act (c)
                (dlog "key ~S mode ~S" c mode)
-               (cond (quitting
+               (cond ((and *key-hook* (funcall *key-hook* game c))
+                      ;; a tool claimed the key (the loop redraws on its
+                      ;; next turn); ahead of the quit confirmation on
+                      ;; purpose — a console is worth most when a page
+                      ;; has wedged
+                      nil)
+                     (quitting
                       ;; the confirmation eats every key until it is
                       ;; answered (see QUIT-CONFIRM-ACT)
                       (case (quit-confirm-act c)

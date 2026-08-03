@@ -1400,6 +1400,43 @@ where every second between launch and the first rendered frame goes —
 see "Load times and memory" in the Closure README for measured
 results.
 
+## Seams for tooling
+
+Three specials let a game hang its own tools off a running session — a
+debug console, a cheat menu, a recorder — without forking a front-end.
+The engine never reads any of them, and a release build simply never
+sets them.
+
+`tale:*game*` is the game the running front-end is playing, or `nil`
+outside a session.  Both `play` and `play-amiga` assign it as they wire
+a game up, for a fresh game and for one restored from a save alike, and
+leave it standing when the session ends, so a tool can still inspect
+what the party walked away from.  It is *assigned*, never bound:
+dynamic bindings are per-thread in this runtime, so a `let` would be
+invisible to any other thread and would vanish the moment the
+front-end returned.
+
+`tale:*key-hook*` is a function of `(game char)` that both front-ends
+offer every key before their own dispatch — ahead even of the quit
+confirmation, so a console stays reachable when a page has wedged.  A
+true return means the hook consumed the key: the front-end redraws and
+no page sees it.
+
+`tale:*tick-hook*` is a function of `(game)` that the Amiga front-end
+calls once per heartbeat, beside the `*autoplay*` step.  It is where
+work arriving from outside the event loop gets run *on the loop's own
+task*: the front-end draws from that task and the game state carries no
+locks, so a channel fed by another thread posts its forms here rather
+than evaluating them wherever they were typed.  A true return means the
+hook changed something the frame does not show yet, and the front-end
+redraws; an idle hook must return `nil`, because the heartbeat runs
+about ten times a second and a redraw at that rate is more than a 68020
+has to give.  The host front-end blocks on the keyboard and has no
+heartbeat, so it never calls this.
+
+The Closure game's `src/debug.lisp` is the worked example: an in-game
+Lisp console, loaded only when `:debug` is on `*features*`.
+
 ## Roadmap
 
 - **M0 (done)**: map model, movement, automap knowledge, ASCII map view,

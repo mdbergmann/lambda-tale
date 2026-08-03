@@ -11866,6 +11866,74 @@ pieces need a mask" pname)
                 (%free-wall-assets chunky-walls)))
             (%free-wall-assets walls)))))))))))
 
+;;; ---------------------------------------------------------------------
+;;; Seams for tooling: *GAME*, *KEY-HOOK*, *TICK-HOOK* (src/game.lisp)
+;;;
+;;; The engine sets none of the hooks itself, so the first thing to
+;;; check is that they are inert — a game that never installs anything
+;;; must run exactly as it did before they existed.
+
+(check-true "seam: the hooks are inert until something installs them"
+            (and (null *key-hook*) (null *tick-hook*)))
+
+;; PLAY without a TTY reads one key per line from *STANDARD-INPUT*.
+;; That is what lets the suite drive the real host front-end headlessly:
+;; feed it keys, swallow the screen it paints.
+#-amigaos
+(defun %play-scripted (map-file keys)
+  "Run PLAY on MAP-FILE, feeding it the characters of KEYS one per
+line.  Returns the text the session painted."
+  (with-output-to-string (out)
+    (let ((*standard-output* out)
+          (*standard-input*
+            (make-string-input-stream
+             (with-output-to-string (s)
+               (loop for c across keys do (write-char c s) (terpri s))))))
+      (play map-file))))
+
+#-amigaos
+(progn
+  (setf *game* nil)
+  (%play-scripted "tests/world/keep.map" "qy")
+  (check-true "seam: PLAY leaves the session's game in *GAME*"
+              (game-p *game*))
+  (check "seam: *GAME* is the game PLAY played"
+         (map-title (load-map-file "tests/world/keep.map"))
+         (map-title (game-map *game*))))
+
+;; Every key, in the order struck, before any page sees it — including
+;; the q that raises the quit confirmation and the y that answers it.
+#-amigaos
+(let ((seen '()))
+  (let ((*key-hook* (lambda (game c)
+                      (declare (ignore game))
+                      (push c seen)
+                      (eql c #\.))))
+    (%play-scripted "tests/world/keep.map" ".wqy"))
+  (check "seam: *KEY-HOOK* sees every key, in order"
+         (list #\. #\w #\q #\y) (reverse seen)))
+
+;; A true return consumes the key: the walkabout never acts on it.  The
+;; companion run — same script, no hook — is what makes that meaningful,
+;; by showing the turn lands when nothing intercepts it.  'd' rather
+;; than a step: a turn cannot be refused by a wall, so the fixture's
+;; geometry has no say in the result.
+#-amigaos
+(let ((start (dir-index (dungeon-map-start-facing
+                         (load-map-file "tests/world/keep.map"))))
+      (turned nil)
+      (held nil))
+  (setf *game* nil)
+  (%play-scripted "tests/world/keep.map" "dqy")
+  (setf turned (game-facing *game*))
+  (setf *game* nil)
+  (let ((*key-hook* (lambda (game c) (declare (ignore game)) (eql c #\d))))
+    (%play-scripted "tests/world/keep.map" "dqy"))
+  (setf held (game-facing *game*))
+  (check "seam: an unhooked turn reaches the walkabout"
+         (turn-dir start 1) turned)
+  (check "seam: a consumed key never reaches the page" start held))
+
 ;; *autoplay* drives a full unattended PLAY-AMIGA session: scripted keys
 ;; are fed one per INTUITICK (~10/s), ending in #\q #\y — q raises the
 ;; quit confirmation and y answers it — so the event loop exits on its
@@ -11896,6 +11964,50 @@ pieces need a mask" pname)
                                #\m #\f #\f #\? #\h #\m #\s
                                #\q #\n          ; asked, backed out
                                #\s #\q #\y)))   ; asked again, answered
+         (play-amiga "tests/world/crypt.map" :display :window)
+         :done))
+
+;;; The tooling seams through the real Amiga event loop: the key hook
+;;; ahead of the front-end's own dispatch, and the heartbeat hook that a
+;;; debug channel drains its posted work on.  *AUTOPLAY* keys reach ACT
+;;; by the same path a struck key does, so the hook sees them too.
+#+amigaos
+(check-true "seam: PLAY-AMIGA leaves the session's game in *GAME*"
+            (let ((*autoplay* (list #\w #\q #\y)))
+              (setf *game* nil)
+              (play-amiga "tests/world/crypt.map" :display :window)
+              (game-p *game*)))
+
+#+amigaos
+(check "seam: *KEY-HOOK* consumes a key before the Amiga pages"
+       '(#\. #\w #\q #\y)
+       (let* ((seen '())
+              (*key-hook* (lambda (game c)
+                            (declare (ignore game))
+                            (push c seen)
+                            (eql c #\.)))
+              (*autoplay* (list #\. #\w #\q #\y)))
+         (play-amiga "tests/world/crypt.map" :display :window)
+         (reverse seen)))
+
+;; The heartbeat runs many times over a session; the hook returning NIL
+;; must leave the frame alone (a redraw at tick rate is more than a
+;; 68020 has to give — see *TICK-HOOK*).
+#+amigaos
+(check-true "seam: *TICK-HOOK* runs on the Amiga heartbeat"
+            (let* ((ticks 0)
+                   (*tick-hook* (lambda (g) (declare (ignore g))
+                                  (incf ticks)
+                                  nil))
+                   (*autoplay* (list #\w #\d #\q #\y)))
+              (play-amiga "tests/world/crypt.map" :display :window)
+              (plusp ticks)))
+
+;; ... and a hook that reports a change drives the redraw branch.
+#+amigaos
+(check "seam: a *TICK-HOOK* reporting a change redraws the frame" :done
+       (let ((*tick-hook* (lambda (g) (declare (ignore g)) t))
+             (*autoplay* (list #\w #\d #\q #\y)))
          (play-amiga "tests/world/crypt.map" :display :window)
          :done))
 
