@@ -1,4 +1,5 @@
-;;; Lambda's Tale — keyboard input normalization.
+;;; Lambda's Tale — input normalization: the keyboard, and the Amiga
+;;; menu strip that reaches the same pages without one.
 ;;;
 ;;; The Amiga UI receives keys as IDCMP_VANILLAKEY Code+Qualifier
 ;;; pairs.  The keymap has already been applied to Code, so Caps Lock
@@ -60,3 +61,56 @@ file head."
             (cond ((not (both-case-p ch)) ch)
                   ((logtest qualifier +key-shift-mask+) (char-upcase ch))
                   (t (char-downcase ch)))))))
+
+;;; ---------------------------------------------------------------------
+;;; The menu strip
+;;;
+;;; The Amiga front-end hangs an Intuition menu strip off the right
+;;; mouse button, and it exists for one reason: every page the game can
+;;; open must be reachable with the mouse alone.  Walking, picking and
+;;; the character sheets already click (see *HOTSPOTS*), but the pages
+;;; the keyboard opens out of nothing — the map, the help reference, the
+;;; cast/play/use pickers, the save slots — had no click of their own.
+;;; The strip is that door.
+;;;
+;;; No item carries a commkey.  Intuition can only ever show
+;;; right-Amiga+key there, while the game's own shortcuts are Shift-S,
+;;; Shift-L, Q, M, H, C, P and U — so a commkey column could only ever
+;;; disagree with the help page.  The strip advertises nothing and the
+;;; help page stays the one place that says what the keys are.
+;;;
+;;; The model lives here, on both platforms, so the host suite tests
+;;; the layout and the decode; AMIGA-UI turns it into the GadTools
+;;; NewMenu array and acts on what MENU-PICK-ACTION names.
+
+(defparameter *menu-strip*
+  '(("Game"
+     (:save "Save")
+     (:load "Load")
+     :bar
+     (:quit "Quit"))
+    ("Screens"
+     (:map  "Map")
+     (:help "Help")
+     :bar
+     (:cast "Cast")
+     (:play "Play")
+     (:use  "Use")))
+  "The Amiga menu strip: one (TITLE . ITEMS) list per drop-down, each
+item an (ACTION LABEL) pair or :BAR for a separator.  Position is
+meaning — MENU-PICK-ACTION indexes straight into this list — so a
+separator holds its slot and reordering an item renumbers it.")
+
+(defconstant +menu-null+ #xFFFF
+  "MENUNULL: the MENUPICK code that names no selection at all.")
+
+(defun menu-pick-action (code)
+  "The action keyword an IDCMP_MENUPICK CODE names in *MENU-STRIP*, or
+NIL when it names none — MENUNULL, a separator bar, or a menu or item
+number past the end of the strip.  CODE is a FULLMENUNUM: menu number
+in bits 0-4, item in bits 5-10, sub-item in bits 11-15 (unused here)."
+  (unless (or (null code) (= code +menu-null+))
+    (let* ((menu (nth (logand code #x1F) *menu-strip*))
+           (item (nth (logand (ash code -5) #x3F) (rest menu))))
+      (when (consp item)
+        (first item)))))

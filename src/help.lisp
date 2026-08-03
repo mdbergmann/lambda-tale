@@ -8,48 +8,56 @@
 
 (in-package :tale)
 
-(defun help-lines (&optional map-scroll-p)
+(defun help-lines (&optional map-scroll-p menu-strip-p)
   "The key-mapping reference as a list of text lines.  MAP-SCROLL-P is
 true only from a front-end that wires U/D scrolling into its map view
 (the Amiga UI does, via MAP-PAGE-SCROLL; the host UI's MAP-ACT does
 not) — it picks which map-view line to show so the page never
-advertises a key the calling front-end does not honor."
-  (list "*** Keys ***"
-        ""
-        "W forward    S step back"
-        "A turn left  D turn right"
-        "M map view   H/? this help"
-        "C cast spell"
-        "U use item"
-        "P play a song"
-        "1-7 character sheet"
-        "    N there: next page (pack,"
-        "      spells/songs, back around)"
-        "    1-9 on the spells/songs page"
-        "      opens that card; C casts"
-        "      it there, P plays a song"
-        "    P there: pool gold on hero"
-        "    T there: trade gold to another"
-        "    O there: marching order"
-        "    L there: take a level (^ = due)"
-        "    C there: change class"
-        "Shift-S save  Shift-L load"
-        "Q or Esc quit (asks first)"
-        ""
-        "Combat: every round opens with"
-        "        F fight / R run (all)"
-        "        then each hero picks:"
-        "        A attack  D defend"
-        "        C cast  P play  Esc undo"
-        "        Y fight / N redo  +/- speed"
-        "Shop/menus: 1-9 pick  Esc back"
-        "            U/D scroll long lists"
-        (if map-scroll-p
-            "Map view: U/D scroll  F reveal"
-            "Map view: F reveal")
-        "Mouse: click to walk and pick"
-        ""
-        "H or Esc: back"))
+advertises a key the calling front-end does not honor.  MENU-STRIP-P
+says the same about the mouse: only the Amiga UI hangs a menu strip
+off the right button (*MENU-STRIP*), so only it names one here."
+  (append
+   (list "*** Keys ***"
+         ""
+         "W forward    S step back"
+         "A turn left  D turn right"
+         "M map view   H/? this help"
+         "C cast spell"
+         "U use item"
+         "P play a song"
+         "1-7 character sheet"
+         "    N there: next page (pack,"
+         "      spells/songs, back around)"
+         "    1-9 on the spells/songs page"
+         "      opens that card; C casts"
+         "      it there, P plays a song"
+         "    P there: pool gold on hero"
+         "    T there: trade gold to another"
+         "    O there: marching order"
+         "    L there: take a level (^ = due)"
+         "    C there: change class"
+         "Shift-S save  Shift-L load"
+         "Q or Esc quit (asks first)"
+         ""
+         "Combat: every round opens with"
+         "        F fight / R run (all)"
+         "        then each hero picks:"
+         "        A attack  D defend"
+         "        C cast  P play  Esc undo"
+         "        Y fight / N redo  +/- speed"
+         "Shop/menus: 1-9 pick  Esc back"
+         "            U/D scroll long lists"
+         (if map-scroll-p
+             "Map view: U/D scroll  F reveal"
+             "Map view: F reveal")
+         "Mouse: click to walk and pick")
+   ;; the pages that open out of nothing (map, help, cast, play, use,
+   ;; save, load, quit) have no click of their own — where a menu strip
+   ;; carries them, say so, or the mouse looks like it cannot get there
+   (when menu-strip-p
+     (list "       right button: menu strip"))
+   (list ""
+         "H or Esc: back")))
 
 ;;; ---------------------------------------------------------------------
 ;;; The quit confirmation

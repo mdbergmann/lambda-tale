@@ -10736,6 +10736,22 @@ flat fill"
             (find-if (lambda (s) (search "Map view: U/D scroll" s))
                      (help-lines t)))
 
+;;; Same contract for the mouse: only a front-end that hangs a menu
+;;; strip off the right button (the Amiga UI does; the host ASCII walk
+;;; has no such thing) may name one — it is the only click that reaches
+;;; the map, help, cast, play, use and save pages.
+(check-true "help-lines with no menu strip does not name one"
+            (not (find-if (lambda (s) (search "menu strip" s))
+                          (help-lines t))))
+(check-true "help-lines(t t) (Amiga) names the right button's menu strip"
+            (find-if (lambda (s) (search "right button: menu strip" s))
+                     (help-lines t t)))
+;;; The reference is drawn in a fixed-width face on a narrow page: a
+;;; line wider than the widest line already there would be cut off.
+(check-true "help: the menu-strip line fits the page's width"
+            (<= (reduce #'max (help-lines t t) :key #'length)
+                (reduce #'max (help-lines t) :key #'length)))
+
 ;;; ---------------------------------------------------------------------
 ;;; The quit confirmation: Q, Esc and the menu strip's Quit all ask
 ;;; before the session ends — one page, two options, both front-ends.
@@ -12215,6 +12231,93 @@ pieces need a mask" pname)
 (check "keys: raw-key-digit ignores every other key" nil
        (raw-key-digit #x40))
 (check "keys: ... and a missing raw code" nil (raw-key-digit nil))
+
+;;; ---------------------------------------------------------------------
+;;; The Amiga menu strip (src/keys.lisp): the model AMIGA-UI turns into
+;;; a GadTools NewMenu array, and MENU-PICK-ACTION, which reads an
+;;; IDCMP_MENUPICK code back out of it.  The strip is the mouse's only
+;;; way to the pages that open out of nothing — map, help, cast, play,
+;;; use, save, load, quit — so its shape is a specification, not a
+;;; detail: the decode indexes straight into *MENU-STRIP*, and a
+;;; reordered item is a differently numbered item.
+
+(flet ((pick (menu item)
+         ;; a FULLMENUNUM as Intuition packs it: menu bits 0-4, item
+         ;; bits 5-10 (sub-item bits 11-15 unused by this strip)
+         (menu-pick-action (logior menu (ash item 5)))))
+  (check "menu: Game holds Save, Load, a bar and Quit"
+         '(:save :load nil :quit)
+         (list (pick 0 0) (pick 0 1) (pick 0 2) (pick 0 3)))
+  (check "menu: Screens holds Map, Help, a bar, Cast, Play and Use"
+         '(:map :help nil :cast :play :use)
+         (list (pick 1 0) (pick 1 1) (pick 1 2)
+               (pick 1 3) (pick 1 4) (pick 1 5)))
+  (check "menu: an item past the end of a drop-down names nothing" nil
+         (pick 1 6))
+  (check "menu: a drop-down past the end of the strip names nothing" nil
+         (pick 2 0)))
+
+;; The sub-item field is NOSUB (#x1F) on every pick from a strip with
+;; no sub-items — decoding must mask it off, not carry it into the
+;; item number.
+(check "menu: the sub-item bits do not disturb the item" :cast
+       (menu-pick-action (logior 1 (ash 3 5) (ash #x1F 11))))
+(check "menu: MENUNULL names nothing" nil (menu-pick-action +menu-null+))
+(check "menu: a missing code names nothing" nil (menu-pick-action nil))
+
+(let ((actions '())
+      (labels-seen '()))
+  (dolist (menu *menu-strip*)
+    (dolist (item (rest menu))
+      (when (consp item)
+        (push (first item) actions)
+        (push (second item) labels-seen))))
+  (setf actions (nreverse actions)
+        labels-seen (nreverse labels-seen))
+  ;; every action the MENUPICK handler in AMIGA-UI dispatches on — an
+  ;; item added here without a case there would be a dead menu row
+  (check "menu: the strip names exactly the actions the UI handles"
+         '(:save :load :quit :map :help :cast :play :use)
+         actions)
+  (check "menu: the drop-down titles, in order"
+         '("Game" "Screens")
+         (mapcar #'first *menu-strip*))
+  (check-true "menu: every label is a non-empty string"
+              (every (lambda (s) (and (stringp s) (plusp (length s))))
+                     labels-seen))
+  ;; An item is (ACTION LABEL) and nothing more: Intuition can only
+  ;; show right-Amiga+key as a commkey, while the game's own shortcuts
+  ;; are Shift-S, Shift-L, Q, M, H, C, P and U — a shortcut column
+  ;; here could only ever contradict the help page.
+  (check-true "menu: no item carries a shortcut of its own"
+              (every (lambda (menu)
+                       (every (lambda (item)
+                                (or (eq item :bar)
+                                    (= (length item) 2)))
+                              (rest menu)))
+                     *menu-strip*)))
+
+;;; The GadTools translation (AMIGA-UI, so AmigaOS only): the same
+;;; strip spelled as a NewMenu entry list — a title row per drop-down
+;;; and its items after it, separators keeping their slots so Intuition
+;;; numbers the items the way MENU-PICK-ACTION reads them back.  No
+;;; entry carries a :COMMKEY: Intuition would show right-Amiga+key,
+;;; which is not what any of these pages answers to.
+#+amigaos
+(check "menu: the strip becomes the NewMenu list GadTools wants"
+       (list (list amiga.gadtools:+nm-title+ "Game")
+             (list amiga.gadtools:+nm-item+ "Save")
+             (list amiga.gadtools:+nm-item+ "Load")
+             :bar
+             (list amiga.gadtools:+nm-item+ "Quit")
+             (list amiga.gadtools:+nm-title+ "Screens")
+             (list amiga.gadtools:+nm-item+ "Map")
+             (list amiga.gadtools:+nm-item+ "Help")
+             :bar
+             (list amiga.gadtools:+nm-item+ "Cast")
+             (list amiga.gadtools:+nm-item+ "Play")
+             (list amiga.gadtools:+nm-item+ "Use"))
+       *menu-entries*)
 
 ;;; ---------------------------------------------------------------------
 ;;; Version (src/version.lisp)

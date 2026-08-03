@@ -55,10 +55,14 @@
 ;;; 4 up to the profile's depth carry the tile pack's colors (see
 ;;; %APPLY-PACK-PALETTE).
 ;;;
-;;; Save/Load/Quit live in an Intuition menu strip (right mouse button),
-;;; built with gadtools.library — the Amiga-native place for them; both
-;;; items (and the S/L keys) open the shared save-slot picker
-;;; (src/save-menu.lisp), saves/NAME.sav.
+;;; An Intuition menu strip (right mouse button), built with
+;;; gadtools.library, holds every page that has no click of its own —
+;;; Save, Load and Quit under Game, and Map, Help, Cast, Play and Use
+;;; under Screens.  Save/Load (and the Shift-S/Shift-L keys) open the
+;;; shared save-slot picker (src/save-menu.lisp), saves/NAME.sav; the
+;;; Screens items land in MENU-SCREEN.  The strip's model — its titles,
+;;; its items and the pick decode — is *MENU-STRIP* in src/keys.lisp,
+;;; where the host suite can reach it.
 
 (require "amiga/intuition")
 (require "amiga/graphics")
@@ -1679,7 +1683,7 @@ than ROWS windows and scrolls (see %AMIGA-DRAW-HELP)."
   "The help page's scroll offset after key CHAR (u/d — MENU-SCROLL
 over the page's row window), or NIL when CHAR does not scroll or the
 whole reference fits the page."
-  (let ((lines (help-lines t)))
+  (let ((lines (help-lines t t)))
     (multiple-value-bind (px py pw ph rows) (%help-page-box l lines)
       (declare (ignore px py pw ph))
       (menu-scroll top char (length lines) rows))))
@@ -1692,7 +1696,8 @@ half the reference on the 200-line layout.  A reference still taller
 than the page windows at scroll offset TOP: u/d turn it a page at a
 time, and the scrollbar down the page's right edge clicks as the same
 two keys.  LINES-CACHE as in %AMIGA-DRAW-LOG."
-  (let ((lines (help-lines t)))         ; this UI wires map U/D scroll
+  (let ((lines (help-lines t t)))       ; this UI scrolls the map and
+                                        ; hangs a menu strip
     (multiple-value-bind (px py pw ph rows) (%help-page-box l lines)
       (amiga.gfx:set-a-pen rp 2)
       (amiga.gfx:rect-fill rp (ui-layout-bx l) (ui-layout-by l)
@@ -2024,21 +2029,20 @@ legend column."
          rp band (- right (microfont-small-text-width band)) y2))
       (amiga.gfx:set-a-pen rp 1))))
 
-;;; The Game menu.  Item numbers (the bar counts as an item) are decoded
-;;; from the MENUPICK code below: Save 0, Load 1, Quit 3.
+;;; The menu strip, as GadTools wants it: *MENU-STRIP* (src/keys.lisp
+;;; holds the model, and MENU-PICK-ACTION reads the picks back out)
+;;; spelled as a NewMenu entry list — a title row per drop-down, then
+;;; its items in order, separators included so the numbering the decode
+;;; relies on is the numbering Intuition assigns.
 (defparameter *menu-entries*
-  (list (list amiga.gadtools:+nm-title+ "Game")
-        (list amiga.gadtools:+nm-item+ "Save" :commkey "S")
-        (list amiga.gadtools:+nm-item+ "Load" :commkey "L")
-        :bar
-        (list amiga.gadtools:+nm-item+ "Quit" :commkey "Q")))
-
-(defconstant +menu-null+ #xFFFF)
-
-(defun %menu-item-number (code)
-  "The item number packed into a MENUPICK code (FULLMENUNUM layout:
-menu bits 0-4, item bits 5-10, sub-item bits 11-15)."
-  (logand (ash code -5) #x3F))
+  (let ((entries '()))
+    (dolist (menu *menu-strip* (nreverse entries))
+      (push (list amiga.gadtools:+nm-title+ (first menu)) entries)
+      (dolist (item (rest menu))
+        (push (if (eq item :bar)
+                  :bar
+                  (list amiga.gadtools:+nm-item+ (second item)))
+              entries)))))
 
 ;;; ---------------------------------------------------------------------
 ;;; Display: Workbench window or own custom screen
@@ -2258,16 +2262,20 @@ the location's :image / the hero's portrait / the enemy's portrait in
 the view column when the campaign ships one.  A menu list longer than a page (a deep shop stock, a full
 pack on the sheet) scrolls: U/D move the window, digits pick within
 it, and the scrollbar on the page's right edge clicks — above the
-thumb a window up, below it down.  Shift-S / Shift-L (and the
-menu strip's Save/Load, right mouse button) open the save-slot
-picker: 1-9 pick a slot, N names a new save (saves/NAME.sav), Esc
-cancels; Quit sits in the menu strip too.
+thumb a window up, below it down.  Shift-S / Shift-L open the
+save-slot picker: 1-9 pick a slot, N names a new save
+(saves/NAME.sav), Esc cancels.
 Everything key-driven clicks too: the view walks (left/right quarters
 turn, the middle steps forward, its bottom band back), a roster row
 opens that character sheet, a menu's numbered rows pick and its
 bracket hints ([S]ell, [Esc] back) act as their keys, and the
 map/help/sheet pages close on a click outside a target — see
-*HOTSPOTS*."
+*HOTSPOTS*.  The pages that open out of nothing have no click of
+their own, so the Intuition menu strip (right mouse button, see
+*MENU-STRIP*) holds them all: Game gives Save, Load and Quit, Screens
+gives Map, Help, Cast, Play and Use.  The Screens items only open —
+they never close a page, and they decline while a picker, a shop or a
+combat round owns the keys."
   (load-campaign map-file)
   (with-display-profile (profile)
    ;; The overrides bind INSIDE the profile binding: WITH-DISPLAY-PROFILE
@@ -2522,23 +2530,34 @@ map/help/sheet pages close on a click outside a target — see
                                    (setf castv (second r))
                                    (redraw))
                                   (t (redraw)))))
-                        (leave-sheet ()
-                          ;; the sheet lives in the panes (takeover +
-                          ;; portrait) — no chrome to repair
+                        (drop-sheet-state ()
+                          ;; everything the sheet carousel carries
+                          ;; between its pages — dropped whenever the
+                          ;; sheet itself comes down
                           (setf magic nil)
                           (setf equipv nil)
                           (setf tradev nil)
                           (setf ordering nil)
                           (setf changing nil)
-                          (setf sheet-notes nil)
+                          (setf sheet-notes nil))
+                        (leave-sheet ()
+                          ;; the sheet lives in the panes (takeover +
+                          ;; portrait) — no chrome to repair
+                          (drop-sheet-state)
                           (setf mode :play)
                           (redraw))
                         (open-help ()
-                          ;; 'h'/'?' from play or map mode: remember
-                          ;; where to return; the reference opens at
-                          ;; its head every time
-                          (setf help-prior-mode mode
-                                help-top 0
+                          ;; 'h'/'?' from play or map mode — and the
+                          ;; strip's Help item, from the sheet too:
+                          ;; remember where to return; the reference
+                          ;; opens at its head every time.  Asked for
+                          ;; while it is already up (only the strip can)
+                          ;; it turns back to the head and keeps the
+                          ;; remembered mode, so the way out never
+                          ;; becomes the way back in.
+                          (unless (eq mode :help)
+                            (setf help-prior-mode mode))
+                          (setf help-top 0
                                 mode :help)
                           (redraw))
                         (leave-help ()
@@ -2884,6 +2903,57 @@ map/help/sheet pages close on a click outside a target — see
                                  (return-from sing-menu-act nil)))))
                           (redraw)
                           nil)
+                        (screen-item-live-p ()
+                          ;; The Screens items only fire while the play
+                          ;; page is in charge.  A picker, a shop, a
+                          ;; combat round or the endgame page owns the
+                          ;; keys — the strip stays reachable under all
+                          ;; of them (Intuition draws it whatever the
+                          ;; game is doing), so it must decline rather
+                          ;; than cut in front of a page mid-answer.
+                          (and (menus-idle-p)
+                               (not ordersv)
+                               (not over)
+                               (not (game-combat game))))
+                        (back-to-play ()
+                          ;; make room for a dialog the strip opened
+                          ;; from somewhere other than the play page.
+                          ;; The cast/play/use pages cover only the
+                          ;; middle of the screen (%MENU-PAGE-BOX), so
+                          ;; whatever the old page painted has to go
+                          ;; from around them too — the same repaint
+                          ;; OPEN-SAVES does, and no REDRAW of its own:
+                          ;; the dialog that follows draws the frame.
+                          (unless (eq mode :play)
+                            (drop-sheet-state)
+                            (setf mode :play)
+                            (clear-inner)
+                            (%chrome-frames rp game l)))
+                        (menu-screen (what)
+                          ;; the strip's Screens items: the same pages
+                          ;; M, H, C, P and U open, for a player working
+                          ;; the mouse alone.  Unlike the keys these
+                          ;; only ever open — a menu item labelled Map
+                          ;; that closed the map would read as a bug —
+                          ;; so a page asked for twice just starts over.
+                          (when (screen-item-live-p)
+                            (case what
+                              ;; the map page owns the whole inner area,
+                              ;; so it needs no repaint under it; it
+                              ;; opens centered on the party every
+                              ;; time, as the M key opens it
+                              (:map
+                               (drop-sheet-state)
+                               (setf mode :map
+                                     map-top nil)
+                               (redraw))
+                              ;; help owns the whole area too — and it
+                              ;; is the one page that comes back, so the
+                              ;; sheet it was opened from stays standing
+                              (:help (open-help))
+                              (:cast (back-to-play) (open-cast nil))
+                              (:play (back-to-play) (open-sing nil))
+                              (:use  (back-to-play) (open-use)))))
                         (open-saves (menu-mode)
                           ;; S/L keys and the GadTools Save/Load items
                           ;; all land here; the picker draws over the
@@ -3352,15 +3422,20 @@ means the player asked to leave (ACT confirms it)."
                          (amiga.intuition:+idcmp-closewindow+ (msg)
                            (return))
                          (amiga.intuition:+idcmp-menupick+ (msg)
-                           (let ((code (amiga.intuition:msg-code msg)))
-                             (unless (= code +menu-null+)
-                               (case (%menu-item-number code)
-                                 (0 (open-saves :save))
-                                 (1 (open-saves :load))
-                                 ;; Quit asks the same question the Q
-                                 ;; key does — see REQUEST-QUIT
-                                 (3 (when (eq (request-quit) :quit)
-                                      (return)))))))
+                           (let ((action (menu-pick-action
+                                          (amiga.intuition:msg-code msg))))
+                             (case action
+                               (:save (open-saves :save))
+                               (:load (open-saves :load))
+                               ;; Quit asks the same question the Q
+                               ;; key does — see REQUEST-QUIT
+                               (:quit (when (eq (request-quit) :quit)
+                                        (return)))
+                               ;; the Screens menu: the pages M, H, C,
+                               ;; P and U open, for a player working
+                               ;; the mouse alone
+                               ((:map :help :cast :play :use)
+                                (menu-screen action)))))
                          (amiga.intuition:+idcmp-vanillakey+ (msg)
                            ;; letter case from the Shift qualifier, not
                            ;; Caps Lock — 's' must step back, never open

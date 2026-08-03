@@ -286,9 +286,9 @@ matching tile pack (see `print-tile-manifest`).
 
 Both are picked RTG-aware through `graphics.library/BestModeIDA` (so
 Picasso96/CyberGraphX/MorphOS promote them to a suitable RTG mode),
-with the tile pack's palette and a borderless backdrop window;
-Save/Load/Quit sit in the menu strip (right mouse button, GadTools
-menus with the usual right-Amiga shortcuts).  Quitting — from the menu,
+with the tile pack's palette, a borderless backdrop window and an
+Intuition menu strip on the right mouse button (GadTools).
+Quitting — from the menu,
 from `q` or from `Esc` — always asks first: a small confirmation box
 takes over until `y` ends the session or `n`/`Esc` (or a click beside
 it) returns to the game.  For development there is
@@ -301,7 +301,19 @@ band steps back), clicking a roster row opens that character sheet,
 clicking a menu's numbered rows or its `Sell`-style option rows (the
 first letter is the key) acts as those keys, and the map/help/sheet
 pages close on a click
-elsewhere.  Menu option rows carry their pick key (`menu-option` /
+elsewhere.  The pages that open out of nothing have no row to click,
+so on the Amiga the **menu strip** carries them all: `Game` holds
+`Save`, `Load` and `Quit`, `Screens` holds `Map`, `Help`, `Cast`,
+`Play` and `Use`.  No item shows a shortcut — Intuition can only ever
+offer right-Amiga+key there, and the game's own keys are `Shift-S`,
+`Shift-L`, `Q`, `M`, `H`, `C`, `P` and `U`, so the help page stays the
+one place that says what they are.  The `Screens` items only ever
+*open* a page (asked for twice, a page starts over rather than
+closing), and they decline while a picker, a shop or a combat round
+owns the keys.  The strip is data — `*menu-strip*` in `src/keys.lisp`,
+where the host suite checks both its layout and the pick decode; the
+Amiga front-end turns it into the GadTools `NewMenu` array.
+Menu option rows carry their pick key (`menu-option` /
 `menu-numbered` in `src/events.lisp`), so front-ends map clicks to
 keys without parsing the text.  A page emits **one option per row**,
 the Bard's Tale look; a page with fewer rows than that needs squeezes
