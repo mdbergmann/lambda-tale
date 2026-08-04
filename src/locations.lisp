@@ -688,7 +688,7 @@ the notice, see TEMPLE-LINES)."
                                  again!  (~D gold)"
                            (hero-name hero) cost))
                      (down
-                      (say game "The priests chant, and ~A rises — ~
+                      (say game "The priests chant, and ~A rises - ~
                                  wounds remain.  (~D gold)"
                            (hero-name hero) cost))
                      ((zerop bought)     ; a cleansing and nothing else

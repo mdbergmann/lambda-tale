@@ -541,7 +541,7 @@ else signals."
     (unless (and (= w (planar-image-width b))
                  (= h (planar-image-height b))
                  (= depth (planar-image-depth b)))
-      (error "PLANAR-DIFF-RECT: ~Dx~Dx~D vs ~Dx~Dx~D — animation ~
+      (error "PLANAR-DIFF-RECT: ~Dx~Dx~D vs ~Dx~Dx~D - animation ~
 frames must share the base image's geometry"
              w h depth
              (planar-image-width b) (planar-image-height b)

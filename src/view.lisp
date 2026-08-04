@@ -721,12 +721,12 @@ missing file leaves a~%flat fill (pens 5 and 6 in the open, black ~
 underground).  The two~%cannot be one pair: a dungeon floor is drawn ~
 in pen 5, which in the~%open is the sky.  Only pens 5 and 6 follow the ~
 day bands, so anything~%in sky.iff or ground.iff that should darken ~
-with the hour must BE one~%of those two pens — art on any other pen ~
+with the hour must BE one~%of those two pens - art on any other pen ~
 keeps its noon brightness at~%midnight.~%")
       (incf n 4))
     (let* ((depth (display-profile-screen-depth *display-profile*))
            (figures (figure-pens depth)))
-      (format stream "Palette: these pens belong to THIS PACK — sky, ~
+      (format stream "Palette: these pens belong to THIS PACK - sky, ~
 ground and art:~%  ~{~D~^ ~}~%They are taken from palette.iff's CMAP ~
 when present, else from~%front-0.iff's (custom screen only; a Workbench ~
 window keeps the~%Workbench palette).~%"
@@ -739,17 +739,17 @@ figure core~}.~%A pack's CMAP may carry them but cannot change them.~%"
                 (when p (list (first p) (car (last p)))))
               (when figures
                 (list (first figures) (car (last figures)))))
-      (format stream "Travelling art — monster sprites, hero portraits, ~
-effect icons —~%is cached by path across zone changes, so it may use ~
+      (format stream "Travelling art - monster sprites, hero portraits, ~
+effect icons -~%is cached by path across zone changes, so it may use ~
 ONLY pen 0~%(transparent) and these:~%  ~{~D~^ ~}~%Build it with ~
 GENERATE-FIGURE, which enforces exactly that.~%"
               (figure-palette-pens depth)))
-    (format stream "Transparency: in a WALL piece pen 0 is transparent — ~
-the ceiling/~%floor backdrop shows through it — so paint solid black ~
+    (format stream "Transparency: in a WALL piece pen 0 is transparent - ~
+the ceiling/~%floor backdrop shows through it - so paint solid black ~
 with pen 4, not~%pen 0.  The ceiling/floor backdrops are opaque; pen 0 ~
 there is plain black.~%")
     (format stream "Variants: any wall piece may ship per-building ~
-style variants beside~%it (front-0-v1.iff, front-0-v2.iff, ... — same ~
+style variants beside~%it (front-0-v1.iff, front-0-v2.iff, ... - same ~
 size and transparency~%rules), probed in order until one is missing; ~
 the view deals them out~%per building cell, a location op's :style ~
 pins one.~%")

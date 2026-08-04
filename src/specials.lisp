@@ -54,7 +54,7 @@ the start cell's special (after subscribing your event handlers)."
     (when ops
       (let ((*special-depth* (1+ *special-depth*)))
         (when (> *special-depth* 8)
-          (error "Special recursion deeper than 8 at (~D,~D) of ~A — ~
+          (error "Special recursion deeper than 8 at (~D,~D) of ~A - ~
                   teleport loop in the map data?"
                  (game-x game) (game-y game)
                  (dungeon-map-name (game-map game))))

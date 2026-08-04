@@ -841,6 +841,11 @@ height" d)
          (print-tile-manifest (make-broadcast-stream)))
   (check-true "manifest names the wall pieces"
               (search "side-door-2-l.iff" manifest))
+  ;; the manifest is read at whichever REPL asks for it, the Amiga's
+  ;; included, and that font has no glyphs past ASCII
+  (check "the manifest is ASCII throughout" '()
+         (remove-if (lambda (c) (< (char-code c) 128))
+                    (coerce manifest 'list)))
   ;; both backdrop pairs: a zone takes one or the other, and a pack
   ;; author who only ever hears about ceiling/floor cannot paint a street
   (check-true "manifest names the dark zone's backdrops"
@@ -2586,7 +2591,14 @@ height" d)
        (g (new-game m)))
   (setf (cell-special m 0 0) '((teleport 1 0)))
   (setf (cell-special m 1 0) '((teleport 0 0)))
-  (check-error "teleport loop is caught" (trigger-special g)))
+  (check-error "teleport loop is caught" (trigger-special g))
+  ;; and names the map it looped in, in text an Amiga shell can draw:
+  ;; a map's own data raises this one, so it is read where it happens
+  (check-true "and says which map, in ASCII"
+              (let ((said (handler-case (trigger-special g)
+                            (error (e) (princ-to-string e)))))
+                (and (search "teleport loop in the map data?" said)
+                     (every (lambda (c) (< (char-code c) 128)) said)))))
 
 ;; teleport off the map is rejected.
 (let* ((m (parse-map *art* :name "test"))
@@ -5198,6 +5210,28 @@ height" d)
   (check-true "a free shrine heals with no gold at all"
               (progn (temple-act g v #\1) (= (hero-hp a) 8)))
   (check "the shrine takes no gold" 0 (hero-gold a))
+  (temple-act g v #\Escape))
+
+;; A purse that covers the raising but not every wound after it: the
+;; hero comes back hurt, and the priests say so in their own line.  The
+;; text is checked whole, because every character of it is drawn by the
+;; Amiga's font, which has no glyphs past ASCII.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ava"))            ; 8 max hp
+       (g (new-game m :party (list a)))
+       (msgs (watch-messages g))
+       (v nil))
+  (damage-hero g a 999)                    ; down
+  (setf (hero-gold a) 60)                  ; 40 for the life, 20 of wounds
+  (enter-location g '("The Fallen's Rest" :temple :price 10 :raise 40))
+  (setf v (make-location-view g))
+  (temple-act g v #\1)                     ; Ava wishes raising
+  (temple-act g v #\1)                     ; and pays for it herself
+  (check-true "the raising brings her back" (hero-alive-p a))
+  (check "but only as far as the purse reached" 3 (hero-hp a))
+  (check "and the priests say the wounds remain"
+         "The priests chant, and Ava rises - wounds remain.  (60 gold)"
+         (find-if (lambda (s) (search "priests chant" s)) (funcall msgs)))
   (temple-act g v #\Escape))
 
 ;; the default temple rates: two gold a wound, fifty flat for a
@@ -9714,7 +9748,16 @@ height" d)
   ;; mismatched geometry is a broken pack, not frame data
   (check-error "diff rejects mismatched geometry"
     (planar-diff-rect (planar (make-image 16 8 2))
-                      (planar (make-image 16 4 2)))))
+                      (planar (make-image 16 4 2))))
+  ;; and says so in ASCII: a pack this broken is as likely to be found
+  ;; on the Amiga as on the host, and that font draws nothing else
+  (check-true "and says both geometries, in ASCII"
+              (let ((said (handler-case
+                              (planar-diff-rect (planar (make-image 16 8 2))
+                                                (planar (make-image 16 4 2)))
+                            (error (e) (princ-to-string e)))))
+                (and (search "16x8x2 vs 16x4x2" said)
+                     (every (lambda (c) (< (char-code c) 128)) said)))))
 
 ;; %RECT-UNION grows the box over a whole frame set
 (check "rect union bounds both boxes" '(0 0 16 16)
