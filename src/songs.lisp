@@ -182,11 +182,11 @@ emits :SONG-SUNG and returns T."
             (song-type-title type))
        nil)
       ((and (hero-sings-with hero) (null (hero-song-tool hero)))
-       (say game "~A has no ~(~A~) in hand — the music needs one."
+       (say game "~A has no ~(~A~) in hand - the music needs one."
             (hero-name hero) (hero-sings-with hero))
        nil)
       ((< (hero-tunes hero) 1)
-       (say game "~A has no tunes left — the tavern would help."
+       (say game "~A has no tunes left - the tavern would help."
             (hero-name hero))
        nil)
       (t

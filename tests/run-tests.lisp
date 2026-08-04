@@ -2818,6 +2818,14 @@ height" d)
 ;; pairing (or a raceless hero) works and records the race.
 (check-error "race forbids an off-list class"
   (make-hero "Bad" :r-mage :race :r-orc))
+;; and says which races may, in text an Amiga shell can draw — the font
+;; there has no glyphs past ASCII, and a design error is read where it
+;; is raised
+(check-true "and names the races that may"
+            (let ((said (handler-case (make-hero "Bad" :r-mage :race :r-orc)
+                          (error (e) (princ-to-string e)))))
+              (and (search "A R-Orc cannot be a R Mage - the race may be:" said)
+                   (every (lambda (c) (< (char-code c) 128)) said))))
 (check "race permits an on-list class" :r-orc
        (hero-race (make-hero "Good" :r-fighter :race :r-orc)))
 (check-true "a raceless hero still works" (make-hero "Free" :r-mage))
@@ -2909,9 +2917,13 @@ height" d)
   (check-true "join message emitted"
               (find-if (lambda (s) (search "joins the party" s))
                        (funcall msgs)))
+  ;; exact, because the text itself is the check: every character a
+  ;; message carries is drawn by the Amiga's font, which has no glyphs
+  ;; past ASCII — a UTF-8 dash slipped in here arrives as three of
+  ;; garbage on the board
   (check-true "full message emitted"
-              (find-if (lambda (s) (search "party is full" s))
-                       (funcall msgs)))
+              (member "The party is full - Late cannot join."
+                      (funcall msgs) :test #'string=))
   ;; combat still works with a full roster: front ranks stay three
   (check "front ranks with a full party" 3 (length (front-ranks g))))
 
@@ -4499,7 +4511,8 @@ height" d)
   ;; out of tunes: the tavern beckons
   (check "no tunes, no song" nil (sing-song g bard 'test-gleam))
   (check-true "no-tunes message names the tavern"
-              (find-if (lambda (s) (search "tavern" s)) (funcall msgs)))
+              (member "Mel has no tunes left - the tavern would help."
+                      (funcall msgs) :test #'string=))
   (check-true "the march still plays" (current-song g))
   ;; a new song displaces the old
   (setf (hero-tunes bard) 1)
@@ -4548,9 +4561,11 @@ height" d)
   ;; no instrument: refused, and the tune is not spent
   (check "no instrument, no song" nil (sing-song g piper 'test-march))
   (check "the tune was not spent" 1 (hero-tunes piper))
+  ;; exact: the message's own characters are part of the check (the
+  ;; Amiga font has no glyphs past ASCII)
   (check-true "the refusal names the instrument"
-              (find-if (lambda (s) (search "no instrument in hand" s))
-                       (funcall msgs)))
+              (member "Pip has no instrument in hand - the music needs one."
+                      (funcall msgs) :test #'string=))
   (check "no song plays" nil (current-song g))
   (check "the card's reason is short" "No instrument in hand."
          (song-refusal piper 'test-march))
@@ -9223,9 +9238,14 @@ height" d)
     (check "n is refused once the slot cap is reached" nil
            (save-menu-act g view #\n))
     (check "no name entry opens at the cap" nil (save-menu-entry view))
+    ;; exact, the cap read off the constant but the wording spelled out:
+    ;; this line is drawn by the Amiga's font, which has no glyphs past
+    ;; ASCII, so a UTF-8 dash in it would arrive as three of garbage
     (check-true "the cap message is shown"
-                (find-if (lambda (s) (search "Slot limit reached" s))
-                         (menu-texts (save-menu-lines g view))))
+                (member (format nil "Slot limit reached (~D) - delete a save first."
+                                +max-save-slots+)
+                        (menu-texts (save-menu-lines g view))
+                        :test #'string=))
     ;; the cap message clears once a slot is picked
     (check "picking a slot still works at the cap"
            '(:save "tests/tmp-saves/s1.sav")

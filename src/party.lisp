@@ -211,7 +211,7 @@ dice strings welcome)."
   ;; check below: both are design errors, both before any dice roll, so
   ;; a scripted roll order never half-runs.
   (unless (hero-class-property class :startable)
-    (error "~A is not open to a new character — it is reached by ~
+    (error "~A is not open to a new character - it is reached by ~
             changing class; the open ones are: ~{~A~^, ~}"
            (string-capitalize (substitute #\Space #\- (string class)))
            (mapcar (lambda (c)
@@ -220,14 +220,14 @@ dice strings welcome)."
   ;; A race that cannot take this class is a design error caught early,
   ;; before any dice roll, with a message that lists the legal classes.
   (when (and race (not (race-allows-class-p race class)))
-    (error "A ~A cannot be a ~A — the race may be: ~{~A~^, ~}"
+    (error "A ~A cannot be a ~A - the race may be: ~{~A~^, ~}"
            (race-title race)
            (string-capitalize (substitute #\Space #\- (string class)))
            (mapcar #'race-title (race-classes (find-race race)))))
   ;; Asking for a woman's portrait where the class carries none is a
   ;; design error too, caught with the others before any dice roll.
   (when (and woman (not (hero-class-property class :image-woman)))
-    (error "The ~A carries no woman's portrait — :image-woman in ~
+    (error "The ~A carries no woman's portrait - :image-woman in ~
             define-hero-class adds one"
            (string-capitalize (substitute #\Space #\- (string class)))))
   ;; Keep the roll order (hp, str, dex, iq, con, lck, gold) — the test
@@ -818,7 +818,7 @@ and returns NIL (no error — recruiting past a full party is a normal
 game situation, not a bug)."
   (if (party-full-p game)
       (progn
-        (say game "The party is full — ~A cannot join." (hero-name hero))
+        (say game "The party is full - ~A cannot join." (hero-name hero))
         nil)
       (progn
         (setf (game-party game)

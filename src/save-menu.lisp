@@ -155,7 +155,7 @@ pick key (see MENU-NUMBERED)."
                ((and (eq mode :save) (member char '(#\n #\N)))
                 (if (>= (length slots) +max-save-slots+)
                     (setf (save-menu-error view)
-                          (format nil "Slot limit reached (~D) — delete a save first."
+                          (format nil "Slot limit reached (~D) - delete a save first."
                                   +max-save-slots+))
                     (progn
                       (setf (save-menu-error view) nil)
