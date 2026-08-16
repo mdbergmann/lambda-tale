@@ -10,6 +10,10 @@
   (facing +north+)    ; direction index 0..3
   (time *new-game-minutes*) ; game minutes since campaign start (time.lisp)
   party               ; list of HERO (NIL for a bare walkabout)
+  roster              ; list of HERO waiting at the guild — created or
+                      ; removed members not marching with the party
+                      ; (see the :GUILD location kind, locations.lisp);
+                      ; a hero is in the party or the roster, never both
   (flags (make-hash-table :test 'equal)) ; story flags (see events.lisp)
   handlers            ; event subscriptions: alist topic -> handler list
   combat              ; active COMBAT or NIL
@@ -103,9 +107,10 @@ even in the dark — the wall dead ahead is always visible
         (when (and nx (cell-location-op map nx ny))
           (know-found k nx ny))))))
 
-(defun new-game (map &key party)
+(defun new-game (map &key party roster)
   "Start a fresh game on MAP at its start position, with PARTY (a list
-of heroes; NIL for a bare walkabout).  The start cell's special is NOT
+of heroes; NIL for a bare walkabout) and ROSTER (heroes waiting at the
+guild — see the :GUILD location kind).  The start cell's special is NOT
 triggered here — subscribe your event handlers first, then call
 TRIGGER-SPECIAL once."
   (let ((g (%make-game :map map
@@ -113,7 +118,8 @@ TRIGGER-SPECIAL once."
                        :x (dungeon-map-start-x map)
                        :y (dungeon-map-start-y map)
                        :facing (dir-index (dungeon-map-start-facing map))
-                       :party party)))
+                       :party party
+                       :roster roster)))
     (setf (gethash (dungeon-map-name map) (game-zones g))
           (cons map (game-knowledge g)))
     (observe g)

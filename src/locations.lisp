@@ -8,9 +8,11 @@
 ;;; its menu.  KIND is an open set; the engine ships mechanics for
 ;;; :SHOP (ARG... is :stock (ITEM-NAME...); stock is unlimited, Bard's
 ;;; Tale style), :TAVERN (drinks, and maybe a trapdoor), :TEMPLE
-;;; (healing and raising the fallen, for gold) and :ENERGY (spell
-;;; points at so many gold apiece).  Unknown kinds still enter/leave
-;;; cleanly — campaigns script them via the :ENTER-LOCATION event.
+;;; (healing and raising the fallen, for gold), :ENERGY (spell
+;;; points at so many gold apiece) and :GUILD (the Adventurers'
+;;; Guild: characters made, parties formed — see the guild section
+;;; below).  Unknown kinds still enter/leave cleanly — campaigns
+;;; script them via the :ENTER-LOCATION event.
 ;;;
 ;;; Any kind may keep hours: :CLOSED names the day-band — :NIGHT, or a
 ;;; list like (:EVENING :NIGHT), see TIME-OF-DAY — during which the
@@ -143,6 +145,10 @@ fires and NIL comes back."
       (when (eq kind :shop)
         (dolist (name (location-arg loc :stock))
           (find-item-type name)))   ; catch bad stock at entry, loudly
+      (when (eq kind :guild)
+        (let ((gold (location-arg loc :gold)))
+          (unless (or (null gold) (integerp gold))
+            (parse-dice gold))))    ; catch a bad purse at entry, loudly
       (dolist (band (%closed-bands loc))
         (unless (assoc band *time-band-starts*)
           (error "location ~S: unknown day-band ~S in :closed"
@@ -160,6 +166,21 @@ fires and NIL comes back."
       (emit game :enter-location loc)
       loc)))
 
+(defun %lone-exit-dir (game)
+  "The single passable side of the party's cell, or NIL when the cell
+has none or several.  This is the front door a location entered
+without a step still obviously owns — a purpose-built building cell
+is walled all round but for its one door."
+  (let ((map (game-map game))
+        (x (game-x game))
+        (y (game-y game))
+        (found nil))
+    (dotimes (d 4 found)
+      (when (wall-passable-p (cell-wall map x y d))
+        (if found
+            (return nil)
+            (setf found d))))))
+
 (defun leave-location (game)
   "Leave the current location.  When the party stepped in through a
 door (the location's ENTRY-DIR), it steps back out onto the cell it
@@ -168,16 +189,22 @@ a house puts you on the street before its front, not standing in the
 doorway looking at the hearth.  The exit step costs time and maps
 like any step, but does NOT re-trigger the street cell's special —
 the party just came from there.  A location entered without a step
-(TRAVEL, a script) leaves the party where it stands.  Emits
+(TRAVEL, a script, the boot's start cell) still takes that exit when
+its cell has exactly one passable side — the front door is not less
+the way out for having been skipped on the way in (a game that
+starts AT its guild leaves onto the street, see %LONE-EXIT-DIR) —
+and leaves the party where it stands otherwise.  Emits
 :LEAVE-LOCATION."
   (let ((loc (game-location game)))
     (when loc
       (setf (game-location game) nil)
       ;; as quiet as entering — the view coming back says it all
-      (let ((entry (location-entry-dir loc)))
-        (when entry
-          (let ((out (dir-opposite entry)))
-            (%step-out game out out t))))
+      (let* ((entry (location-entry-dir loc))
+             (out (if entry
+                      (dir-opposite entry)
+                      (%lone-exit-dir game))))
+        (when out
+          (%step-out game out out t)))
       (emit game :leave-location loc))
     loc))
 
@@ -942,18 +969,391 @@ leaves.  Returns :LEFT when the party leaves the location, else NIL."
            :left)
           (t nil))))
 
+;;; ---------------------------------------------------------------------
+;;; The guild: the Adventurers' Guild of Bard's Tale tradition.  A
+;;; :GUILD location is where characters are made and parties formed —
+;;; and where a fresh game begins, when the campaign puts it on the
+;;; map's start cell (the boot's TRIGGER-SPECIAL walks straight in).
+;;; Heroes not marching wait in the game's ROSTER (see game.lisp):
+;;; Create rolls a new one onto it, Add moves one into the party,
+;;; Remove sends one back to the hall, Delete strikes a name for good.
+;;; The main page also offers the save/load picker — the model cannot
+;;; open a front-end page itself, so GUILD-ACT returns the instruction
+;;; (:SAVES :SAVE) or (:SAVES :LOAD) and the front-end opens its
+;;; picker over the guild page (the SAVE-MENU-ACT instruction pattern).
+;;;
+;;; (location TITLE :guild :gold DICE) — DICE (a dice string or an
+;;; integer, default 0) is a new character's starting purse; campaign
+;;; data decides.  With no living party the guild does not send the
+;;; party out at all: the street's dangers are no place for nobody.
+
+(defconstant +hero-name-limit+ 12
+  "Longest hero name the guild's entry field accepts — the widest the
+roster pane's name column shows whole.")
+
+(defun hero-name-char-p (ch)
+  "Characters a hero's name may hold: letters, digits, spaces, - and
+_ (\"El Cid\" is a fine name; a hero is not a file)."
+  (or (alphanumericp ch) (member ch '(#\Space #\- #\_))))
+
+(defun guild-gold (location)
+  "A new character's starting purse at LOCATION: the :GOLD arg (a dice
+string or an integer; default 0 — campaign data decides)."
+  (or (location-arg location :gold) 0))
+
+(defun guild-name-taken-p (game name)
+  "Is NAME already borne by someone in the party or on the roster?
+Case-insensitive — two heroes a capital apart would be one hero to
+every menu that picks by name."
+  (and (find name (append (game-party game) (game-roster game))
+             :key #'hero-name :test #'string-equal)
+       t))
+
+(defun guild-startable-classes (race)
+  "The classes the guild offers a new character of RACE: the
+:STARTABLE ones the race may take, in HERO-CLASSES' stable order."
+  (remove-if-not (lambda (class) (race-allows-class-p race class))
+                 (startable-hero-classes)))
+
+(defstruct (guild-view (:constructor %make-guild-view))
+  (mode :main)        ; :main, the :add/:remove/:delete/:confirm-delete
+                      ; roster pages, or the creation walk
+                      ; :race -> :class [-> :sex] -> :name -> :roll
+  race                ; the creation walk's picks so far...
+  class
+  woman
+  name                ; the name being typed (:name mode)
+  rolled              ; the freshly rolled HERO awaiting Keep/Roll again
+  pending             ; the roster hero awaiting the delete confirmation
+  note                ; a notice for the page's last line, or NIL;
+                      ; cleared by the next key (the temple's pattern)
+  (top 0))            ; scroll offset into the current page's list
+
+(defun make-guild-view ()
+  (%make-guild-view))
+
+(defun %guild-roster-row (i hero)
+  "A roster page's row: the hero named with their class code and level
+— the same shorthand the party pane's columns speak."
+  (menu-numbered i (format nil "~D) ~A  ~A ~D"
+                           i (hero-name hero) (hero-class-abbrev hero)
+                           (hero-level hero))))
+
+(defun %guild-rolled-lines (view)
+  "The Keep-or-roll-again page's stat block: what the dice just gave,
+compact — the full sheet is a party page and this hero is not in the
+party yet."
+  (let ((h (guild-view-rolled view)))
+    (append
+     (list (hero-name h)
+           (format nil "~@[~A ~]~A" (hero-race-title h)
+                   (hero-class-title h))
+           (format nil "HP ~D  AC ~D~@[  SP ~D~]"
+                   (hero-max-hp h) (hero-ac h)
+                   (when (plusp (hero-max-sp h)) (hero-max-sp h)))
+           (format nil "STR ~D DEX ~D IQ ~D"
+                   (hero-str h) (hero-dex h) (hero-iq h))
+           (format nil "CON ~D LCK ~D" (hero-con h) (hero-lck h))
+           (format nil "Gold ~D gp" (hero-gold h))
+           "")
+     (list (menu-option #\k "Keep")
+           (menu-option #\r "Roll again")))))
+
+(defun guild-lines (game view)
+  "The guild's menu as menu lines, one page per VIEW mode (a
+GUILD-VIEW).  The main page counts the hall and offers the guild's
+services; the roster pages list who waits (or marches) as numbered
+rows; the creation walk asks race, class, portrait where the class
+carries two, then the name (live echo, the save picker's entry
+pattern), and shows the roll for keeping or rolling again.  The
+view's NOTE is the last line."
+  (let* ((loc (game-location game))
+         (note (guild-view-note view)))
+    (append
+     (list (format nil "*** ~A ***" (location-title loc)) "")
+     (case (guild-view-mode view)
+       (:main
+        (list (let ((n (length (game-roster game))))
+                (if (plusp n)
+                    (format nil "Adventurers in the hall: ~D" n)
+                    "The hall stands empty."))
+              ""
+              (menu-option #\c "Create a character")
+              (menu-option #\a "Add a member")
+              (menu-option #\r "Remove a member")
+              (menu-option #\d "Delete a character")
+              (menu-option #\s "Save game")
+              (menu-option #\l "Load game")))
+       (:add
+        (cons "Who joins the party?"
+              (menu-scrolled-lines (game-roster game)
+                                   (guild-view-top view)
+                                   #'%guild-roster-row)))
+       (:remove
+        (cons "Who stays behind?"
+              (let ((i 0))
+                (mapcar (lambda (h)
+                          (incf i)
+                          (menu-numbered i (format nil "~D) ~A"
+                                                   i (hero-name h))))
+                        (game-party game)))))
+       (:delete
+        (cons "Whose name is struck?"
+              (menu-scrolled-lines (game-roster game)
+                                   (guild-view-top view)
+                                   #'%guild-roster-row)))
+       (:confirm-delete
+        (list (format nil "Strike ~A from the roster?"
+                      (hero-name (guild-view-pending view)))
+              "There is no coming back."
+              ""
+              (menu-option #\y "Yes, strike the name")
+              (menu-option #\n "No, keep them")))
+       (:race
+        (cons "Choose a race:"
+              (menu-scrolled-lines (races) (guild-view-top view)
+                                   (lambda (i race)
+                                     (menu-numbered
+                                      i (format nil "~D) ~A"
+                                               i (race-title race)))))))
+       (:class
+        (cons "Choose a class:"
+              (menu-scrolled-lines
+               (guild-startable-classes (guild-view-race view))
+               (guild-view-top view)
+               (lambda (i class)
+                 (menu-numbered
+                  i (format nil "~D) ~A" i
+                            (string-capitalize
+                             (substitute #\Space #\- (string class)))))))))
+       (:sex
+        ;; a class with two portraits asks whose face this is
+        (list "Man or woman?"
+              (menu-numbered 1 "1) A man")
+              (menu-numbered 2 "2) A woman")))
+       (:name
+        ;; a text-entry modal, the save picker's pattern: the keys
+        ;; mean typing here, so the page says so
+        (list (format nil "Name: ~A_" (guild-view-name view))
+              ""
+              "Type a name; Return rolls"))
+       (:roll (%guild-rolled-lines view)))
+     (when note (list "" note)))))
+
+(defun %guild-roll (game view)
+  "Roll the creation walk's character: MAKE-HERO over the view's
+picks, the purse from the location's :GOLD."
+  (setf (guild-view-rolled view)
+        (make-hero (guild-view-name view) (guild-view-class view)
+                   :race (guild-view-race view)
+                   :woman (guild-view-woman view)
+                   :gold (guild-gold (game-location game)))))
+
+(defun guild-act (game view char)
+  "Apply key CHAR to the guild menu (VIEW is its GUILD-VIEW).  Digits
+pick within the visible window of the page's list (u/d scroll it),
+Esc steps back a page at a time and finally leaves — though never
+with an empty party: the guild sends no one out alone.  Returns NIL,
+:LEFT when the party steps out, or the front-end instruction
+\(:SAVES :SAVE) / (:SAVES :LOAD) — the front-end opens its save/load
+picker over the guild page and closes it back onto it."
+  (let ((digit (digit-char-p char))
+        (mode (guild-view-mode view)))
+    (setf (guild-view-note view) nil)
+    (flet ((to (mode)
+             (setf (guild-view-mode view) mode
+                   (guild-view-top view) 0)
+             nil)
+           (scroll (n)
+             (let ((top (menu-scroll (guild-view-top view) char n)))
+               (when top (setf (guild-view-top view) top)))
+             nil))
+      (case mode
+        (:main
+         (case char
+           ((#\c #\C)
+            (setf (guild-view-race view) nil
+                  (guild-view-class view) nil
+                  (guild-view-woman view) nil
+                  (guild-view-name view) nil
+                  (guild-view-rolled view) nil)
+            (to :race))
+           ((#\a #\A)
+            (if (game-roster game)
+                (to :add)
+                (progn (setf (guild-view-note view)
+                             "No one waits in the hall.")
+                       nil)))
+           ((#\r #\R)
+            (if (game-party game)
+                (to :remove)
+                (progn (setf (guild-view-note view) "No one marches.")
+                       nil)))
+           ((#\d #\D)
+            (if (game-roster game)
+                (to :delete)
+                (progn (setf (guild-view-note view)
+                             "No one waits in the hall.")
+                       nil)))
+           ((#\s #\S) (list :saves :save))
+           ((#\l #\L) (list :saves :load))
+           ((#\Escape #\q #\Q)
+            (if (game-party game)
+                (progn (leave-location game) :left)
+                (progn (setf (guild-view-note view)
+                             "The guild sends no one out alone.")
+                       nil)))
+           (t nil)))
+        (:add
+         (cond (digit
+                (let ((hero (menu-window-pick (game-roster game)
+                                              (guild-view-top view)
+                                              digit)))
+                  (when (and hero (join-party game hero))
+                    (setf (game-roster game)
+                          (remove hero (game-roster game) :count 1))
+                    (unless (game-roster game)
+                      (to :main))))
+                nil)
+               ((eql char #\Escape) (to :main))
+               (t (scroll (length (game-roster game))))))
+        (:remove
+         (cond ((and digit (<= 1 digit (length (game-party game))))
+                (let ((hero (nth (1- digit) (game-party game))))
+                  (when (remove-from-party game hero)
+                    (setf (game-roster game)
+                          (append (game-roster game) (list hero)))
+                    (say game "~A stays at the guild." (hero-name hero))
+                    (unless (game-party game)
+                      (to :main))))
+                nil)
+               ((eql char #\Escape) (to :main))
+               (t nil)))
+        (:delete
+         (cond (digit
+                (let ((hero (menu-window-pick (game-roster game)
+                                              (guild-view-top view)
+                                              digit)))
+                  (when hero
+                    (setf (guild-view-pending view) hero)
+                    (to :confirm-delete)))
+                nil)
+               ((eql char #\Escape) (to :main))
+               (t (scroll (length (game-roster game))))))
+        (:confirm-delete
+         (case char
+           ((#\y #\Y)
+            (let ((hero (guild-view-pending view)))
+              (setf (game-roster game)
+                    (remove hero (game-roster game) :count 1)
+                    (guild-view-pending view) nil)
+              (say game "~A's name is struck from the roster."
+                   (hero-name hero)))
+            (to (if (game-roster game) :delete :main)))
+           ((#\n #\N #\Escape)
+            (setf (guild-view-pending view) nil)
+            (to :delete))
+           (t nil)))
+        (:race
+         (cond (digit
+                (let ((race (menu-window-pick (races)
+                                              (guild-view-top view)
+                                              digit)))
+                  (when race
+                    (setf (guild-view-race view) race)
+                    (to :class)))
+                nil)
+               ((eql char #\Escape) (to :main))
+               (t (scroll (length (races))))))
+        (:class
+         (let ((classes (guild-startable-classes (guild-view-race view))))
+           (cond (digit
+                  (let ((class (menu-window-pick classes
+                                                 (guild-view-top view)
+                                                 digit)))
+                    (when class
+                      (setf (guild-view-class view) class
+                            (guild-view-woman view) nil
+                            (guild-view-name view) "")
+                      (to (if (hero-class-property class :image-woman)
+                              :sex
+                              :name))))
+                  nil)
+                 ((eql char #\Escape) (to :race))
+                 (t (scroll (length classes))))))
+        (:sex
+         (case digit
+           (1 (setf (guild-view-woman view) nil) (to :name))
+           (2 (setf (guild-view-woman view) t) (to :name))
+           (t (when (eql char #\Escape) (to :class))
+              nil)))
+        (:name
+         (let ((entry (guild-view-name view)))
+           (cond ((or (eql char #\Return) (eql char #\Newline)
+                      (eql char (code-char 13)))
+                  (let ((name (string-trim " " entry)))
+                    (cond ((zerop (length name))
+                           (setf (guild-view-note view) "A name is needed."))
+                          ((guild-name-taken-p game name)
+                           (setf (guild-view-note view) "The name is taken."))
+                          (t
+                           (setf (guild-view-name view) name)
+                           (%guild-roll game view)
+                           (to :roll))))
+                  nil)
+                 ((eql char #\Escape)
+                  (to (if (hero-class-property (guild-view-class view)
+                                               :image-woman)
+                          :sex
+                          :class)))
+                 ((or (eql char #\Backspace) (eql char (code-char 8)))
+                  (when (plusp (length entry))
+                    (setf (guild-view-name view)
+                          (subseq entry 0 (1- (length entry)))))
+                  nil)
+                 ((and (characterp char)
+                       (hero-name-char-p char)
+                       ;; a name neither starts with a space nor
+                       ;; outgrows the roster pane's name column
+                       (not (and (zerop (length entry))
+                                 (char= char #\Space)))
+                       (< (length entry) +hero-name-limit+))
+                  (setf (guild-view-name view)
+                        (concatenate 'string entry (string char)))
+                  nil)
+                 (t nil))))
+        (:roll
+         (cond ((or (member char '(#\k #\K #\Return #\Newline))
+                    (eql char (code-char 13)))
+                (let ((hero (guild-view-rolled view)))
+                  (setf (game-roster game)
+                        (append (game-roster game) (list hero))
+                        (guild-view-rolled view) nil)
+                  (say game "~A signs the guild roster." (hero-name hero)))
+                (to :main))
+               ((member char '(#\r #\R))
+                (%guild-roll game view)
+                nil)
+               ((eql char #\Escape)
+                (setf (guild-view-rolled view) nil)
+                (to :main))
+               (t nil)))
+        (t nil)))))
+
 (defun make-location-view (game)
   "A fresh view for the current location's menu, of the kind that
 menu needs: the shop model for :SHOP, the temple's for :TEMPLE, the
-fount's for :ENERGY, NIL for kinds whose menus keep no state (and with
-no location at all).  The front-ends call this on :ENTER-LOCATION and
-hand the view to LOCATION-LINES and LOCATION-ACT."
+fount's for :ENERGY, the guild's for :GUILD, NIL for kinds whose
+menus keep no state (and with no location at all).  The front-ends
+call this on :ENTER-LOCATION and hand the view to LOCATION-LINES and
+LOCATION-ACT."
   (let ((loc (game-location game)))
     (when loc
       (case (location-kind loc)
         (:shop (make-shop-view))
         (:temple (make-temple-view))
         (:energy (make-energy-view))
+        (:guild (make-guild-view))
         (t nil)))))
 
 (defun location-lines (game view)
@@ -968,19 +1368,24 @@ clickable EXIT."
       (:tavern (tavern-lines game))
       (:temple (temple-lines game view))
       (:energy (energy-lines game view))
+      (:guild (guild-lines game view))
       (t (list (format nil "*** ~A ***" (location-title loc)) ""
                "There is nothing to do here."
                "" (menu-option #\Escape "EXIT"))))))
 
 (defun location-act (game view char)
   "Apply key CHAR inside the current location (see SHOP-ACT,
-TAVERN-ACT, TEMPLE-ACT and ENERGY-ACT)."
+TAVERN-ACT, TEMPLE-ACT, ENERGY-ACT and GUILD-ACT).  Returns what the
+kind's own ACT returns: NIL, :LEFT when the party leaves the location
+— or an instruction the front-end executes, today the guild's
+\(:SAVES :SAVE) / (:SAVES :LOAD) ask for the save/load picker."
   (let ((loc (game-location game)))
     (case (location-kind loc)
       (:shop (shop-act game view char))
       (:tavern (tavern-act game char))
       (:temple (temple-act game view char))
       (:energy (energy-act game view char))
+      (:guild (guild-act game view char))
       (t (when (member char '(#\Escape #\e #\E #\l #\L #\q #\Q))
            (leave-location game)
            :left)))))

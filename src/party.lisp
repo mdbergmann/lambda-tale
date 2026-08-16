@@ -827,6 +827,17 @@ game situation, not a bug)."
         (emit game :party-joined hero)
         t)))
 
+(defun remove-from-party (game hero)
+  "Take HERO out of the party, the others closing ranks — JOIN-PARTY's
+inverse (the guild's Remove a member, see locations.lisp).  Says
+nothing — the caller knows where the hero is going (the guild hall,
+a story exit) and says so itself.  Returns HERO and emits :PARTY-LEFT
+on success, NIL when HERO is not in the party."
+  (when (member hero (game-party game))
+    (setf (game-party game) (remove hero (game-party game) :count 1))
+    (emit game :party-left hero)
+    hero))
+
 (defun move-hero (game from to)
   "Move the hero in roster slot FROM to slot TO (both 0-based), the
 others closing ranks — the Bard's Tale marching-order change.  Order

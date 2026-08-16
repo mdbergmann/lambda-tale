@@ -2374,9 +2374,15 @@ combat round owns the keys."
                            (log-message log "Game over.  Press Q.")))
                g))
       (dlog-timed ("new-game + specials")
+        ;; the campaign's two optional boot hooks: DEFAULT-PARTY
+        ;; marches from the first step, DEFAULT-ROSTER waits at the
+        ;; guild (a campaign that starts at its guild defines only the
+        ;; roster and lets the player form the party there)
         (setf game (wire (new-game map
                                    :party (when (fboundp 'default-party)
-                                            (funcall 'default-party)))))
+                                            (funcall 'default-party))
+                                   :roster (when (fboundp 'default-roster)
+                                             (funcall 'default-roster)))))
         (trigger-special game))
       (%with-game-font
        (lambda (font)
@@ -3356,23 +3362,31 @@ means the player asked to leave (ACT confirms it)."
                                    ;; leaves; Q still quits the game)
                                    (if (eql lc #\q)
                                        :quit
-                                       (let ((key (if (eq c :esc)
-                                                      #\Escape
-                                                      c)))
-                                         (when (characterp key)
-                                           (location-act
-                                            game
-                                            (or locv
-                                                (setf locv
-                                                      (make-location-view
-                                                       game)))
-                                            key))
-                                         ;; the location lives in the
-                                         ;; panes too — leaving needs
-                                         ;; only a redraw (a trapdoor
-                                         ;; travel sets zone-dirty and
-                                         ;; redraw repaints the chrome)
-                                         (redraw)
+                                       (let* ((key (if (eq c :esc)
+                                                       #\Escape
+                                                       c))
+                                              (r (when (characterp key)
+                                                   (location-act
+                                                    game
+                                                    (or locv
+                                                        (setf locv
+                                                              (make-location-view
+                                                               game)))
+                                                    key))))
+                                         ;; the model may hand back an
+                                         ;; instruction: the guild's
+                                         ;; Save/Load game rows open
+                                         ;; the picker over the page
+                                         (if (and (consp r)
+                                                  (eq (first r) :saves))
+                                             (open-saves (second r))
+                                             ;; the location lives in
+                                             ;; the panes too — leaving
+                                             ;; needs only a redraw (a
+                                             ;; trapdoor travel sets
+                                             ;; zone-dirty and redraw
+                                             ;; repaints the chrome)
+                                             (redraw))
                                          nil)))
                                   ((or (eql lc #\q) (eql c :esc)) :quit)
                                   (over nil) ; game ended: only Q/Esc react

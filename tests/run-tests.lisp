@@ -5547,6 +5547,348 @@ height" d)
          (location-act g nil #\Escape)))
 
 ;;; ---------------------------------------------------------------------
+;;; The guild (:GUILD) — the Adventurers' Guild: characters made,
+;;; parties formed, the roster of heroes waiting in the hall.
+
+;; a class with both portraits (the creation walk's man-or-woman page)
+;; and a race whose class list keeps the class page short and known
+(define-hero-class :g-faced :image "gfx/g-man.iff"
+                            :image-woman "gfx/g-woman.iff")
+(define-race :g-folk :str 1 :classes '(:g-faced :tester)
+  :description "guild test folk")
+
+;; NEW-GAME carries the roster; a fresh game without one has none.
+(let ((m (parse-map *art* :name "test")))
+  (check "a fresh game's roster is empty" nil
+         (game-roster (new-game m)))
+  (let ((h (%combat-hero "Idle")))
+    (check "new-game takes a :roster" (list h)
+           (game-roster (new-game m :roster (list h))))))
+
+;; REMOVE-FROM-PARTY is JOIN-PARTY's inverse.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%combat-hero "Ann"))
+       (b (%combat-hero "Ben"))
+       (c (%combat-hero "Col"))
+       (g (new-game m :party (list a b c)))
+       (left '()))
+  (on-event g :party-left
+            (lambda (game hero) (declare (ignore game))
+              (push (hero-name hero) left)))
+  (check "removal returns the hero" b (remove-from-party g b))
+  (check "the others close ranks" (list a c) (game-party g))
+  (check ":party-left emitted" '("Ben") left)
+  (check "a stranger is not removed" nil (remove-from-party g b))
+  (check "and the party stands" (list a c) (game-party g)))
+
+;; The guild's main page and the add/remove flow: Add moves a waiting
+;; hero into the party, Remove sends one back to the hall; the guild
+;; sends no empty party out.
+(let* ((m (parse-map *art* :name "test"))
+       (hall (%combat-hero "Waiting"))
+       (g (new-game m :roster (list hall)))
+       (msgs (watch-messages g)))
+  (enter-location g '("The Test Guild" :guild :gold 10))
+  (let ((v (make-location-view g)))
+    (check-true "the guild's view is a guild-view" (guild-view-p v))
+    (check-true "the main page counts the hall"
+                (find-if (lambda (s)
+                           (search "Adventurers in the hall: 1" s))
+                         (menu-texts (guild-lines g v))))
+    (check "the Add row carries its key" #\a
+           (menu-line-key
+            (find-if (lambda (line)
+                       (equal "Add a member" (menu-line-text line)))
+                     (guild-lines g v))))
+    ;; nobody marches yet: Remove is refused with a note, and the
+    ;; door stays shut on an empty party
+    (guild-act g v #\r)
+    (check-true "Remove with no party leaves a note"
+                (find-if (lambda (s) (search "No one marches." s))
+                         (menu-texts (guild-lines g v))))
+    (check "Esc with no party does not leave" nil
+           (guild-act g v #\Escape))
+    (check-true "the guild sends no one out alone"
+                (find-if (lambda (s)
+                           (search "sends no one out alone" s))
+                         (menu-texts (guild-lines g v))))
+    (check-true "still inside" (game-location g))
+    ;; Add: the hall's row names the hero the party pane's way
+    (guild-act g v #\a)
+    (check-true "the add page rows the waiting hero"
+                (find-if (lambda (s) (search "1) Waiting  TE 1" s))
+                         (menu-texts (guild-lines g v))))
+    (guild-act g v #\1)
+    (check "the hero joined the party" (list hall) (game-party g))
+    (check "and left the hall" nil (game-roster g))
+    (check-true "the join is announced"
+                (find-if (lambda (s) (search "joins the party" s))
+                         (funcall msgs)))
+    (check "an emptied hall folds back to the main page" :main
+           (guild-view-mode v))
+    ;; Add with an empty hall is refused with a note
+    (guild-act g v #\a)
+    (check-true "Add with an empty hall leaves a note"
+                (find-if (lambda (s)
+                           (search "No one waits in the hall." s))
+                         (menu-texts (guild-lines g v))))
+    ;; Remove: back to the hall, in the hall's own order
+    (guild-act g v #\r)
+    (check-true "the remove page rows the party"
+                (find-if (lambda (s) (search "1) Waiting" s))
+                         (menu-texts (guild-lines g v))))
+    (guild-act g v #\1)
+    (check "the hero stays behind" (list hall) (game-roster g))
+    (check "the party is bare again" nil (game-party g))
+    (check-true "the parting is announced"
+                (find-if (lambda (s) (search "stays at the guild" s))
+                         (funcall msgs)))
+    ;; with a member marching, Esc leaves — on this cell (two open
+    ;; sides, entered without a step) the party stays where it stands
+    (guild-act g v #\a)
+    (guild-act g v #\1)
+    (check "Esc with a party leaves" :left (guild-act g v #\Escape))
+    (check "the guild is left behind" nil (game-location g))
+    (check "several open sides leave the party standing" '(0 0)
+           (list (game-x g) (game-y g)))))
+
+;; A full party refuses an eighth: JOIN-PARTY's own rule, spoken
+;; through the guild's add page.
+(let* ((m (parse-map *art* :name "test"))
+       (seven (loop for i below +party-limit+
+                    collect (%combat-hero (format nil "M~D" i))))
+       (hall (%combat-hero "Eighth"))
+       (g (new-game m :party seven :roster (list hall)))
+       (msgs (watch-messages g)))
+  (enter-location g '("The Test Guild" :guild))
+  (let ((v (make-location-view g)))
+    (guild-act g v #\a)
+    (guild-act g v #\1)
+    (check "the eighth is refused" (list hall) (game-roster g))
+    (check "the party stands at seven" seven (game-party g))
+    (check-true "the refusal is spoken"
+                (find-if (lambda (s) (search "party is full" s))
+                         (funcall msgs)))))
+
+;; The creation walk: race, class, name, the roll kept or rolled
+;; again.  The dice are scripted, so every number on the page is
+;; known: an empty script rolls 1s and 3s (hp 1d8+2 -> 3; each 3d6
+;; stat 3; :g-folk's +1 STR makes 4), and the purse dice roll their
+;; floor.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m))
+       (msgs (watch-messages g)))
+  (enter-location g '("The Test Guild" :guild :gold "1d4+5"))
+  (let ((v (make-location-view g)))
+    (guild-act g v #\c)
+    (check "c opens the race page" :race (guild-view-mode v))
+    (check-true "the races list by their titles"
+                (find-if (lambda (s) (search "G-Folk" s))
+                         (menu-texts (guild-lines g v))))
+    (guild-act g v (digit-char (1+ (position :g-folk (races)))))
+    (check "a digit picks the race" :g-folk (guild-view-race v))
+    (check "and turns to the class page" :class (guild-view-mode v))
+    ;; the class page offers the race's startable classes in the
+    ;; registry's stable order: :g-faced then :tester
+    (check-true "the class page rows the race's classes"
+                (find-if (lambda (s) (search "2) Tester" s))
+                         (menu-texts (guild-lines g v))))
+    (guild-act g v #\2)
+    (check "a one-portrait class goes straight to the name" :name
+           (guild-view-mode v))
+    ;; the name field: live echo, Backspace, the taken/blank refusals
+    (guild-act g v #\A)
+    (guild-act g v #\v)
+    (guild-act g v #\v)
+    (guild-act g v #\Backspace)
+    (guild-act g v #\a)
+    (check-true "the name echoes live"
+                (find-if (lambda (s) (search "Name: Ava_" s))
+                         (menu-texts (guild-lines g v))))
+    (with-rng ()
+      (guild-act g v #\Return))
+    (check "Return rolls the character" :roll (guild-view-mode v))
+    (check-true "the roll page shows the scripted dice"
+                (let ((texts (menu-texts (guild-lines g v))))
+                  (and (find-if (lambda (s) (search "Ava" s)) texts)
+                       (find-if (lambda (s)
+                                  (search "G-Folk Tester" s)) texts)
+                       (find-if (lambda (s)
+                                  (search "HP 3  AC 8" s)) texts)
+                       (find-if (lambda (s)
+                                  (search "STR 4 DEX 3 IQ 3" s)) texts)
+                       (find-if (lambda (s) (search "Gold 6 gp" s))
+                                texts))))
+    ;; Roll again draws fresh dice — a scripted 4,4,4 STR reads 15+1
+    (with-rng (0 4 4 4)
+      (guild-act g v #\r))
+    (check "the reroll is a fresh roll" 16
+           (hero-str (guild-view-rolled v)))
+    (check "k keeps the roll onto the roster" '("Ava")
+           (progn (guild-act g v #\k)
+                  (mapcar #'hero-name (game-roster g))))
+    (check "keeping lands back on the main page" :main
+           (guild-view-mode v))
+    (check-true "the signing is announced"
+                (find-if (lambda (s) (search "signs the guild roster" s))
+                         (funcall msgs)))
+    (check "the kept hero rolled the guild's gold" 6
+           (hero-gold (first (game-roster g))))
+    ;; a second Ava is refused by name; a blank name is refused flat
+    (guild-act g v #\c)
+    (guild-act g v (digit-char (1+ (position :g-folk (races)))))
+    (guild-act g v #\2)
+    (guild-act g v #\A)
+    (guild-act g v #\v)
+    (guild-act g v #\a)
+    (guild-act g v #\Return)
+    (check "a taken name does not roll" :name (guild-view-mode v))
+    (check-true "and says so"
+                (find-if (lambda (s) (search "The name is taken." s))
+                         (menu-texts (guild-lines g v))))
+    (dotimes (i 3) (guild-act g v #\Backspace))
+    (guild-act g v #\Return)
+    (check-true "a blank name asks for one"
+                (find-if (lambda (s) (search "A name is needed." s))
+                         (menu-texts (guild-lines g v))))
+    ;; the walk backs out a page at a time and finally cancels
+    (guild-act g v #\Escape)
+    (check "Esc from the name steps back to the class" :class
+           (guild-view-mode v))
+    (guild-act g v #\Escape)
+    (check "Esc from the class steps back to the race" :race
+           (guild-view-mode v))
+    (guild-act g v #\Escape)
+    (check "Esc from the race cancels the walk" :main
+           (guild-view-mode v))
+    ;; a two-portrait class asks man or woman, and the pick stamps
+    ;; the portrait
+    (guild-act g v #\c)
+    (guild-act g v (digit-char (1+ (position :g-folk (races)))))
+    (guild-act g v #\1)
+    (check "a two-portrait class asks whose face" :sex
+           (guild-view-mode v))
+    (guild-act g v #\2)
+    (guild-act g v #\B)
+    (guild-act g v #\e)
+    (guild-act g v #\a)
+    (with-rng ()
+      (guild-act g v #\Return))
+    (check "the woman's portrait is stamped" "gfx/g-woman.iff"
+           (hero-portrait (guild-view-rolled v)))
+    ;; Esc on the roll page discards the roll
+    (guild-act g v #\Escape)
+    (check "Esc discards the roll" nil (guild-view-rolled v))
+    (check "the discarded never signed" '("Ava")
+           (mapcar #'hero-name (game-roster g)))
+    ;; Delete: y strikes the name behind a confirmation, n spares it
+    (guild-act g v #\d)
+    (guild-act g v #\1)
+    (check "the delete pick asks first" :confirm-delete
+           (guild-view-mode v))
+    (check-true "the confirmation names the hero"
+                (find-if (lambda (s)
+                           (search "Strike Ava from the roster?" s))
+                         (menu-texts (guild-lines g v))))
+    (guild-act g v #\n)
+    (check "n spares the name" '("Ava")
+           (mapcar #'hero-name (game-roster g)))
+    (guild-act g v #\1)
+    (guild-act g v #\y)
+    (check "y strikes the name" nil (game-roster g))
+    (check-true "the striking is announced"
+                (find-if (lambda (s)
+                           (search "struck from the roster" s))
+                         (funcall msgs)))
+    ;; the save/load rows hand the front-end its instruction
+    (check "s asks for the save picker" '(:saves :save)
+           (guild-act g v #\s))
+    (check "l asks for the load picker" '(:saves :load)
+           (guild-act g v #\l))))
+
+;; A bad purse is a design error caught at the door, the bad-stock
+;; rule.
+(let ((g (new-game (parse-map *art* :name "test"))))
+  (check-error "a bad :gold is caught at entry"
+    (enter-location g '("The Test Guild" :guild :gold "no dice"))))
+
+;; A game that starts AT its guild: the start cell's special walks in
+;; without a step, and leaving still exits through the cell's one
+;; door.
+(with-open-file (s "tests/tmp-guild.map" :direction :output
+                   :if-exists :supersede)
+  (write-string "+-+-+
+|@D |
++-+-+
+
+(zone :kind :city :title \"Boot Guild\")
+
+(special (0 0)
+  (location \"The Boot Guild\" :guild :gold 10))
+" s))
+(let* ((m (load-map-file "tests/tmp-guild.map"))
+       (hall (%combat-hero "First"))
+       (g (new-game m :roster (list hall))))
+  (trigger-special g)
+  (check "the boot walks into the guild" "The Boot Guild"
+         (location-title (game-location g)))
+  (check "a boot entry has no entry-dir" nil
+         (location-entry-dir (game-location g)))
+  (let ((v (make-location-view g)))
+    (guild-act g v #\a)
+    (guild-act g v #\1)
+    (check "leaving takes the lone door" :left (guild-act g v #\Escape))
+    (check "the exit lands on the street" '(1 0)
+           (list (game-x g) (game-y g)))
+    (check "facing away from the door" :east
+           (dir-keyword (game-facing g)))
+    (check "a back-step re-enters the guild" :door (move-party g :back))
+    (check-true "re-entry is modal again" (game-location g))))
+
+;; Save games carry the roster (v9) and the location the party stood
+;; inside: a game saved at the guild's desk wakes at the guild's desk.
+(let* ((m (load-map-file "tests/tmp-guild.map"))
+       (march (%combat-hero "March"))
+       (hall (%combat-hero "Hall"))
+       (g (new-game m :party (list march) :roster (list hall))))
+  (trigger-special g)
+  (save-game g "tests/tmp-guild.sav")
+  (let ((loaded (load-game "tests/tmp-guild.sav")))
+    (check "the roster survives the save" '("Hall")
+           (mapcar #'hero-name (game-roster loaded)))
+    (check "the party survives beside it" '("March")
+           (mapcar #'hero-name (game-party loaded)))
+    (check "the save wakes inside the guild" "The Boot Guild"
+           (location-title (game-location loaded)))
+    (check "the restored entry is the saved one" nil
+           (location-entry-dir (game-location loaded)))
+    ;; the restored location leaves like the original: out the door
+    (let ((v (make-location-view loaded)))
+      (check "the restored guild leaves cleanly" :left
+             (guild-act loaded v #\Escape))
+      (check "onto the street" '(1 0)
+             (list (game-x loaded) (game-y loaded))))))
+(delete-file "tests/tmp-guild.sav")
+
+;; A pre-v9 save has no roster and no location keys: an empty hall,
+;; a party on the street — GETF's defaults, nothing more.
+(with-open-file (s "tests/tmp-guild-v8.sav" :direction :output
+                   :if-exists :supersede)
+  (let ((*package* (find-package :tale)))
+    (prin1 '(:lambda-tale-save 8 :map-file "tests/tmp-guild.map"
+             :x 1 :y 0 :facing 1 :time 480
+             :party ((:name "Old" :class :tester)))
+           s)
+    (terpri s)))
+(let ((loaded (load-game "tests/tmp-guild-v8.sav")))
+  (check "a v8 save loads with an empty hall" nil (game-roster loaded))
+  (check "and its party intact" '("Old")
+         (mapcar #'hero-name (game-party loaded)))
+  (check "and stays on the street" nil (game-location loaded)))
+(delete-file "tests/tmp-guild-v8.sav")
+(delete-file "tests/tmp-guild.map")
+
+;;; ---------------------------------------------------------------------
 ;;; EFFECT-SUMMARY-LINES / EFFECT-DURATION-TEXT — the *EFFECT-PHRASES*
 ;;; table read straight, one key at a time, no spell or cast needed.
 
@@ -8521,6 +8863,38 @@ height" d)
          '(0 0) (list (game-x g) (game-y g))))
 (delete-file "tests/tmp-travel-loc-a.map")
 (delete-file "tests/tmp-travel-loc-b.map")
+
+;; The lone-exit case is the same mechanic, not a guild special case:
+;; a step-less arrival (TRAVEL here) on a cell with exactly one
+;; passable side leaves through that door regardless of location kind.
+(with-open-file (s "tests/tmp-lone-exit-a.map" :direction :output
+                   :if-exists :supersede)
+  (write-string "+-+
+|@|
++-+
+" s))
+(with-open-file (s "tests/tmp-lone-exit-b.map" :direction :output
+                   :if-exists :supersede)
+  (write-string "+-+-+
+|@D |
++-+-+
+
+(special (0 0)
+  (location \"Lone Door Shrine\" :shrine))
+" s))
+(let* ((m (load-map-file "tests/tmp-lone-exit-a.map"))
+       (g (new-game m)))
+  (travel-party g "tmp-lone-exit-b.map")
+  (check-true "the arrival cell's location was entered" (game-location g))
+  (check "a location entered via TRAVEL has no entry-dir" nil
+         (location-entry-dir (game-location g)))
+  (leave-location g)
+  (check "a non-guild kind still takes its cell's lone door out" '(1 0)
+         (list (game-x g) (game-y g)))
+  (check "facing away from the door" :east
+         (dir-keyword (game-facing g))))
+(delete-file "tests/tmp-lone-exit-a.map")
+(delete-file "tests/tmp-lone-exit-b.map")
 
 ;;; ---------------------------------------------------------------------
 ;;; Locations and shops (M4)

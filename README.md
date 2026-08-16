@@ -835,6 +835,30 @@ so) — then *Who will pay?* over the party's purses, with the same
 "The energy fount" test sections of `tests/run-tests.lisp` are the
 executable specification.
 
+The **guild** — `(location TITLE :guild :gold DICE)` — is the
+Adventurers' Guild of Bard's Tale tradition: characters are made and
+parties formed there.  Heroes not marching wait in the game's
+**roster** (saved with the game); the guild's pages move them —
+*Create a character* walks race, class, portrait where the class
+carries two (`:image-woman`), and a typed name (letters, digits,
+spaces, `-` and `_`, up to 12), then shows the 3d6 roll for keeping
+or rolling again, the fresh hero signing the roster with `DICE` gold
+(campaign data decides the purse; default 0); *Add a member* moves a
+waiting hero into the party, *Remove a member* sends one back to the
+hall, and *Delete a character* strikes a name for good behind a
+yes/no.  *Save game* and *Load game* open the save/load picker right
+there, so the guild is where a tale is put down and taken up again —
+a save made inside any location now restores **inside** it.  A
+campaign that starts at its guild puts the location on the map's
+start cell and defines `default-roster` (heroes waiting at boot)
+instead of `default-party` (heroes marching at boot; both hooks are
+optional) — the boot walks straight into the guild menu, and the
+guild will not send an empty party out onto the street.  Leaving a
+location entered without a step (the boot's start cell, a TRAVEL
+arrival) still steps out the front door when the cell has exactly one
+passable side.  The "The guild" test section of
+`tests/run-tests.lisp` is the executable specification.
+
 Any location may keep **hours** — `(location ... :closed :night)`, a
 day-band or a list of them — and its door will not open while the
 clock stands in one: the party is told, an entering step is bounced

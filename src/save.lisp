@@ -18,7 +18,14 @@
 
 (in-package :tale)
 
-(defconstant +save-version+ 8)
+(defconstant +save-version+ 9)
+;; v9: the guild roster (:roster, hero plists like :party — heroes
+;; waiting at the guild) and the location the party stood inside when
+;; the game was saved (:in-location, with :location-entry its entry
+;; direction or NIL): the standing cell's LOCATION op is re-entered on
+;; restore, so a game saved at the guild's desk wakes at the guild's
+;; desk.  A pre-v9 save has neither key — an empty hall, and a party
+;; on the street.
 ;; v8: the portrait stamped on a hero at creation (:portrait in the
 ;; hero plists; :NONE for a class with none, NIL falls back to the
 ;; class :image, which is also what every pre-v8 hero gets).
@@ -105,7 +112,12 @@ is not allowed.  Returns PATH."
                      :effects (%effects->list game)
                      :zones (%zones->alist game)
                      :flags (%flags->alist game)
-                     :party (mapcar #'%hero->plist (game-party game)))))
+                     :party (mapcar #'%hero->plist (game-party game))
+                     :roster (mapcar #'%hero->plist (game-roster game))
+                     :in-location (and (game-location game) t)
+                     :location-entry (and (game-location game)
+                                          (location-entry-dir
+                                           (game-location game))))))
     (with-open-file (s path :direction :output :if-exists :supersede)
       (let ((*package* (find-package :tale))
             (*print-pretty* nil))
@@ -123,7 +135,10 @@ their day did not know."
          (game (new-game map
                          :party (mapcar (lambda (plist)
                                           (apply #'%make-hero plist))
-                                        (getf data :party)))))
+                                        (getf data :party))
+                         :roster (mapcar (lambda (plist)
+                                           (apply #'%make-hero plist))
+                                         (getf data :roster)))))
     (setf (game-x game) (getf data :x (game-x game))
           (game-y game) (getf data :y (game-y game))
           (game-facing game) (getf data :facing (game-facing game))
@@ -139,6 +154,19 @@ their day did not know."
           (push zone (game-zone-knowledge game))))
     (dolist (kv (getf data :flags))
       (set-flag game (car kv) (cdr kv)))
+    ;; the party was standing inside the cell's location when the game
+    ;; was saved (the guild's own save entry, the Amiga menu strip in a
+    ;; shop): walk back in, the saved entry direction carried over so
+    ;; leaving still steps out the door it came in by.  A location gone
+    ;; from the map (a rewritten world) is simply not there to enter;
+    ;; one closed at the restored hour bounces the party out before its
+    ;; door, as any entering step would be.
+    (when (getf data :in-location)
+      (let ((spec (cell-location-op (game-map game)
+                                    (game-x game) (game-y game))))
+        (when spec
+          (let ((*step-dir* (getf data :location-entry)))
+            (enter-location game spec)))))
     (observe game)
     game))
 

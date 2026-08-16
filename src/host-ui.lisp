@@ -592,7 +592,12 @@ engine has no default world; the game names its starting map."
                      (sing (sing-menu-act c))
                      ((game-combat game) (combat-act c))
                      ((game-location game)
-                      (location-act game locv c)
+                      ;; the location's model may hand back an
+                      ;; instruction: the guild's Save/Load game rows
+                      ;; open the picker over the location page
+                      (let ((r (location-act game locv c)))
+                        (when (and (consp r) (eq (first r) :saves))
+                          (setf menu (make-save-menu (second r)))))
                       nil)
                      (t (explore-act c))))
              (act (c)
@@ -625,9 +630,15 @@ engine has no default world; the game names its starting map."
                              "The tale ends here — for now.  You win!"
                              "All heroes have fallen.  Game over."))
                  t)))
+      ;; the campaign's two optional boot hooks: DEFAULT-PARTY marches
+      ;; from the first step, DEFAULT-ROSTER waits at the guild (a
+      ;; campaign that starts at its guild defines only the roster and
+      ;; lets the player form the party there)
       (setf game (wire (new-game map
                                  :party (when (fboundp 'default-party)
-                                          (funcall 'default-party)))))
+                                          (funcall 'default-party))
+                                 :roster (when (fboundp 'default-roster)
+                                           (funcall 'default-roster)))))
       (trigger-special game)
       (if (ext:tty-p)
           (progn
