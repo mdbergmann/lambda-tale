@@ -50,6 +50,28 @@ push the page's last rows off the lores screen)."
         full
         (format nil "*** ~A" (location-title location)))))
 
+;;; A notice: what a location's model says when the answer is too wide
+;;; for the page's last line.  A menu's NOTE row is for the short ones
+;;; ("No one marches."); a sentence wider than +TAKEOVER-COLUMNS+ wraps
+;;; there, and a wrapped row on a full page costs the menu its spacer
+;;; and packs its options onto shared rows (see FIT-MENU-PAGE) — the
+;;; page visibly reflows around the answer.  So the model hands the
+;;; front-end (:NOTICE TEXT) instead: the sentence alone on the
+;;; location's own page, held *NOTICE-LINGER* seconds, and then the
+;;; menu returns exactly as it was.  The SAVE-MENU-ACT instruction
+;;; pattern, like the guild's (:SAVES ...).
+
+(defparameter *notice-linger* 5
+  "Seconds a front-end holds a (:NOTICE TEXT) page before the
+location's own menu comes back — a beat to read a refusal, no key
+needed.")
+
+(defun notice-lines (game text)
+  "The page a (:NOTICE TEXT) instruction shows: the location's banner
+over TEXT and nothing else, so the sentence may wrap into the room
+the menu did not have."
+  (list (location-banner (game-location game)) "" text))
+
 (defun plaque-title (game)
   "What the view plaque under the first-person view says: the current
 location's :PLAQUE arg while the party stands inside one that names
@@ -1219,9 +1241,10 @@ picks, the purse from the location's :GOLD."
 pick within the visible window of the page's list (u/d scroll it),
 Esc steps back a page at a time and finally leaves — though never
 with an empty party: the guild sends no one out alone.  Returns NIL,
-:LEFT when the party steps out, or the front-end instruction
-\(:SAVES :SAVE) / (:SAVES :LOAD) — the front-end opens its save/load
-picker over the guild page and closes it back onto it."
+:LEFT when the party steps out, or a front-end instruction —
+\(:SAVES :SAVE) / (:SAVES :LOAD) open the save/load picker over the
+guild page and close it back onto it, (:NOTICE TEXT) holds TEXT on a
+page of its own for a beat (see NOTICE-LINES)."
   (let ((digit (digit-char-p char))
         (mode (guild-view-mode view)))
     (setf (guild-view-note view) nil)
@@ -1269,9 +1292,9 @@ picker over the guild page and closes it back onto it."
            ((#\Escape #\q #\Q)
             (if (game-party game)
                 (progn (leave-location game) :left)
-                (progn (setf (guild-view-note view)
-                             "The guild sends no one out alone.")
-                       nil)))
+                ;; too wide a sentence for the note row (the menu
+                ;; would reflow around its wrap) — its own page
+                (list :notice "The guild sends no one out alone.")))
            (t nil)))
         (:add
          (cond (digit
@@ -1446,8 +1469,10 @@ clickable EXIT."
   "Apply key CHAR inside the current location (see SHOP-ACT,
 TAVERN-ACT, TEMPLE-ACT, ENERGY-ACT and GUILD-ACT).  Returns what the
 kind's own ACT returns: NIL, :LEFT when the party leaves the location
-— or an instruction the front-end executes, today the guild's
-\(:SAVES :SAVE) / (:SAVES :LOAD) ask for the save/load picker."
+— or an instruction the front-end executes: the guild's
+\(:SAVES :SAVE) / (:SAVES :LOAD) ask for the save/load picker, and
+\(:NOTICE TEXT) asks for TEXT alone on a page for *NOTICE-LINGER*
+seconds before the location's own page returns."
   (let ((loc (game-location game)))
     (case (location-kind loc)
       (:shop (shop-act game view char))

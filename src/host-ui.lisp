@@ -599,8 +599,13 @@ engine has no default world; the game names its starting map."
                       ;; instruction: the guild's Save/Load game rows
                       ;; open the picker over the location page
                       (let ((r (location-act game locv c)))
-                        (when (and (consp r) (eq (first r) :saves))
-                          (setf menu (make-save-menu (second r)))))
+                        (when (consp r)
+                          (case (first r)
+                            (:saves (setf menu (make-save-menu (second r))))
+                            ;; no timed page on a scrolling terminal:
+                            ;; the notice speaks through the log, which
+                            ;; the next prompt reprints anyway
+                            (:notice (log-message log (second r))))))
                       nil)
                      (t (explore-act c))))
              (act (c)

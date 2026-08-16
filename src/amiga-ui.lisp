@@ -3397,16 +3397,35 @@ means the player asked to leave (ACT confirms it)."
                                          ;; instruction: the guild's
                                          ;; Save/Load game rows open
                                          ;; the picker over the page
-                                         (if (and (consp r)
-                                                  (eq (first r) :saves))
-                                             (open-saves (second r))
-                                             ;; the location lives in
-                                             ;; the panes too — leaving
-                                             ;; needs only a redraw (a
-                                             ;; trapdoor travel sets
-                                             ;; zone-dirty and redraw
-                                             ;; repaints the chrome)
-                                             (redraw))
+                                         (cond
+                                           ((and (consp r)
+                                                 (eq (first r) :saves))
+                                            (open-saves (second r)))
+                                           ((and (consp r)
+                                                 (eq (first r) :notice))
+                                            ;; an answer the menu row
+                                            ;; had no room for: alone
+                                            ;; on the page, a beat to
+                                            ;; read it, then the menu
+                                            ;; back exactly as it was
+                                            (%amiga-draw-takeover
+                                             rp (notice-lines game
+                                                              (second r))
+                                             log l log-lines)
+                                            (%amiga-party rp game l nil)
+                                            ;; an unattended session
+                                            ;; reads nothing — it must
+                                            ;; not wait either
+                                            (unless *autoplay*
+                                              (sleep *notice-linger*))
+                                            (redraw))
+                                           ;; the location lives in
+                                           ;; the panes too — leaving
+                                           ;; needs only a redraw (a
+                                           ;; trapdoor travel sets
+                                           ;; zone-dirty and redraw
+                                           ;; repaints the chrome)
+                                           (t (redraw)))
                                          nil)))
                                   ((or (eql lc #\q) (eql c :esc)) :quit)
                                   (over nil) ; game ended: only Q/Esc react

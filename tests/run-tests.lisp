@@ -5606,12 +5606,20 @@ height" d)
     (check-true "Remove with no party leaves a note"
                 (find-if (lambda (s) (search "No one marches." s))
                          (menu-texts (guild-lines g v))))
-    (check "Esc with no party does not leave" nil
-           (guild-act g v #\Escape))
-    (check-true "the guild sends no one out alone"
-                (find-if (lambda (s)
-                           (search "sends no one out alone" s))
-                         (menu-texts (guild-lines g v))))
+    ;; the refusal is wider than the narrowest takeover column, so it
+    ;; comes back as a notice instruction — a page of its own — rather
+    ;; than a note row the crowded menu would reflow around
+    (let ((r (guild-act g v #\Escape)))
+      (check "Esc with no party asks for a notice page"
+             '(:notice "The guild sends no one out alone.") r)
+      (check-true "the refusal really is too wide for a note row"
+                  (> (length (second r)) +takeover-columns+))
+      (check "the notice page is the banner over the sentence"
+             (list (location-banner (game-location g)) "" (second r))
+             (notice-lines g (second r))))
+    (check-true "the guild's own page carries no such note"
+                (notany (lambda (s) (search "sends no one out alone" s))
+                        (menu-texts (guild-lines g v))))
     (check-true "still inside" (game-location g))
     ;; Add: the hall's row names the hero the party pane's way
     (guild-act g v #\a)
@@ -10459,6 +10467,37 @@ height" d)
     (%track-pointer-hot nil 15 15)
     (check "a redraw that dropped the targets keeps the hand" nil
            *pointer-hot*)))
+
+;; The background-music readiness gate.  A campaign that starts at its
+;; guild is inside a :MUSIC location from NEW-GAME's specials — before
+;; the display opens, and before the UNWIND-PROTECT that gives channel
+;; and chip RAM back is standing.  A tune begun there would play to a
+;; blank screen through the tile-pack load and leak its channel if the
+;; display then failed to open, so nothing sounds until the session
+;; raises the flag.  (No display and no audio.device are needed for
+;; these: the gate turns the calls into no-ops well before either.)
+#+amigaos
+(let ((*amiga-music-ready* nil)
+      (*amiga-music* nil))
+  (check "an ungated tune does not play" nil
+         (amiga-music-play "worlds/nonesuch/theme.8svx"))
+  (check "and loads nothing to leak" nil *amiga-music*)
+  ;; a missing file is silence, not an error — the cue layer's rule —
+  ;; and the state it leaves keeps the session from re-reading it
+  (setf *amiga-music-ready* t)
+  (check "a tune the disk does not hold stays silent" nil
+         (amiga-music-play "worlds/nonesuch/theme.8svx"))
+  (check-true "but the failed read is remembered" *amiga-music*)
+  (check "the file it failed on names the state"
+         "worlds/nonesuch/theme.8svx" (amiga-music-file *amiga-music*))
+  (check "with no channel open there is nothing to stop" nil
+         (amiga-music-stop))
+  ;; closing ends the session's music: the flag drops with it, so a
+  ;; later tune waits for a fresh session to raise it again
+  (check "closing lowers the readiness" nil (amiga-music-close))
+  (check "and drops the loaded tune" nil *amiga-music*)
+  (check "a tune after the close stays silent" nil
+         (amiga-music-play "worlds/nonesuch/theme.8svx")))
 
 ;;; ---------------------------------------------------------------------
 ;;; Wall-art assets (M3): the checked-in tile packs — one per display

@@ -878,7 +878,14 @@ host header) shows while the party stands inside, where the full
 title would not fit; without one the plaque keeps the zone's name.
 A location page's title banner drops its closing `***` when the full
 `*** TITLE ***` would overflow the narrowest takeover column — the
-ornament may not cost the page a row.  A hero class names a
+ornament may not cost the page a row.  For the same reason a location
+model may answer a key with `(:notice TEXT)` instead of a note row:
+a sentence wider than that column would wrap, and a wrapped row on a
+full page costs the menu its spacer and packs its options onto shared
+rows, so the page visibly reflows around the answer.  The instruction
+puts TEXT alone under the banner (`notice-lines`), holds it
+`*notice-linger*` seconds — the Amiga front-end; the host speaks it
+through the log — and then the menu returns exactly as it was.  A hero class names a
 **portrait** —
 `(define-hero-class ... :image "gfx/hero-warrior.iff")` — shown
 beside the character sheet.  A class open to both men and women may

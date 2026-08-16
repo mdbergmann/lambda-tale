@@ -161,6 +161,7 @@
    #:make-shop-view #:shop-view-hero #:shop-view-mode #:shop-view-top
    #:shop-lines #:shop-act
    #:make-location-view #:location-lines #:location-act
+   #:notice-lines #:*notice-linger*
    ;; spells
    #:define-spell #:find-spell-type #:spell-title
    #:spell-code #:spell-range #:spell-duration-text #:spell-target-kind
