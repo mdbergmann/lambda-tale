@@ -183,6 +183,12 @@ single-digit picks)."
 column.  The takeover generators design their lines against this
 width; MENU-NEXT-OPTION centers on it.")
 
+(defconstant +takeover-rows+ 11
+  "Small-face rows of the shortest (lores) message-area takeover
+page.  A generator that windows its whole page as one document — the
+pack sheet (EQUIP-LINES) — scrolls against this budget, so every
+front-end turns the same pages.")
+
 (defun menu-next-option ()
   "The NEXT row that pages the character-sheet carousel (sheet, pack,
 spells/songs — 'n' or a click): the word centered on the lores

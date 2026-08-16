@@ -7553,24 +7553,58 @@ height" d)
   (check "back on the pack page" :pack (equip-view-mode view))
   (check "esc then closes the page" :cancelled (equip-act g view #\Escape)))
 
-;; A deep pack scrolls on the pack page (the shop-stock pattern).
-(dolist (name '(teq-1 teq-2 teq-3 teq-4 teq-5 teq-6 teq-7 teq-8))
+;; A full pack turns the pack page whole: the sheet windows its one
+;; document — title, header, items, letter keys and NEXT — over
+;; +TAKEOVER-ROWS+ rows, so the first window is the sheet's head and
+;; the second is its foot, the item numbers never move, and a digit
+;; picks its printed number even while the row is off the window.
+(dolist (name '(teq-1 teq-2 teq-3 teq-4 teq-5 teq-6 teq-7))
   (define-item name :price 1))
 (let* ((h (%combat-hero))
        (g (new-game (parse-map *art* :name "test") :party (list h)))
        (view (make-equip-view h)))
-  (dolist (name '(teq-1 teq-2 teq-3 teq-4 teq-5 teq-6 teq-7 teq-8))
+  (give-item g h 't-sword)
+  (dolist (name '(teq-1 teq-2 teq-3 teq-4 teq-5 teq-6 teq-7))
     (give-item g h name))
-  (check "deep pack: the window geometry reaches the scrollbar"
-         '(0 7 8) (progn (equip-lines g view) *menu-scroll*))
-  (check "d scrolls the pack" nil (equip-act g view #\d))
-  (check "the view holds the clamped offset" 1 (equip-view-top view))
-  (check-true "scrolled pack: row 1 is the second item"
-              (find-if (lambda (s) (search "1) Teq 2" s))
+  ;; the document: title, AC row, a blank, 8 items, then the footer
+  ;; (blank, three letter keys, blank, NEXT) — 17 rows windowed at 11
+  (check "full pack: the page geometry reaches the scrollbar"
+         '(0 11 17) (progn (equip-lines g view) *menu-scroll*))
+  (check-true "the first window opens on the title"
+              (search "'s Pack ***" (first (equip-lines g view))))
+  (check-true "and still ends with the whole pack"
+              (find-if (lambda (s) (search "8) Teq 7" s))
                        (menu-texts (equip-lines g view))))
-  (check "the scrolled pack window sheds the letter keys" nil
+  (check "the letter keys wait below the fold" nil
          (member (menu-option #\i "Inspect an item")
-                 (equip-lines g view) :test #'equal)))
+                 (equip-lines g view) :test #'equal))
+  (check "d turns the page" nil (equip-act g view #\d))
+  (check "the view holds the clamped offset" 6 (equip-view-top view))
+  (check "the turned page ends on NEXT" (menu-next-option)
+         (first (last (equip-lines g view))))
+  (check-true "the turned page carries the letter keys"
+              (member (menu-option #\i "Inspect an item")
+                      (equip-lines g view) :test #'equal))
+  (check-true "the scrolled rows keep their absolute numbers"
+              (find-if (lambda (s) (search "4) Teq 3" s))
+                       (menu-texts (equip-lines g view))))
+  (check "the title scrolled away with its window" nil
+         (find-if (lambda (s) (search "'s Pack ***" s))
+                  (menu-texts (equip-lines g view))))
+  ;; the digits pick by the printed number, not the visible row
+  (check "an off-window digit still picks its item" nil
+         (equip-act g view #\1))
+  (check "the sword went on by its absolute number" 't-sword
+         (equipped-of-kind h :weapon))
+  (check "u turns back" nil (equip-act g view #\u))
+  (check "the view is back at the top" 0 (equip-view-top view))
+  ;; every page change opens at its top: scroll down, open a picker
+  (equip-act g view #\d)
+  (check "t on the scrolled page opens the toss page" nil
+         (equip-act g view #\t))
+  (check "the picker opens at its top" 0 (equip-view-top view))
+  (check "the picker fits its one window" nil
+         (progn (equip-lines g view) *menu-scroll*)))
 
 ;; PASS-ITEM: handing an item to another party member.  The item is
 ;; unequipped on the way and is never destroyed — a full receiving pack
