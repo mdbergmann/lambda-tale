@@ -3451,6 +3451,12 @@ means the player asked to leave (ACT confirms it)."
                        (%ensure-standard-pointer scr win display)
                        (ensure-walls)
                        (amiga-sound-open (zone-sfx-dir game))
+                       ;; from here the cleanup below owns the music's
+                       ;; channel, so a tune may start — a campaign
+                       ;; booting into its guild is already inside the
+                       ;; location whose :MUSIC names one
+                       (setf *amiga-music-ready* t)
+                       (amiga-music-sync game)
                        (dlog-timed ("chrome + first frame")
                          (%chrome-bg rp win l)
                          (%chrome-frames rp game l)

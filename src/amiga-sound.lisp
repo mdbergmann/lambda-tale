@@ -121,13 +121,25 @@ to lose its channel to anyone louder.")
 (defvar *amiga-music* nil
   "The open background-music state, or NIL while no tune is loaded.")
 
+(defvar *amiga-music-ready* nil
+  "True once the session owns its audio cleanup, and only then does a
+tune start.  The boot enters its first location — a campaign that
+starts at its guild is IN one before the display opens — while the
+UNWIND-PROTECT that frees channel and chip RAM is not yet standing,
+and a tune begun there would both play to a blank screen through the
+tile-pack load and leak its channel if the display then failed to
+open.  AMIGA-MUSIC-CLOSE lowers it again.")
+
 (defun amiga-music-play (file)
   "Loop FILE (an 8SVX) as background music until AMIGA-MUSIC-STOP —
 FILE already being the loaded tune starts it over from the top.  A
 sample past the device's write ceiling is cut to it (the loop just
-comes around early).  Returns the state, or NIL when staying silent."
+comes around early).  Silent until the session raised
+*AMIGA-MUSIC-READY*.  Returns the state, or NIL when staying silent."
+  (unless *amiga-music-ready*
+    (return-from amiga-music-play nil))
   (unless (and *amiga-music* (equal file (amiga-music-file *amiga-music*)))
-    (amiga-music-close)
+    (%amiga-music-free)
     (let ((sound (handler-case (read-8svx file)
                    (error (e)
                      (dlog "music ~A: ~A — staying silent" file e)
@@ -165,20 +177,27 @@ comes around early).  Returns the state, or NIL when staying silent."
                              (sound-rate sound)))))
                   (dlog "music: no audio.device channel — staying silent"))))))))
   (when (and *amiga-music* (amiga-music-chip *amiga-music*))
-    (amiga.audio:play-sample (amiga-music-audio *amiga-music*)
-                             (amiga-music-chip *amiga-music*)
-                             (amiga-music-len *amiga-music*)
-                             :period (amiga-music-period *amiga-music*)
-                             :volume +music-volume+
-                             :cycles 0)
+    (let ((queued (amiga.audio:play-sample
+                   (amiga-music-audio *amiga-music*)
+                   (amiga-music-chip *amiga-music*)
+                   (amiga-music-len *amiga-music*)
+                   :period (amiga-music-period *amiga-music*)
+                   :volume +music-volume+
+                   :cycles 0)))
+      (dlog "music ~A: ~D bytes, period ~D, channel ~D, looping ~A"
+            file (amiga-music-len *amiga-music*)
+            (amiga-music-period *amiga-music*)
+            (amiga.audio:audio-channel-mask (amiga-music-audio *amiga-music*))
+            queued))
     *amiga-music*))
 
 (defun amiga-music-sync (game)
   "Match the loop to where GAME stands: inside a location that names
 :MUSIC the tune plays (from the top), anywhere else it stops.  The
-call a save-game load needs by hand — LOAD-GAME re-enters the saved
-location before WIRE attaches its :ENTER-LOCATION handler, so nothing
-else starts the tune."
+call the paths that reach a location without WIRE's handler need by
+hand — the first frame (the boot's own :ENTER-LOCATION fired before
+*AMIGA-MUSIC-READY* was up) and a save-game load (LOAD-GAME re-enters
+the saved location before WIRE attaches the handler)."
   (let ((path (location-music-path game)))
     (if path
         (amiga-music-play path)
@@ -191,9 +210,9 @@ through the same door must not re-read the file."
     (amiga.audio:stop-sample (amiga-music-audio *amiga-music*)))
   nil)
 
-(defun amiga-music-close ()
-  "Free everything AMIGA-MUSIC-PLAY holds: the channel and the
-chip-RAM sample."
+(defun %amiga-music-free ()
+  "Give back the channel and chip RAM the loaded tune holds, leaving
+the session's readiness alone — AMIGA-MUSIC-PLAY's own swap path."
   (when *amiga-music*
     (let ((state *amiga-music*))
       (setf *amiga-music* nil)
@@ -202,3 +221,9 @@ chip-RAM sample."
       (when (amiga-music-chip state)
         (amiga:free-chip (amiga-music-chip state)))))
   nil)
+
+(defun amiga-music-close ()
+  "Free everything AMIGA-MUSIC-PLAY holds and close the session's
+music for good: the next tune waits for a fresh AMIGA-MUSIC-READY."
+  (%amiga-music-free)
+  (setf *amiga-music-ready* nil))
