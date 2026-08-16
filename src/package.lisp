@@ -155,6 +155,7 @@
    #:game-location #:enter-location #:leave-location
    #:location-title #:location-kind #:location-arg
    #:location-image #:location-image-path
+   #:location-music #:location-music-path
    #:cell-location-op #:facing-location-image-path
    #:shop-stock #:item-price #:item-sell-price #:buy-item #:sell-item
    #:make-shop-view #:shop-view-hero #:shop-view-mode #:shop-view-top

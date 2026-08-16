@@ -2352,11 +2352,13 @@ combat round owns the keys."
                (on-event g :enter-location
                          (lambda (gm loc) (declare (ignore loc))
                            (setf locv (make-location-view gm))
-                           (setf plaque-dirty t)))
+                           (setf plaque-dirty t)
+                           (amiga-music-sync gm)))
                (on-event g :leave-location
                          (lambda (gm loc) (declare (ignore gm loc))
                            (setf locv nil)
-                           (setf plaque-dirty t)))
+                           (setf plaque-dirty t)
+                           (amiga-music-stop)))
                (on-event g :enter-zone
                          (lambda (gm map) (declare (ignore gm map))
                            (setf zone-dirty t)))
@@ -3031,7 +3033,13 @@ combat round owns the keys."
                                             ;; name)
                                             (ensure-walls)
                                             (amiga-sound-open
-                                             (zone-sfx-dir game))))
+                                             (zone-sfx-dir game))
+                                            ;; WIRE was not yet
+                                            ;; listening when the load
+                                            ;; re-entered the saved
+                                            ;; location — match the
+                                            ;; tune to it by hand
+                                            (amiga-music-sync game)))
                                          (clear-inner)
                                          (%chrome-frames rp game l)
                                          (log-message log "Game loaded.")
@@ -3556,6 +3564,7 @@ means the player asked to leave (ACT confirms it)."
                                (when (and c (eq (act c) :quit))
                                  (return)))))))
                    (%free-standard-pointer win)
+                   (amiga-music-close)
                    (amiga-sound-close)
                    (when fp-back
                      (amiga.gfx:free-bitmap fp-back))

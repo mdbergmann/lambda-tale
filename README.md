@@ -1363,6 +1363,14 @@ Fibonacci-delta), so asset generators need no second toolchain.  The
 "Sound" test section of `tests/run-tests.lisp` is the executable
 specification.
 
+A location may also name a **tune** — `(location ... :music
+"sfx/guild-theme.8svx")`, resolved relative to the map file like
+`:image`.  On the Amiga the 8SVX loops on a second, quieter channel
+for as long as the party stands inside (a save loaded inside the
+location picks the tune straight back up) and falls silent at the
+door; the cue channel keeps speaking over it.  The host front-end
+ignores it like every cue.
+
 ## Save games
 
 Save games (`save-game`/`load-game`) are a single readable Lisp form:

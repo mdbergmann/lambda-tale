@@ -89,6 +89,22 @@ names no :IMAGE."
     (when image
       (%resolve-map-path (dungeon-map-name (game-map game)) image))))
 
+(defun location-music (location)
+  "LOCATION's background-music file name — the :MUSIC arg of the
+location op — or NIL.  The Amiga front-end loops the 8SVX while the
+party stands inside and silences it on the way out; the host
+front-end stays silent, like every cue."
+  (location-arg location :music))
+
+(defun location-music-path (game)
+  "The current location's tune resolved like LOCATION-IMAGE-PATH —
+relative to the current map file's directory — or NIL: no location,
+or it names no :MUSIC."
+  (let* ((loc (game-location game))
+         (music (and loc (location-music loc))))
+    (when music
+      (%resolve-map-path (dungeon-map-name (game-map game)) music))))
+
 (defun cell-location-op (map x y)
   "The (TITLE KIND ARG...) tail of the LOCATION op attached to cell
 \(X,Y), or NIL.  Only a top-level op counts — a location hidden behind
@@ -1096,10 +1112,16 @@ view's NOTE is the last line."
      (case (guild-view-mode view)
        (:main
         (append
+         ;; the hall line counts who WAITS — the marching party lives
+         ;; in the roster pane below, but with the hall drained into
+         ;; the party "empty" would read as heroes lost, so say whose
+         ;; hall it is
          (list (let ((n (length (game-roster game))))
-                 (if (plusp n)
-                     (format nil "Adventurers in the hall: ~D" n)
-                     "The hall stands empty.")))
+                 (cond ((plusp n)
+                        (format nil "Adventurers in the hall: ~D" n))
+                       ((game-party game)
+                        "Only your party stands here.")
+                       (t "The hall stands empty."))))
          ;; the note takes this breathing row's place below: the main
          ;; page is the one tall enough that keeping both would push
          ;; the note off the lores page
@@ -1109,7 +1131,10 @@ view's NOTE is the last line."
                (menu-option #\r "Remove a member")
                (menu-option #\d "Delete a character")
                (menu-option #\s "Save game")
-               (menu-option #\l "Load game"))))
+               (menu-option #\l "Load game")
+               ;; the game's front door: a new player must see the way
+               ;; out to the street, not know the Esc convention
+               (menu-option #\Escape "Leave the guild"))))
        (:add
         (cons "Who joins the party?"
               (menu-scrolled-lines (game-roster game)
@@ -1172,7 +1197,13 @@ view's NOTE is the last line."
               ""
               "Type a name; Return rolls"))
        (:roll (%guild-rolled-lines view)))
-     (when note (list "" note)))))
+     ;; the main page's seven-row menu leaves no row for the spacer:
+     ;; its note sits right under the menu, keeping the page at the
+     ;; lores takeover's eleven rows
+     (when note
+       (if (eq (guild-view-mode view) :main)
+           (list note)
+           (list "" note))))))
 
 (defun %guild-roll (game view)
   "Roll the creation walk's character: MAKE-HERO over the view's

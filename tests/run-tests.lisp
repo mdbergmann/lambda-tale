@@ -5626,12 +5626,29 @@ height" d)
                          (funcall msgs)))
     (check "an emptied hall folds back to the main page" :main
            (guild-view-mode v))
+    ;; the hall drained into the party: the main page says whose hall
+    ;; it is, not "empty" — a loaded game walking back in must not
+    ;; read as heroes lost
+    (check-true "a drained hall names the party"
+                (find-if (lambda (s)
+                           (search "Only your party stands here." s))
+                         (menu-texts (guild-lines g v))))
+    (check "the Leave row carries Escape" #\Escape
+           (menu-line-key
+            (find-if (lambda (line)
+                       (equal "Leave the guild" (menu-line-text line)))
+                     (guild-lines g v))))
     ;; Add with an empty hall is refused with a note
     (guild-act g v #\a)
     (check-true "Add with an empty hall leaves a note"
                 (find-if (lambda (s)
                            (search "No one waits in the hall." s))
                          (menu-texts (guild-lines g v))))
+    (let ((lines (guild-lines g v)))
+      (check-true "the noted main page keeps the lores takeover rows"
+                  (<= (length lines) +takeover-rows+))
+      (check "and the note is its last line" "No one waits in the hall."
+             (menu-line-text (car (last lines)))))
     ;; Remove: back to the hall, in the hall's own order
     (guild-act g v #\r)
     (check-true "the remove page rows the party"
@@ -5651,6 +5668,16 @@ height" d)
     (check "the guild is left behind" nil (game-location g))
     (check "several open sides leave the party standing" '(0 0)
            (list (game-x g) (game-y g)))))
+
+;; a guild with neither a party nor a waiting soul: the hall really
+;; does stand empty
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m)))
+  (enter-location g '("The Test Guild" :guild))
+  (let ((v (make-location-view g)))
+    (check-true "a bare guild's hall stands empty"
+                (find-if (lambda (s) (search "The hall stands empty." s))
+                         (menu-texts (guild-lines g v))))))
 
 ;; A full party refuses an eighth: JOIN-PARTY's own rule, spoken
 ;; through the guild's add page.
@@ -9373,6 +9400,23 @@ height" d)
   (enter-location g '("Bare Hut" :hut))
   (check "a location without :IMAGE has no picture" nil
          (location-image-path g))
+  (leave-location g))
+
+;; Location music: the location op's :MUSIC resolves map-relative like
+;; :IMAGE — the Amiga front-end loops the 8SVX while the party stands
+;; inside and silences it at the door.
+(let ((g (new-game (parse-map *art* :name "world/town"))))
+  (enter-location g '("The Singing Inn" :tavern
+                      :music "sfx/inn-theme.8svx"))
+  (check "location-music reads the :MUSIC arg" "sfx/inn-theme.8svx"
+         (location-music (game-location g)))
+  (check "the tune resolves beside the map" "world/sfx/inn-theme.8svx"
+         (location-music-path g))
+  (leave-location g)
+  (check "no location, no tune" nil (location-music-path g))
+  (enter-location g '("Quiet Hut" :hut))
+  (check "a location without :MUSIC has no tune" nil
+         (location-music-path g))
   (leave-location g))
 
 ;;; ---------------------------------------------------------------------
