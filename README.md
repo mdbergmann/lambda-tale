@@ -872,7 +872,14 @@ A location may also name a **picture** — `(location ... :image
 plus an optional street-facing **facade** — `:facade
 "gfx/house-0.iff"` — shown instead of the `:image` when the party
 faces the location's door from outside (see the "Facades from the
-street" test section); and a hero class a **portrait** —
+street" test section), and a **plaque name** — `:plaque "The Guild"`
+— a short form the view plaque under the first-person view (and the
+host header) shows while the party stands inside, where the full
+title would not fit; without one the plaque keeps the zone's name.
+A location page's title banner drops its closing `***` when the full
+`*** TITLE ***` would overflow the narrowest takeover column — the
+ornament may not cost the page a row.  A hero class names a
+**portrait** —
 `(define-hero-class ... :image "gfx/hero-warrior.iff")` — shown
 beside the character sheet.  A class open to both men and women may
 carry a second one (`:image-woman`); `make-hero` stamps the chosen

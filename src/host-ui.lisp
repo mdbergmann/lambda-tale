@@ -276,8 +276,11 @@ engine has no default world; the game names its starting map."
                  (format t "~A~%" (menu-line-text line))))
              (draw ()
                (%clear-screen)
+               ;; the header is the host's plaque: the place the party
+               ;; stands in — a location's own :PLAQUE name while
+               ;; inside one, else the zone (see PLAQUE-TITLE)
                (format t "=== Lambda's Tale ===  ~A (~Dx~D)~%~%"
-                       (map-title (game-map game))
+                       (plaque-title game)
                        (dungeon-map-width (game-map game))
                        (dungeon-map-height (game-map game)))
                (case mode

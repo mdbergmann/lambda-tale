@@ -333,7 +333,7 @@ small gap above the effect strip — see %AMIGA-DRAW-BAND)."
     (amiga.gfx:rect-fill rp (1- bx) py (+ bx w) pb)
     (amiga.gfx:set-a-pen rp 1)
     (%chrome-rect rp (1- bx) py (+ bx w) pb)
-    (let ((name (%plaque-name rp (title-case (map-title (game-map game))) w)))
+    (let ((name (%plaque-name rp (title-case (plaque-title game)) w)))
       (let ((tw (amiga.gfx:text-length rp name)))
         (amiga.gfx:move-to rp (+ bx (max 0 (floor (- w tw) 2)))
                            (+ py 2 (ui-layout-base l)))
@@ -2310,6 +2310,8 @@ combat round owns the keys."
          (savem nil)        ; SAVE-MENU while the save/load picker is open
          (saves-prior-mode :play) ; mode to return to when the picker closes
          (zone-dirty nil)   ; party traveled: the chrome needs a repaint
+         (plaque-dirty nil) ; entered/left a location: the plaque's
+                            ; name changed hands (see PLAQUE-TITLE)
          (ordersv nil)      ; COMBAT-ORDERS while a round is picked
          (pacing nil)       ; a combat round is running: pace messages
          (round-base nil)   ; log length when that round began — its
@@ -2349,10 +2351,12 @@ combat round owns the keys."
                              (funcall pace-fn))))
                (on-event g :enter-location
                          (lambda (gm loc) (declare (ignore loc))
-                           (setf locv (make-location-view gm))))
+                           (setf locv (make-location-view gm))
+                           (setf plaque-dirty t)))
                (on-event g :leave-location
                          (lambda (gm loc) (declare (ignore gm loc))
-                           (setf locv nil)))
+                           (setf locv nil)
+                           (setf plaque-dirty t)))
                (on-event g :enter-zone
                          (lambda (gm map) (declare (ignore gm map))
                            (setf zone-dirty t)))
@@ -2648,6 +2652,14 @@ combat round owns the keys."
                             (ensure-walls)
                             (amiga-sound-open (zone-sfx-dir game))
                             (clear-inner)
+                            (%chrome-frames rp game l)
+                            (setf plaque-dirty nil))
+                          ;; entering or leaving a location renames the
+                          ;; plaque (PLAQUE-TITLE) without a zone
+                          ;; change: the frames repaint over their own
+                          ;; pixels, no clear needed
+                          (when plaque-dirty
+                            (setf plaque-dirty nil)
                             (%chrome-frames rp game l))
                           ;; re-tint the sky/ground for the hour: an
                           ;; action may have turned the day-band without

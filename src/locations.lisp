@@ -40,6 +40,25 @@
 (defun location-arg (location key)
   (getf (location-args location) key))
 
+(defun location-banner (location)
+  "The location page's title row: *** TITLE *** when that fits the
+narrowest takeover column, else *** TITLE — the closing stars are
+ornament, and ornament may not cost a row (a wrapped banner would
+push the page's last rows off the lores screen)."
+  (let ((full (format nil "*** ~A ***" (location-title location))))
+    (if (<= (length full) +takeover-columns+)
+        full
+        (format nil "*** ~A" (location-title location)))))
+
+(defun plaque-title (game)
+  "What the view plaque under the first-person view says: the current
+location's :PLAQUE arg while the party stands inside one that names
+it — a short form of the title, cut to fit the plaque's width where
+the title itself would not — else the zone's own MAP-TITLE."
+  (let ((loc (game-location game)))
+    (or (and loc (location-arg loc :plaque))
+        (map-title (game-map game)))))
+
 (defun %closed-bands (location)
   "LOCATION's :CLOSED day-bands as a list — the arg accepts one band
 keyword or a list of them; NIL when the location keeps no hours."
@@ -149,6 +168,9 @@ fires and NIL comes back."
         (let ((gold (location-arg loc :gold)))
           (unless (or (null gold) (integerp gold))
             (parse-dice gold))))    ; catch a bad purse at entry, loudly
+      (let ((plaque (location-arg loc :plaque)))
+        (unless (or (null plaque) (stringp plaque))
+          (error "location ~S: :plaque ~S must be a string" title plaque)))
       (dolist (band (%closed-bands loc))
         (unless (assoc band *time-band-starts*)
           (error "location ~S: unknown day-band ~S in :closed"
@@ -286,7 +308,7 @@ the inspect page — the same stock, a digit showing that item's card
              (shop-view-pending view))
         (item-card-lines hero (shop-view-pending view))
         (append
-         (list (format nil "*** ~A ***" (location-title loc)) "")
+         (list (location-banner loc) "")
          (cond
            ((null hero)
             ;; the roster pane already lists the party, so the pick
@@ -483,7 +505,7 @@ maximum).  Returns T, or says why not and returns NIL."
 the drink price, and the trapdoor when the tavern has one."
   (let ((loc (game-location game)))
     (append
-     (list (format nil "*** ~A ***" (location-title loc)) ""
+     (list (location-banner loc) ""
            (format nil "A drink is ~D gold." (tavern-price loc)) "")
      (let ((i 0))
        (mapcar (lambda (h)
@@ -743,7 +765,7 @@ The view's NOTE (the payer page's Not enough Gold) is the last line."
          (patient (and view (temple-view-patient view)))
          (note (and view (temple-view-note view))))
     (append
-     (list (format nil "*** ~A ***" (location-title loc)) ""
+     (list (location-banner loc) ""
            (format nil "Healing ~D gold a wound." (temple-price loc))
            ;; a scaling raising cannot be quoted as one number — the
            ;; rate stands in for it, and each row carries the hero's own
@@ -910,7 +932,7 @@ payer page's Not enough Gold) is the last line."
          (hero (and view (energy-view-hero view)))
          (note (and view (energy-view-note view))))
     (append
-     (list (format nil "*** ~A ***" (location-title loc)) ""
+     (list (location-banner loc) ""
            (format nil "Spell points, ~D gold apiece."
                    (energy-price loc))
            "")
@@ -1070,25 +1092,30 @@ view's NOTE is the last line."
   (let* ((loc (game-location game))
          (note (guild-view-note view)))
     (append
-     (list (format nil "*** ~A ***" (location-title loc)) "")
+     (list (location-banner loc) "")
      (case (guild-view-mode view)
        (:main
-        (list (let ((n (length (game-roster game))))
-                (if (plusp n)
-                    (format nil "Adventurers in the hall: ~D" n)
-                    "The hall stands empty."))
-              ""
-              (menu-option #\c "Create a character")
-              (menu-option #\a "Add a member")
-              (menu-option #\r "Remove a member")
-              (menu-option #\d "Delete a character")
-              (menu-option #\s "Save game")
-              (menu-option #\l "Load game")))
+        (append
+         (list (let ((n (length (game-roster game))))
+                 (if (plusp n)
+                     (format nil "Adventurers in the hall: ~D" n)
+                     "The hall stands empty.")))
+         ;; the note takes this breathing row's place below: the main
+         ;; page is the one tall enough that keeping both would push
+         ;; the note off the lores page
+         (unless note (list ""))
+         (list (menu-option #\c "Create a character")
+               (menu-option #\a "Add a member")
+               (menu-option #\r "Remove a member")
+               (menu-option #\d "Delete a character")
+               (menu-option #\s "Save game")
+               (menu-option #\l "Load game"))))
        (:add
         (cons "Who joins the party?"
               (menu-scrolled-lines (game-roster game)
                                    (guild-view-top view)
-                                   #'%guild-roster-row)))
+                                   #'%guild-roster-row
+                                   +book-page-size+)))
        (:remove
         (cons "Who stays behind?"
               (let ((i 0))
@@ -1101,7 +1128,8 @@ view's NOTE is the last line."
         (cons "Whose name is struck?"
               (menu-scrolled-lines (game-roster game)
                                    (guild-view-top view)
-                                   #'%guild-roster-row)))
+                                   #'%guild-roster-row
+                                   +book-page-size+)))
        (:confirm-delete
         (list (format nil "Strike ~A from the roster?"
                       (hero-name (guild-view-pending view)))
@@ -1109,13 +1137,18 @@ view's NOTE is the last line."
               ""
               (menu-option #\y "Yes, strike the name")
               (menu-option #\n "No, keep them")))
+       ;; the pick pages carry a prompt and their rows and nothing
+       ;; else, so they window at +BOOK-PAGE-SIZE+ like the spell
+       ;; book: with the banner on one row, the eight startable
+       ;; classes of the fullest race stand on the page whole
        (:race
         (cons "Choose a race:"
               (menu-scrolled-lines (races) (guild-view-top view)
                                    (lambda (i race)
                                      (menu-numbered
                                       i (format nil "~D) ~A"
-                                               i (race-title race)))))))
+                                               i (race-title race))))
+                                   +book-page-size+)))
        (:class
         (cons "Choose a class:"
               (menu-scrolled-lines
@@ -1125,7 +1158,8 @@ view's NOTE is the last line."
                  (menu-numbered
                   i (format nil "~D) ~A" i
                             (string-capitalize
-                             (substitute #\Space #\- (string class)))))))))
+                             (substitute #\Space #\- (string class))))))
+               +book-page-size+)))
        (:sex
         ;; a class with two portraits asks whose face this is
         (list "Man or woman?"
@@ -1164,8 +1198,12 @@ picker over the guild page and closes it back onto it."
              (setf (guild-view-mode view) mode
                    (guild-view-top view) 0)
              nil)
+           ;; the pick pages window at +BOOK-PAGE-SIZE+ (see
+           ;; GUILD-LINES) — the act's window math must be the same
+           ;; page's, or a digit would pick beside what is drawn
            (scroll (n)
-             (let ((top (menu-scroll (guild-view-top view) char n)))
+             (let ((top (menu-scroll (guild-view-top view) char n
+                                     +book-page-size+)))
                (when top (setf (guild-view-top view) top)))
              nil))
       (case mode
@@ -1208,7 +1246,7 @@ picker over the guild page and closes it back onto it."
          (cond (digit
                 (let ((hero (menu-window-pick (game-roster game)
                                               (guild-view-top view)
-                                              digit)))
+                                              digit +book-page-size+)))
                   (when (and hero (join-party game hero))
                     (setf (game-roster game)
                           (remove hero (game-roster game) :count 1))
@@ -1233,7 +1271,7 @@ picker over the guild page and closes it back onto it."
          (cond (digit
                 (let ((hero (menu-window-pick (game-roster game)
                                               (guild-view-top view)
-                                              digit)))
+                                              digit +book-page-size+)))
                   (when hero
                     (setf (guild-view-pending view) hero)
                     (to :confirm-delete)))
@@ -1258,7 +1296,7 @@ picker over the guild page and closes it back onto it."
          (cond (digit
                 (let ((race (menu-window-pick (races)
                                               (guild-view-top view)
-                                              digit)))
+                                              digit +book-page-size+)))
                   (when race
                     (setf (guild-view-race view) race)
                     (to :class)))
@@ -1270,7 +1308,7 @@ picker over the guild page and closes it back onto it."
            (cond (digit
                   (let ((class (menu-window-pick classes
                                                  (guild-view-top view)
-                                                 digit)))
+                                                 digit +book-page-size+)))
                     (when class
                       (setf (guild-view-class view) class
                             (guild-view-woman view) nil
@@ -1369,7 +1407,7 @@ clickable EXIT."
       (:temple (temple-lines game view))
       (:energy (energy-lines game view))
       (:guild (guild-lines game view))
-      (t (list (format nil "*** ~A ***" (location-title loc)) ""
+      (t (list (location-banner loc) ""
                "There is nothing to do here."
                "" (menu-option #\Escape "EXIT"))))))
 

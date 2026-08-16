@@ -5812,6 +5812,89 @@ height" d)
   (check-error "a bad :gold is caught at entry"
     (enter-location g '("The Test Guild" :guild :gold "no dice"))))
 
+;; The page banner: *** TITLE *** while it fits the narrowest
+;; takeover column, else the closing stars go rather than cost the
+;; page a row (a wrapped banner pushed the last rows off the lores
+;; screen).
+(let ((g (new-game (parse-map *art* :name "test"))))
+  (enter-location g '("Short Hall" :hut))
+  (check "a short title keeps its closing stars" "*** Short Hall ***"
+         (menu-line-text (first (location-lines g nil))))
+  (leave-location g)
+  ;; nineteen characters is the widest that still wears both: 27
+  (enter-location g '("Nineteen Characters" :hut))
+  (check "the widest full banner is the takeover column exactly"
+         +takeover-columns+
+         (length (menu-line-text (first (location-lines g nil)))))
+  (leave-location g)
+  (enter-location g '("The Long Winter Rest" :hut))
+  (check "a longer title trades the closing stars for its one row"
+         "*** The Long Winter Rest"
+         (menu-line-text (first (location-lines g nil)))))
+
+;; The view plaque names the place the party stands in: the zone
+;; outside, a location's own :PLAQUE inside one that carries it.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m)))
+  (check "the plaque is the zone's outside" (map-title m)
+         (plaque-title g))
+  (enter-location g '("The Adventurers' Guild" :guild
+                      :plaque "The Guild"))
+  (check "a location's :plaque takes the plaque over" "The Guild"
+         (plaque-title g))
+  (leave-location g)
+  (check "leaving hands the plaque back to the zone" (map-title m)
+         (plaque-title g))
+  (enter-location g '("Nameless Hut" :hut))
+  (check "a location without :plaque keeps the zone's" (map-title m)
+         (plaque-title g))
+  (leave-location g)
+  (check-error "a bad :plaque is caught at entry"
+    (enter-location g '("X" :hut :plaque 7))))
+
+;; The creation walk's pick pages window at +BOOK-PAGE-SIZE+: the
+;; eight startable classes of the fullest race stand on the page
+;; whole — prompt and rows are all those pages carry — and the digit
+;; window is the drawn window.
+(check-true "the suite has eight startable classes to offer"
+            (>= (length (startable-hero-classes)) 8))
+(define-race :g-wide :classes (subseq (startable-hero-classes) 0 8)
+  :description "eight-art guild test folk")
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m)))
+  (enter-location g '("The Test Guild" :guild))
+  (let ((v (make-location-view g))
+        (classes (guild-startable-classes :g-wide)))
+    (guild-act g v #\c)
+    (guild-act g v (digit-char (1+ (position :g-wide (races)))))
+    (check "the eight-art race turns to the class page" :class
+           (guild-view-mode v))
+    (let ((lines (guild-lines g v)))
+      (check-true "all eight classes stand on the page"
+                  (find-if (lambda (s) (search "8) " s))
+                           (menu-texts lines)))
+      (check "eight classes fit the page whole (no scroll window)" nil
+             *menu-scroll*)
+      (check-true "the class page keeps inside the lores rows"
+                  (<= (length lines) +takeover-rows+)))
+    (guild-act g v #\8)
+    (check "digit 8 picks the eighth class" (nth 7 classes)
+           (guild-view-class v))))
+
+;; The main page's note takes the breathing row's place, so the page
+;; never outgrows the lores takeover even while it speaks.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m)))
+  (enter-location g '("The Test Guild" :guild))
+  (let ((v (make-location-view g)))
+    (guild-act g v #\a)                 ; an empty hall leaves a note
+    (check-true "the main page's note is on the page"
+                (find-if (lambda (s)
+                           (search "No one waits in the hall." s))
+                         (menu-texts (guild-lines g v))))
+    (check-true "and the noted main page keeps inside the lores rows"
+                (<= (length (guild-lines g v)) +takeover-rows+))))
+
 ;; A game that starts AT its guild: the start cell's special walks in
 ;; without a step, and leaving still exits through the cell's one
 ;; door.
