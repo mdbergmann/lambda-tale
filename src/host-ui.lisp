@@ -80,11 +80,15 @@ up-arrow) — the character sheet's 'l' takes the rise."
       (format s "~A~%" (effect-label e)))))
 
 (defun %combat-pane (game)
+  "The fight's one-line banner: the living groups, nearest first, each
+with the feet it still has to cover — a group at melee says nothing,
+which is the same rule the orders page follows."
   (with-output-to-string (s)
     (write-string "*** COMBAT ***  " s)
     (dolist (group (combat-groups (game-combat game)))
-      (format s "~D ~A~A  " (cdr group) (monster-type-name (car group))
-              (if (> (cdr group) 1) "s" "")))))
+      (format s "~A~@[ (~D')~]  "
+              (group-label (first group) (second group))
+              (when (> (third group) +melee-distance+) (third group))))))
 
 (defun %map-page-viewport (game)
   "Region of the automap that fits the terminal in map mode, centered

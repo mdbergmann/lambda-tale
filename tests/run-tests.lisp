@@ -3496,7 +3496,8 @@ height" d)
     (start-combat g '(("test rat" "1d3+1"))))
   (check "dice group count spawns monsters" 4 started)
   (check "combat groups count the living" '(("test rat" . 4))
-         (mapcar (lambda (grp) (cons (monster-type-name (car grp)) (cdr grp)))
+         (mapcar (lambda (grp)
+                   (cons (monster-type-name (first grp)) (second grp)))
                  (combat-groups (game-combat g))))
   (check "combat banner" '("You face 4 test rats!") (funcall msgs))
   (check-error "no moving during combat" (move-party g :forward))
@@ -3539,7 +3540,7 @@ height" d)
 
 (defun %group-names (g)
   "The current fight's groups as (NAME . COUNT) conses."
-  (mapcar (lambda (grp) (cons (monster-type-name (car grp)) (cdr grp)))
+  (mapcar (lambda (grp) (cons (monster-type-name (first grp)) (second grp)))
           (combat-groups (game-combat g))))
 
 ;; Zone keys land in the map slots.
@@ -3572,7 +3573,27 @@ height" d)
   (check-error "encounter entry dice must parse"
     (%apply-map-form m '(zone :encounters (("test rat" "d6"))) "test"))
   (check-error "encounter weight must be a positive integer"
-    (%apply-map-form m '(zone :night-encounters (("test rat" 1 0))) "test")))
+    (%apply-map-form m '(zone :night-encounters (("test rat" 1 0))) "test"))
+  (check-error "an encounter distance must be feet"
+    (%apply-map-form m '(zone :encounters (("test rat" 1 1 :far))) "test"))
+  (check-error "and a positive number of them"
+    (%apply-map-form m '(zone :encounters (("test rat" 1 1 0))) "test"))
+  (check-error "a fifth element is not an entry"
+    (%apply-map-form m '(zone :encounters (("test rat" 1 1 30 7))) "test")))
+
+;; A zone may say how far off its wanderers are met — the fourth
+;; element — and the fight opens there.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (%apply-map-form m '(zone :encounters (("test rat" 1 1 30))
+                            :encounter-chance 100)
+                   "test")
+  (setf (game-map g) m)
+  (check "the table carries the distance"
+         '(("test rat" 1 1 30)) (dungeon-map-encounters m))
+  (with-rng (0) (maybe-wandering-encounter g))
+  (check "and the wanderers are met that far off" 30
+         (combat-distance (game-combat g))))
 
 ;; Which chance and table apply when: day, night, the :night-* fallbacks
 ;; and the sunless underground.
@@ -4068,6 +4089,177 @@ height" d)
   (check "a strung back-rank attack records"
          '(:fight (:attack :attack :attack :attack))
          (combat-orders-act g view #\y)))
+
+;;; ---------------------------------------------------------------------
+;;; Distance: where the groups stand, what reaches them, how they close.
+
+;; The opening line-up: the first group at melee, each later one
+;; *COMBAT-GROUP-SPACING* further back, and COMBAT-GROUPS reads them
+;; back nearest first with the distance on every row.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero))))
+       (msgs (watch-messages g)))
+  (start-combat g '(("test rat" 1) ("test ogre" 2) ("test rat" 1)))
+  (check "the groups line up from melee backwards" '(10 30 50)
+         (mapcar #'third (combat-groups (game-combat g))))
+  (check "two groups of one kind stay two rows"
+         '(("test rat" . 1) ("test ogre" . 2) ("test rat" . 1))
+         (%group-names g))
+  (check "the nearest group is what reach is measured against" 10
+         (combat-distance (game-combat g)))
+  (check "the banner says how far off the standing groups are"
+         '("You face 1 test rat and 2 test ogres at 30 feet and 1 test rat at 50 feet!")
+         (funcall msgs)))
+
+;; An encounter may put its group where it likes, and the banner then
+;; opens on the distance alone.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero))))
+       (msgs (watch-messages g)))
+  (start-combat g '(("test rat" 2 40)))
+  (check "an encounter names its own distance" 40
+         (combat-distance (game-combat g)))
+  (check "and the banner opens on it"
+         '("You face 2 test rats at 40 feet!") (funcall msgs)))
+
+;; Closing: the far group walks one *COMBAT-CLOSE-STEP* nearer at the
+;; end of every round and stops at melee, saying so both ways.  Until
+;; it arrives nobody trades blows: it cannot swing, and the front rank
+;; has nothing to swing at.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero "A"))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (start-combat g '(("test rat" 1 30)))
+  (check "a distant group is out of melee" nil (hero-can-attack-p g h))
+  (check "and the round passes with nothing landed" :ongoing
+         (combat-round g '(:attack)))
+  (check-true "the hero says it cannot reach"
+              (find-if (lambda (s) (search "A cannot reach the enemy" s))
+                       (funcall msgs)))
+  (check "the group has walked a step in" 20
+         (combat-distance (game-combat g)))
+  (check "the rat stands untouched" 3
+         (monster-hp (first (combat-monsters (game-combat g)))))
+  (combat-round g '(:defend))
+  (check "a second round brings it to melee" 10
+         (combat-distance (game-combat g)))
+  (check-true "and the arrival is announced, one rat closing alone"
+              (find-if (lambda (s) (search "The 1 test rat closes in!" s))
+                       (funcall msgs)))
+  (check-true "now the front rank can swing" (hero-can-attack-p g h)))
+
+;; A line of several walks in the plural, and the orders page carries
+;; each group's remaining feet in its own narrow column.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero "A"))))
+       (msgs (watch-messages g))
+       (view (make-combat-orders)))
+  (start-combat g '(("test rat" 2 30)))
+  (check "the orders page shows the feet still to cover"
+         '("  2 test rats (30')")
+         (remove-if-not (lambda (s) (search "test rat" s))
+                        (combat-orders-lines g view)))
+  (combat-round g '(:defend))
+  (check-true "a line of two advances in the plural"
+              (find "The 2 test rats advance to 20 feet." (funcall msgs)
+                    :test #'string=))
+  (combat-round g '(:defend))
+  (check-true "and closes in the plural"
+              (find "The 2 test rats close in!" (funcall msgs)
+                    :test #'string=))
+  (check "a group at melee names no distance on the page"
+         '("  2 test rats")
+         (remove-if-not (lambda (s) (search "test rat" s))
+                        (combat-orders-lines g view))))
+
+;; A pinned skirmish line: with *COMBAT-CLOSE-STEP* off, nothing ever
+;; closes and only reach decides the fight.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero))))
+       (*combat-close-step* nil))
+  (start-combat g '(("test rat" 1 30)))
+  (combat-round g '(:defend))
+  (check "a nailed-down group holds its ground" 30
+         (combat-distance (game-combat g))))
+
+;; A measured missile carries exactly as far as it says: the same
+;; back-rank hero shoots the group at 30 feet and falls short of the
+;; one at 50.  An unmeasured missile carries however far it must.
+(define-item 'test-longbow :kind :bow)
+(define-item 'test-flight :kind :arrow :damage "1d4" :reach 30)
+
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero "A"))
+       (g (new-game m :party (list h))))
+  (dolist (name '(test-longbow test-flight test-arrows))
+    (give-item g h name))
+  (equip-item g h 'test-longbow)
+  (equip-item g h 'test-flight)
+  (check "the arrows carry their own reach" 30 (hero-missile-reach h))
+  (start-combat g '(("test rat" 1 30)))
+  (check-true "a flight that just reaches may shoot"
+              (hero-can-attack-p g h))
+  (setf (monster-distance (first (combat-monsters (game-combat g)))) 50)
+  (check "a foot too far and the shot is refused" nil
+         (hero-can-attack-p g h))
+  (equip-item g h 'test-arrows)          ; same kind: replaces the flight
+  (check "arrows the campaign never measured have no reach" nil
+         (hero-missile-reach h))
+  (check-true "and they carry however far the fight asks"
+              (hero-can-attack-p g h)))
+
+;; A thrown weapon is a missile in its own right: a :REACH on a weapon
+;; shoots from the back rank with no bow beside it, and a strung pair
+;; still wins when the hero carries both.
+(define-item 'test-shuriken :kind :weapon :damage "1d6" :reach 40)
+
+(let* ((m (parse-map *art* :name "test"))
+       (heroes (list (%combat-hero "A") (%combat-hero "B")
+                     (%combat-hero "C") (%combat-hero "D")))
+       (d (fourth heroes))
+       (g (new-game m :party heroes)))
+  (give-item g d 'test-shuriken)
+  (check "an unequipped throw is no missile" nil (hero-missile-dice d))
+  (equip-item g d 'test-shuriken)
+  (check "a thrown weapon needs no bow" "1d6" (hero-missile-dice d))
+  (check "and throws as far as it says" 40 (hero-missile-reach d))
+  (start-combat g '(("test rat" 1 40)))
+  (check-true "so the back rank throws" (hero-can-attack-p g d))
+  (dolist (name '(test-longbow test-flight))
+    (give-item g d name))
+  (equip-item g d 'test-longbow)
+  (equip-item g d 'test-flight)
+  (check "a strung pair wins over the throw" "1d4" (hero-missile-dice d))
+  (check "reach follows the shot in hand" 30 (hero-missile-reach d)))
+
+;; Melee comes first: a front-rank hero with a bow swings at the group
+;; on top of them rather than shooting over it.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero "A"))
+       (g (new-game m :party (list h))))
+  (dolist (name '(test-longbow test-flight))
+    (give-item g h name))
+  (equip-item g h 'test-longbow)
+  (equip-item g h 'test-flight)
+  (start-combat g '(("test rat" 1)))
+  (check-true "at melee the front rank swings"
+              (eq (hero-strike-function g h) #'%hero-attack))
+  (setf (monster-distance (first (combat-monsters (game-combat g)))) 30)
+  (check-true "standing off, the same hero shoots"
+              (eq (hero-strike-function g h) #'%hero-shoot)))
+
+;; The strikes land on the NEAREST group, not on the encounter's first.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero)))))
+  (start-combat g '(("test rat" 1 50) ("test ogre" 1 10)))
+  (check "the nearest monster is what a blow finds" "test ogre"
+         (monster-type-name (monster-kind (nearest-monster (game-combat g)))))
+  (check "and MONSTERS-IN-REACH keeps to its feet" '("test ogre")
+         (mapcar (lambda (mo) (monster-type-name (monster-kind mo)))
+                 (monsters-in-reach (game-combat g) 30)))
+  (check "an unmeasured reach takes the whole field" 2
+         (length (monsters-in-reach (game-combat g) nil))))
 
 ;; The encounter special starts combat and skips the remaining ops.
 (let* ((m (parse-map *art* :name "test"))
@@ -6179,12 +6371,20 @@ height" d)
        (effect-summary-lines '()))
 
 ;; Spell metadata rides along untouched by the mechanics.
-(define-spell 'test-canon :code "TSTC" :range "1 foe (10')"
+(define-spell 'test-canon :code "TSTC" :range "1 foe (10')" :reach 10
   :duration-text "short" :cost 2 :level 1 :classes '(:t-mage)
   :notes "canon: a needle of flame (to come)"
   :damage "1d4")
 (check "spell-code stored" "TSTC" (spell-code 'test-canon))
 (check "spell-range stored" "1 foe (10')" (spell-range 'test-canon))
+;; :RANGE is the spellbook's words, :REACH the number behind them —
+;; the one the engine measures against a group's distance
+(check "spell-reach stored" 10 (spell-reach 'test-canon))
+(check "an unmeasured spell says NIL" nil (spell-reach 'test-bolt))
+(check-error "a reach that is not feet is rejected"
+  (define-spell 'test-bogus :damage "1d4" :reach "far away"))
+(check-error "a reach of nothing is rejected"
+  (define-spell 'test-bogus :damage "1d4" :reach 0))
 (check "spell-duration-text stored" "short"
        (spell-duration-text 'test-canon))
 (check "spell :notes rides along as data" "canon: a needle of flame (to come)"
@@ -6212,6 +6412,104 @@ height" d)
   (define-spell 'test-bogus :cure :poison))
 (check-error "summon wants a name string"
   (define-spell 'test-bogus :summon t))
+
+;; What a reach buys in a fight: a spell that falls short of the
+;; nearest group is refused before it is paid for, the card saying so
+;; in its own narrow words.
+(define-spell 'test-dart :cost 1 :level 1 :classes '(:t-mage)
+  :range "1 foe (20')" :reach 20 :damage "1d4")
+
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (msgs (watch-messages g)))
+  (start-combat g '(("test rat" 1 30)))
+  (check "the card says the foes are too far" "The foes are too far."
+         (spell-refusal g mage 'test-dart))
+  (check "the cast menu will not offer it" nil
+         (spell-castable-p g mage 'test-dart))
+  (check "and the cast itself refuses" nil (cast-spell g mage 'test-dart))
+  (check-true "saying how far short it fell"
+              (find-if (lambda (s) (search "test dart falls short at 30 feet" s))
+                       (funcall msgs)))
+  (check "the points stay in the purse" 6 (hero-sp mage))
+  (check "the rat stands untouched" 3
+         (monster-hp (first (combat-monsters (game-combat g)))))
+  ;; one round of walking brings it inside the dart's twenty feet
+  (combat-round g '(:defend))
+  (check "closed to twenty, the dart carries" nil
+         (spell-refusal g mage 'test-dart))
+  (check-true "and lands" (with-rng (3) (cast-spell g mage 'test-dart)))
+  (check "an unmeasured spell never falls short" nil
+         (spell-refusal g mage 'test-bolt)))
+
+;; What a reach is measured for: everything aimed at the enemy, which
+;; is the battle instants AND the two timed keys that work on the foes
+;; rather than on the party.  A mending or warding word aims at no
+;; distance and is never held to one.
+(check-true "a battle instant reaches for the enemy"
+            (effect-spec-reaches-foes-p '(:damage "1d4")))
+(check-true "so does a word that blunts the foes' aim"
+            (effect-spec-reaches-foes-p '(:foes-attack 2 :duration 10)))
+(check-true "and one that opens their guard"
+            (effect-spec-reaches-foes-p '(:foes-ac 2 :duration 10)))
+(check "a mending word reaches for no one" nil
+       (effect-spec-reaches-foes-p '(:heal "4d4")))
+(check "nor does a shield over the party" nil
+       (effect-spec-reaches-foes-p '(:buff-ac 2 :duration 10)))
+
+;; So a slowing word is held to its feet too, even though it installs
+;; a party-wide effect record like any other timed key.
+(define-spell 'test-slowing :cost 1 :level 1 :classes '(:t-mage)
+  :range "group (20')" :reach 20 :foes-ac 2 :duration 10)
+
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage))))
+  (start-combat g '(("test rat" 1 40)))
+  (check "a slowing word cannot slow what it cannot reach"
+         "The foes are too far." (spell-refusal g mage 'test-slowing))
+  (check "and the cast refuses" nil (cast-spell g mage 'test-slowing))
+  (check "no effect was installed" '() (game-effects g))
+  ;; out of a fight there is no distance to fall short of — the timed
+  ;; foe words have always been castable ahead of the trouble
+  (setf (game-combat g) nil)
+  (check "out of a fight it measures nothing" nil
+         (spell-refusal g mage 'test-slowing)))
+
+;; The wide kinds cover only the ground the reach takes in: a group
+;; spell breaks the group it lands among — the NEAREST, not every
+;; monster of that kind — and an all-foes word leaves the lines
+;; standing beyond it alone.
+(define-spell 'test-burst :cost 1 :level 1 :classes '(:t-mage)
+  :range "group (60')" :reach 60 :damage-group "4d4")
+(define-spell 'test-gale :cost 1 :level 1 :classes '(:t-mage)
+  :range "all foes (30')" :reach 30 :damage-all "4d4")
+
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage))))
+  ;; two groups of ONE kind, ten feet and fifty feet out
+  (start-combat g '(("test rat" 2 10) ("test rat" 2 50)))
+  (with-rng (3 3 3 3) (cast-spell g mage 'test-burst))
+  (check "the group spell breaks the group it lands among"
+         '(nil nil t t)
+         (mapcar #'monster-alive-p (combat-monsters (game-combat g))))
+  ;; the gale carries thirty feet and the survivors stand at fifty
+  (check "an all-foes word that cannot carry is refused" nil
+         (cast-spell g mage 'test-gale))
+  (check "so the far line keeps its feet" '(3 3)
+         (mapcar #'monster-hp
+                 (alive-monsters (game-combat g)))))
+
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage))))
+  (start-combat g '(("test rat" 1 10) ("test ogre" 1 50)))
+  (with-rng (3) (cast-spell g mage 'test-gale))
+  (check "an all-foes word strikes only what stands inside it"
+         '(nil t)
+         (mapcar #'monster-alive-p (combat-monsters (game-combat g)))))
 
 ;; Combined timed keys merge into ONE effect record (the batchspell).
 (define-spell 'test-batch :cost 3 :classes '(:t-mage)
@@ -7727,6 +8025,12 @@ height" d)
 ;; D&D rule).  The flag is a weapon trait — other kinds refuse it.
 (check-error "define-item rejects :two-handed off a weapon"
   (define-item 't-big-shield :kind :shield :two-handed t))
+
+;; :REACH is a missile trait — only a bow, its arrows or a thrown
+;; weapon ever consult it (%MISSILE-PAIR); any other kind refuses it,
+;; same as :two-handed above.
+(check-error "define-item rejects :reach off a missile kind"
+  (define-item 't-far-potion :kind :misc :reach 10))
 (define-item 't-greatsword :kind :weapon :price 30 :damage "2d6"
              :two-handed t)
 (check "two-handed items carry the (2H) marker" " (2H)"

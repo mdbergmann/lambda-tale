@@ -47,6 +47,11 @@ and every equipped item's :AC bonus counts.")
   (kind :misc)        ; one of *ITEM-KINDS*
   (price 0)           ; shop price in gold
   damage              ; attack dice (weapons), or NIL
+  reach               ; how far it carries as a missile, in feet: the
+                      ; flight of these arrows, the throw of this axe.
+                      ; A weapon with a reach is a thrown weapon and
+                      ; needs no bow.  NIL leaves it unmeasured — a
+                      ; missile that always carries (see MONSTERS-IN-REACH)
   (ac 0)              ; armor bonus: subtracted from descending AC
   classes             ; hero classes allowed to use it; NIL = anyone
   two-handed          ; T: the weapon fills both hands — no shield beside it
@@ -63,13 +68,18 @@ and every equipped item's :AC bonus counts.")
 
 (defvar *item-types* (make-hash-table :test 'eq))
 
-(defun define-item (name &key title (kind :misc) (price 0) damage (ac 0)
+(defun define-item (name &key title (kind :misc) (price 0) damage reach (ac 0)
                               classes two-handed use consumed image
                               description notes)
   "Register item type NAME (a symbol).  Campaign data calls this.
 TITLE defaults to the capitalized name (SHORT-SWORD -> \"Short Sword\").
 :TWO-HANDED (weapons only) makes the weapon fill both hands: it will
 not go on beside a shield, nor a shield beside it.
+:REACH is how far the item carries as a missile, in feet — the flight
+of a quiver of arrows, the throw of a hurled axe.  A :WEAPON given one
+is a thrown weapon: it shoots from any rank with no bow beside it (see
+HERO-MISSILE-DICE).  Omit it and the missile goes unmeasured, carrying
+to whatever the fight puts in front of it.
 :DESCRIPTION is a player-facing string — the pack page's item card
 \('i') shows it under the item's facts.
 :NOTES is a designer-facing string (canon powers awaiting their
@@ -122,12 +132,19 @@ effect's band icon."
                    name use)))))
   (when (and consumed (not use))
     (error "define-item ~S: :consumed without a :use" name))
+  (when (and reach (not (and (integerp reach) (plusp reach))))
+    (error "define-item ~S: :reach must be a positive integer in feet ~
+            (got ~S)" name reach))
+  (when (and reach (not (member kind '(:weapon :bow :arrow))))
+    (error "define-item ~S: :reach is a missile trait (kind is ~S)"
+           name kind))
   (setf (gethash name *item-types*)
         (%make-item-type
          :name name
          :title (or title
                     (string-capitalize (substitute #\Space #\- (string name))))
-         :kind kind :price price :damage damage :ac ac :classes classes
+         :kind kind :price price :damage damage :reach reach
+         :ac ac :classes classes
          :two-handed two-handed :use use :consumed consumed :image image
          :description description :notes notes))
   name)
@@ -326,17 +343,43 @@ hero's bare (class) damage."
         (or (item-type-damage (find-item-type weapon)) (hero-damage hero))
         (hero-damage hero))))
 
-(defun hero-missile-dice (hero)
-  "The dice HERO shoots with: the equipped arrows' damage — an
-equipped bow beside them strings the pair — or NIL when the hero
-carries no working bow-and-arrow pair.  This is what lets a back-rank
-hero attack at all (see HERO-IN-REACH-P); the arrows carry the dice,
-the bow may stand in when they name none."
+(defun %missile-pair (hero)
+  "The equipped items behind HERO's shot, as (SHOT . LAUNCHER), or NIL
+when the hero carries no missile: the arrows with the bow that strings
+them, or a thrown weapon standing alone with no launcher.  The shot
+carries the dice and the reach; the launcher only stands in for what
+the shot leaves unsaid.  A strung pair wins over a throwable weapon —
+an archer with a bow in hand uses it."
   (let ((bow (equipped-of-kind hero :bow))
-        (arrows (equipped-of-kind hero :arrow)))
-    (when (and bow arrows)
-      (or (item-type-damage (find-item-type arrows))
-          (item-type-damage (find-item-type bow))))))
+        (arrows (equipped-of-kind hero :arrow))
+        (weapon (equipped-of-kind hero :weapon)))
+    (cond ((and bow arrows) (cons arrows bow))
+          ((and weapon (item-type-reach (find-item-type weapon)))
+           (cons weapon nil)))))
+
+(defun %missile-property (hero reader)
+  "READER applied to HERO's shot, falling back to its launcher — the
+shared rule behind HERO-MISSILE-DICE and HERO-MISSILE-REACH."
+  (let ((pair (%missile-pair hero)))
+    (when pair
+      (or (funcall reader (find-item-type (car pair)))
+          (and (cdr pair)
+               (funcall reader (find-item-type (cdr pair))))))))
+
+(defun hero-missile-dice (hero)
+  "The dice HERO shoots or throws with: the equipped arrows' damage — an
+equipped bow beside them strings the pair — or the damage of an
+equipped weapon that names a :REACH of its own, the thrown kind, which
+needs no bow.  NIL when the hero carries neither.  This is what lets a
+back-rank hero attack at all (see HERO-STRIKE-FUNCTION); the shot
+carries the dice, the bow may stand in when the arrows name none."
+  (%missile-property hero #'item-type-damage))
+
+(defun hero-missile-reach (hero)
+  "How far HERO's missile carries, in feet — the arrows' flight, the
+weapon's throw — or NIL when the hero has no missile, or the campaign
+measured none (which carries however far the fight asks)."
+  (%missile-property hero #'item-type-reach))
 
 (defun hero-effective-ac (hero &optional game)
   "HERO's armor class in play: descending AC minus the DEX gift (a
@@ -376,10 +419,10 @@ shield lowers it further)."
 
 (defun item-card-lines (hero name)
   "The item card for item NAME — its registered facts one per row (the
-kind with the (2H) marker, damage dice, a non-zero AC bonus, the
-price, a class restriction with HERO's (unfit) marker when it bites,
-a :USE flagged Usable) and the campaign's player-facing :DESCRIPTION
-beneath, when it carries one."
+kind with the (2H) marker, damage dice, the reach of a missile, a
+non-zero AC bonus, the price, a class restriction with HERO's (unfit)
+marker when it bites, a :USE flagged Usable) and the campaign's
+player-facing :DESCRIPTION beneath, when it carries one."
   (let ((type (find-item-type name)))
     (append
      (list (format nil "*** ~A ***" (item-type-title type)) "")
@@ -388,6 +431,8 @@ beneath, when it carries one."
                    (item-hand-marker name)))
      (when (item-type-damage type)
        (list (format nil "Damage: ~A" (item-type-damage type))))
+     (when (item-type-reach type)
+       (list (format nil "Reach: ~D feet" (item-type-reach type))))
      (unless (zerop (item-type-ac type))
        (list (format nil "AC bonus: ~D" (item-type-ac type))))
      (list (format nil "Price: ~D gold" (item-type-price type)))

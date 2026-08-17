@@ -69,12 +69,53 @@ fight lasts."
   (or (gethash name *monster-types*)
       (error "Unknown monster ~S (register it with DEFINE-MONSTER)" name)))
 
+;;; ---------------------------------------------------------------------
+;;; Distance — where the groups stand, and how they close.
+;;;
+;;; Ten feet is one dungeon square, the scale the spellbook already
+;;; speaks in (a 30' scrying reaches three cells), and the enemy stands
+;;; in whole squares: a group is 10, 30, 50 feet off, never 25.  A group
+;;; at +MELEE-DISTANCE+ is toe to toe with the front rank, and that is
+;;; the only distance at which melee lands — in either direction.
+;;; Everything further out is missile and spell work, each measured
+;;; against its own :REACH, and at the end of every round the far groups
+;;; walk one *COMBAT-CLOSE-STEP* nearer.
+;;;
+;;; A fight of one group opens at melee and plays exactly as it did
+;;; before distance existed; the rules below only begin to speak when an
+;;; encounter fields several groups, or names a distance of its own.
+
+(defconstant +melee-distance+ 10
+  "Feet at which a group stands toe to toe with the front rank — the
+only distance where a melee blow lands, and the distance every group
+is walking towards.")
+
+(defparameter *combat-group-spacing* 20
+  "Feet between one encounter group's opening distance and the next: the
+first group stands at +MELEE-DISTANCE+ and each later one starts this
+much further back (10, 30, 50 feet ...), so a fight of several groups
+gives the archers and casters their rounds while the rest walk in.  An
+encounter may name its own distances instead — see START-COMBAT.")
+
+(defparameter *combat-close-step* 10
+  "Feet a group beyond melee walks in at the end of each round.  NIL (or
+a non-positive value) nails every group where the fight found it.")
+
 (defstruct (monster (:constructor %make-monster))
   kind                ; MONSTER-TYPE
-  hp)
+  hp
+  (group 0)           ; which entry of START-COMBAT's spec spawned it:
+                      ; a group stands together, closes together, and is
+                      ; what a group-wide spell covers
+  (distance +melee-distance+))  ; feet between it and the front rank
 
 (defun monster-alive-p (monster)
   (> (monster-hp monster) 0))
+
+(defun monster-in-melee-p (monster)
+  "Has the monster's group closed all the way in?  Only then does it
+swing, and only then can a front-rank hero swing back."
+  (<= (monster-distance monster) +melee-distance+))
 
 (defstruct (combat (:constructor %make-combat))
   monsters            ; list of MONSTER (the fallen stay, filtered below)
@@ -84,15 +125,60 @@ fight lasts."
 (defun alive-monsters (combat)
   (remove-if-not #'monster-alive-p (combat-monsters combat)))
 
+(defun combat-distance (combat)
+  "Feet to the nearest living group — the number every reach is
+measured against — or NIL when nothing is left standing."
+  (let ((nearest nil))
+    (dolist (m (alive-monsters combat) nearest)
+      (when (or (null nearest) (< (monster-distance m) nearest))
+        (setf nearest (monster-distance m))))))
+
+(defun nearest-monster (combat)
+  "The living monster a blow or a bolt lands on: the first survivor of
+the nearest group, encounter order breaking a tie — or NIL when the
+fight is over."
+  (let ((distance (combat-distance combat)))
+    (when distance
+      (find distance (alive-monsters combat) :key #'monster-distance))))
+
+(defun monsters-in-reach (combat reach)
+  "The living monsters standing within REACH feet — all of them when
+REACH is NIL, the unmeasured case a campaign gets by saying nothing."
+  (if (null reach)
+      (alive-monsters combat)
+      (remove-if (lambda (m) (> (monster-distance m) reach))
+                 (alive-monsters combat))))
+
+(defun group-monsters (combat group)
+  "The living monsters of encounter group GROUP."
+  (remove-if-not (lambda (m) (eql (monster-group m) group))
+                 (alive-monsters combat)))
+
+(defun combat-group-indices (combat)
+  "The encounter groups still standing, in encounter order."
+  (let ((seen '()))
+    (dolist (m (alive-monsters combat) (nreverse seen))
+      (pushnew (monster-group m) seen))))
+
 (defun combat-groups (combat)
-  "Alist of (MONSTER-TYPE . live count) over the living monsters,
-in encounter order."
-  (let ((groups '()))
-    (dolist (m (alive-monsters combat) (nreverse groups))
-      (let ((entry (assoc (monster-kind m) groups)))
-        (if entry
-            (incf (cdr entry))
-            (push (cons (monster-kind m) 1) groups))))))
+  "The living enemy as one row per encounter group — a list of
+\(MONSTER-TYPE COUNT DISTANCE) — nearest first, encounter order
+breaking a tie.  Two groups of one kind stay two rows: they were met
+apart and they stand apart."
+  (let ((rows '()))
+    (dolist (index (combat-group-indices combat))
+      (let ((members (group-monsters combat index)))
+        (push (list (monster-kind (first members))
+                    (length members)
+                    (monster-distance (first members)))
+              rows)))
+    (stable-sort (nreverse rows) #'< :key #'third)))
+
+(defun group-label (type count)
+  "A group named the way every page names it: \"3 grey gnawers\", and a
+lone one without the s."
+  (format nil "~D ~A~A" count (monster-type-name type)
+          (if (> count 1) "s" "")))
 
 (defun combat-enemy-image (combat)
   "The picture file name of the enemy the party faces: the :IMAGE of
@@ -137,36 +223,56 @@ one."
                        *victory-image*)))
 
 (defun combat-banner (combat)
+  "The line that opens a fight.  A group already at melee is simply
+named; one standing off says how far off, which is the whole news of
+the opening round."
   (with-output-to-string (s)
     (write-string "You face " s)
     (let ((first t))
       (dolist (group (combat-groups combat))
         (unless first (write-string " and " s))
         (setf first nil)
-        (format s "~D ~A~A" (cdr group) (monster-type-name (car group))
-                (if (> (cdr group) 1) "s" ""))))
+        (write-string (group-label (first group) (second group)) s)
+        (when (> (third group) +melee-distance+)
+          (format s " at ~D feet" (third group)))))
     (write-char #\! s)))
 
-(defun %spawn-monsters (name count)
+(defun %spawn-monsters (name count group distance)
   (let ((type (find-monster-type name))
         (monsters '()))
     (dotimes (i count (nreverse monsters))
       (push (%make-monster
              :kind type
-             :hp (max 1 (roll-dice (monster-type-hp-dice type))))
+             :hp (max 1 (roll-dice (monster-type-hp-dice type)))
+             :group group
+             :distance distance)
             monsters))))
 
+(defun %group-start-distance (index)
+  "Where encounter group INDEX stands when the fight opens, feet: the
+first at melee, each later one *COMBAT-GROUP-SPACING* further back."
+  (+ +melee-distance+ (* index (max 0 *combat-group-spacing*))))
+
 (defun start-combat (game spec)
-  "Begin combat.  SPEC is a list of (MONSTER-NAME COUNT) groups; COUNT
-may be dice (see PARSE-DICE).  Returns the new COMBAT."
+  "Begin combat.  SPEC is a list of (MONSTER-NAME COUNT [DISTANCE])
+groups; COUNT may be dice (see PARSE-DICE).  DISTANCE is where that
+group stands when the fight opens, in feet — leave it out and the
+groups line up from +MELEE-DISTANCE+ backwards, one
+*COMBAT-GROUP-SPACING* apart, so the first is always already at melee.
+Returns the new COMBAT."
   (when (game-combat game)
     (error "start-combat: combat is already in progress"))
-  (let ((monsters '()))
+  (let ((monsters '())
+        (index -1))
     (dolist (group spec)
+      (incf index)
       (setf monsters
             (append monsters
                     (%spawn-monsters (first group)
-                                     (max 1 (roll-dice (second group)))))))
+                                     (max 1 (roll-dice (second group)))
+                                     index
+                                     (or (third group)
+                                         (%group-start-distance index))))))
     (let ((combat (%make-combat :monsters monsters)))
       (setf (game-combat game) combat)
       (emit game :combat-start monsters)
@@ -213,10 +319,11 @@ are NIL when there is no table at all."
               table))))
 
 (defun %pick-encounter (table)
-  "One (MONSTER COUNT-DICE [WEIGHT]) entry drawn from TABLE, weighted
-by each entry's WEIGHT (default 1).  A single-entry table draws no
-random number, so scripted tests spend rolls only where a choice
-exists."
+  "One (MONSTER COUNT-DICE [WEIGHT [DISTANCE]]) entry drawn from TABLE,
+weighted by each entry's WEIGHT (default 1).  DISTANCE, when the table
+names one, is how far off the group is met, in feet — the wanderers a
+zone lets you see coming.  A single-entry table draws no random number,
+so scripted tests spend rolls only where a choice exists."
   (if (null (rest table))
       (first table)
       (let ((r (roll (let ((total 0))
@@ -246,7 +353,8 @@ NIL when no monsters showed up."
         (when (and chance (< (roll 100) (* chance rate)))
           (let ((entry (%pick-encounter table)))
             (start-combat game (list (list (first entry)
-                                           (second entry))))))))))
+                                           (second entry)
+                                           (fourth entry))))))))))
 
 (defparameter *idle-encounter-minutes* 30
   "Idle game-minutes per wandering-monster roll: while the party
@@ -362,13 +470,33 @@ the madness rages at the air and costs the party nothing."
                (hero-name hero) (hero-name victim) dmg)
           (damage-hero game victim dmg)))))
 
+(defun hero-strike-function (game hero)
+  "How HERO reaches the enemy this round, as the function that resolves
+one strike — or NIL when nothing is in reach.  Two ways in: a
+front-rank hero (HERO-IN-REACH-P) trades melee with a group that has
+closed to +MELEE-DISTANCE+, and a hero of any rank shoots or throws
+over their heads when the missile carries as far as the nearest group
+stands (HERO-MISSILE-DICE / HERO-MISSILE-REACH; a missile the campaign
+never measured carries however far it must).  Melee comes first: a
+front-rank archer with the enemy on top of them swings rather than
+shoots."
+  (let* ((combat (game-combat game))
+         (distance (and combat (combat-distance combat))))
+    (cond ((null distance) nil)
+          ((and (hero-in-reach-p game hero)
+                (<= distance +melee-distance+))
+           #'%hero-attack)
+          ((and (hero-missile-dice hero)
+                (let ((reach (hero-missile-reach hero)))
+                  (or (null reach) (>= reach distance))))
+           #'%hero-shoot))))
+
 (defun hero-can-attack-p (game hero)
-  "Can HERO take the attack action this round — standing in melee
-reach (HERO-IN-REACH-P), or shooting over it (HERO-MISSILE-DICE)?
-The orders page asks before offering A; COMBAT-ROUND asks again and
-lets an out-of-reach attack pass as a wasted action."
-  (or (hero-in-reach-p game hero)
-      (and (hero-missile-dice hero) t)))
+  "Can HERO take the attack action this round?  True when
+HERO-STRIKE-FUNCTION finds a way to the enemy.  The orders page asks
+before offering A; COMBAT-ROUND asks again and lets an out-of-reach
+attack pass as a wasted action."
+  (and (hero-strike-function game hero) t))
 
 (defun %monster-inflict (game monster hero)
   "What a landed blow carries besides its damage: each of the monster
@@ -402,9 +530,33 @@ the living's to carry."
              (monster-type-name type) (hero-name hero)))))
 
 (defun %monsters-act (game combat)
+  "The enemy's half of the round: every monster that has closed to
+melee swings.  A group still walking in has nothing to swing at — its
+round is the ground it covers (%CLOSE-IN)."
   (dolist (m (alive-monsters combat))
-    (when (party-alive-p game)
+    (when (and (party-alive-p game) (monster-in-melee-p m))
       (%monster-attack game combat m))))
+
+(defun %close-in (game combat)
+  "End of the round: every group still short of melee walks one
+*COMBAT-CLOSE-STEP* nearer and says so, the ones arriving loudest.  A
+step of NIL (or less than one foot) leaves the lines where they stand."
+  (let ((step *combat-close-step*))
+    (when (and step (plusp step))
+      (dolist (index (combat-group-indices combat))
+        (let* ((members (group-monsters combat index))
+               (from (monster-distance (first members))))
+          (when (> from +melee-distance+)
+            (let* ((count (length members))
+                   (to (max +melee-distance+ (- from step)))
+                   (label (group-label (monster-kind (first members)) count))
+                   (many (> count 1)))
+              (dolist (m members)
+                (setf (monster-distance m) to))
+              (if (= to +melee-distance+)
+                  (say game "The ~A close~:[s~;~] in!" label many)
+                  (say game "The ~A advance~:[s~;~] to ~D feet."
+                       label many to)))))))))
 
 (defun %award-victory (game combat)
   "Pay out a won fight, the Bard's Tale way: the fallen monsters' XP
@@ -511,13 +663,14 @@ a helpless hero is not asked and spends nothing)
 cast a spell (see CAST-SPELL; a failed cast wastes the round),
 \(:sing SONG) to strike up a song (see SING-SONG; likewise), or
 \(:use ITEM [TARGET]) to use an item (see USE-ITEM — how a Wizhelm
-fires its spell in battle; likewise).  Heroes strike the first living
-monster — front-rank heroes in melee, the back ranks by bow and
-arrow (HERO-MISSILE-DICE); a back-rank :attack without one is out of
-reach and wastes the action (the orders page refuses it up front,
-but a scripted round may still ask) — then the surviving monsters
-strike back.  The round costs one clock tick.  Returns :victory,
-:defeat or :ongoing."
+fires its spell in battle; likewise).  Heroes strike the nearest living
+monster — front-rank heroes in melee once a group has closed, anyone
+whose missile carries that far by bow or thrown weapon
+\(HERO-STRIKE-FUNCTION); an :attack with neither is out of reach and
+wastes the action (the orders page refuses it up front, but a scripted
+round may still ask).  Then the monsters that have closed strike back,
+and the ones still walking come a step nearer (%CLOSE-IN).  The round
+costs one clock tick.  Returns :victory, :defeat or :ongoing."
   (let ((combat (game-combat game)))
     (unless combat
       (error "combat-round: no combat is in progress"))
@@ -546,20 +699,17 @@ strike back.  The round costs one clock tick.  Returns :victory,
                  (%insane-strike game (car p)))
                 ((eq a :attack)
                  (let* ((hero (car p))
-                        (strike (cond ((hero-in-reach-p game hero)
-                                       #'%hero-attack)
-                                      ((hero-missile-dice hero)
-                                       #'%hero-shoot))))
+                        (strike (hero-strike-function game hero)))
                    (if (null strike)
                        (say game "~A cannot reach the enemy."
                             (hero-name hero))
                        ;; a warrior's training (:EXTRA-ATTACK-LEVELS)
                        ;; and a martial effect (:EXTRA-ATTACKS) grant
-                       ;; more strikes; each re-aims at the front
+                       ;; more strikes; each re-aims at the nearest
                        ;; survivor
                        (dotimes (i (+ 1 (hero-extra-attacks hero)
                                       (effects-extra-attacks game)))
-                         (let ((target (first (alive-monsters combat))))
+                         (let ((target (nearest-monster combat)))
                            (when target
                              (funcall strike game hero target)))))))
                 ((and (consp a) (eq (first a) :cast))
@@ -569,6 +719,9 @@ strike back.  The round costs one clock tick.  Returns :victory,
                 ((and (consp a) (eq (first a) :use))
                  (use-item game (car p) (second a) (third a)))))))
     (%monsters-act game combat)
+    ;; and the lines that are still walking cover their ground
+    (when (party-alive-p game)
+      (%close-in game combat))
     ;; the venom takes its round's due before the healer's does, so a
     ;; mending round can outrun the poison it cannot lift
     (poison-bite game)
@@ -658,9 +811,13 @@ enemy the party faces, one row per living group."
                    (1+ (combat-round-no combat)))
            "")
      (mapcar (lambda (group)
-               (format nil "  ~D ~A~A" (cdr group)
-                       (monster-type-name (car group))
-                       (if (> (cdr group) 1) "s" "")))
+               ;; the distance rides in parentheses and only while the
+               ;; group is still walking in — the row stays inside the
+               ;; narrow message column either way
+               (format nil "  ~A~@[ (~D')~]"
+                       (group-label (first group) (second group))
+                       (when (> (third group) +melee-distance+)
+                         (third group))))
              (combat-groups combat)))))
 
 (defun %orders-hero-lines (game view)

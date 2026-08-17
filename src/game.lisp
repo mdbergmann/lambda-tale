@@ -321,11 +321,11 @@ carries its own icons — or NIL when the effect has none."
 ;;; carry the canonical spell.
 
 (defparameter *instant-effect-keys*
-  '((:damage           dice    t)   ; strikes the first living monster
+  '((:damage           dice    t)   ; strikes the nearest living monster
     (:damage-per-level dice    t)   ; the roll multiplied by caster level
-    (:damage-group     dice    t)   ; every monster of the front group
+    (:damage-group     dice    t)   ; every monster of the nearest group
     (:damage-all       dice    t)   ; every living monster
-    (:slay             percent t)   ; chance to fell the front monster
+    (:slay             percent t)   ; chance to fell the nearest monster
     (:push-foes        flag    t)   ; flavor: hurls the foes back
     (:halt-foes        flag    t)   ; flavor: freezes the foes
     (:calm             flag    t)   ; flavor: soothes the foes
@@ -415,6 +415,22 @@ damage family, :SLAY and the foe-handling keys)."
   (loop for tail on spec by #'cddr
         thereis (let ((entry (assoc (first tail) *instant-effect-keys*)))
                   (and entry (third entry) t))))
+
+(defparameter *foe-facing-timed-keys* '(:foes-ac :foes-attack)
+  "The timed keys aimed at the enemy rather than at the party — the
+words that blunt a line's aim or its guard.  They install a party-wide
+effect record like any other timed key, but what they work on is the
+foes, which is why they are measured against a distance.")
+
+(defun effect-spec-reaches-foes-p (spec)
+  "True when SPEC is aimed at the enemy at all: an instant that needs a
+fight (EFFECT-SPEC-COMBAT-ONLY-P) or one of the foe-facing timed keys.
+This is the set a :REACH is measured for — a word that slows a line
+must still carry to that line — while a mending or scrying word aims
+at no distance and measures none."
+  (or (effect-spec-combat-only-p spec)
+      (loop for tail on spec by #'cddr
+            thereis (and (member (first tail) *foe-facing-timed-keys*) t))))
 
 (defun effect-spec-target-kind (spec)
   "What SPEC needs aimed at: :HERO when it heals, cures or raises one

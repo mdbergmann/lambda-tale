@@ -52,6 +52,7 @@
    #:effect-image #:effect-image-path #:apply-effect-spec
    #:*timed-effect-keys* #:*instant-effect-keys*
    #:check-effect-spec #:effect-spec-combat-only-p
+   #:effect-spec-reaches-foes-p #:*foe-facing-timed-keys*
    #:effect-spec-target-kind
    ;; an effect spec read back out in player's words (the cards)
    #:*effect-phrases* #:effect-summary-lines #:effect-duration-text
@@ -140,7 +141,7 @@
    #:give-item #:drop-item #:pass-item #:discard-item
    #:equip-item #:unequip-item #:equipped-of-kind
    #:toggle-equip #:equipped-instance-p
-   #:hero-attack-dice #:hero-missile-dice
+   #:hero-attack-dice #:hero-missile-dice #:hero-missile-reach
    #:hero-effective-ac
    ;; the pack page ('i' on the character sheet — equip, 'p' to hand
    ;; an item to another party member, 't' to throw one away)
@@ -164,7 +165,8 @@
    #:notice-lines #:*notice-linger*
    ;; spells
    #:define-spell #:find-spell-type #:spell-title
-   #:spell-code #:spell-range #:spell-duration-text #:spell-target-kind
+   #:spell-code #:spell-range #:spell-reach #:spell-duration-text
+   #:spell-target-kind
    #:spell-description #:spell-card-lines #:begin-cast #:spell-refusal
    #:spell-known-p #:spell-castable-p #:spells-for-hero #:cast-spell
    #:make-cast-view #:cast-view-hero #:cast-view-spell #:cast-view-top
@@ -198,9 +200,15 @@
    #:monster-type-inflicts #:monster-type-image
    #:monster-kind #:monster-hp #:monster-alive-p
    #:start-combat #:combat-round #:attempt-flee #:hero-can-attack-p
+   #:hero-strike-function
    #:*encounter-rate* #:maybe-wandering-encounter
    #:*idle-encounter-minutes* #:maybe-idle-encounter
    #:game-idle-encounter-clock
+   ;; distance: where the groups stand and how they close
+   #:+melee-distance+ #:*combat-group-spacing* #:*combat-close-step*
+   #:monster-group #:monster-distance #:monster-in-melee-p
+   #:combat-distance #:nearest-monster #:monsters-in-reach
+   #:group-monsters #:combat-group-indices #:group-label
    #:combat-monsters #:alive-monsters #:combat-groups #:combat-banner
    #:combat-enemy-image #:combat-image-path
    #:*victory-image* #:*victory-linger* #:victory-image-path

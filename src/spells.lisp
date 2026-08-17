@@ -35,6 +35,13 @@
   title               ; display string, e.g. "mage flame"
   code                ; four-letter incantation ("MAFL"), or NIL
   range               ; the spellbook's range text ("1 foe (10')"), or NIL
+  reach               ; how far the spell carries in a fight, in feet —
+                      ; the number behind the range text, which the
+                      ; engine actually measures against a group's
+                      ; distance (COMBAT-DISTANCE).  NIL when the
+                      ; campaign named none: an unmeasured spell reaches
+                      ; whatever it is aimed at, as it did before
+                      ; distance existed
   duration-text       ; the spellbook's duration text ("medium"), or NIL
   (cost 1)            ; spell points to cast
   (level 1)           ; minimum caster level
@@ -57,7 +64,7 @@
   "Spell names in registration order — the stable order of the menus.")
 
 (defparameter %spell-meta-keys
-  '(:title :code :range :duration-text :cost :level :classes :image
+  '(:title :code :range :reach :duration-text :cost :level :classes :image
     :description :notes)
   "DEFINE-SPELL's non-effect keywords; everything else in the argument
 plist is the effect spec.")
@@ -65,7 +72,9 @@ plist is the effect spec.")
 (defun define-spell (name &rest args)
   "Register spell type NAME (a symbol).  Campaign data calls this.
 ARGS is a plist: :TITLE, :CODE, :RANGE, :DURATION-TEXT (display
-metadata), :COST (sp, default 1), :LEVEL (minimum caster level,
+metadata), :REACH (how far the spell carries in a fight, in feet — the
+measured number behind the :RANGE words; a spell given none reaches
+whatever it is aimed at), :COST (sp, default 1), :LEVEL (minimum caster level,
 default 1), :CLASSES (allowed caster classes; NIL = any caster),
 :IMAGE (the effects-band icon for the timed kinds), :DESCRIPTION (the
 player-facing lore line the spell card shows, over and above the
@@ -90,6 +99,10 @@ along.  TITLE defaults to the downcased name (MAGE-FLAME ->
     (when (and description (not (stringp description)))
       (error "define-spell ~S: :description must be a string (got ~S)"
              name description)))
+  (let ((reach (getf args :reach)))
+    (when (and reach (not (and (integerp reach) (plusp reach))))
+      (error "define-spell ~S: :reach must be a positive integer in ~
+              feet (got ~S)" name reach)))
   (let ((spec (loop for (key value) on args by #'cddr
                     unless (member key %spell-meta-keys)
                       append (list key value))))
@@ -101,6 +114,7 @@ along.  TITLE defaults to the downcased name (MAGE-FLAME ->
                       (string-downcase (substitute #\Space #\- (string name))))
            :code (getf args :code)
            :range (getf args :range)
+           :reach (getf args :reach)
            :duration-text (getf args :duration-text)
            :cost (or (getf args :cost) 1)
            :level (or (getf args :level) 1)
@@ -128,6 +142,12 @@ along.  TITLE defaults to the downcased name (MAGE-FLAME ->
 (defun spell-range (name)
   "The spellbook's range text for the spell, or NIL."
   (spell-type-range (find-spell-type name)))
+
+(defun spell-reach (name)
+  "How far the spell carries in a fight, in feet — the measured number
+behind the range words — or NIL when the campaign named none, which
+reaches whatever it is aimed at (see COMBAT-DISTANCE)."
+  (spell-type-reach (find-spell-type name)))
 
 (defun spell-duration-text (name)
   "The spellbook's duration text for the spell, or NIL."
@@ -170,12 +190,14 @@ particular and answers to the hero's current level."
   "Why HERO cannot cast NAME right now, as a short line for the spell
 card — or NIL when they can: known, affordable, for a spell that
 needs a fight (the damage family and the foe-handling keys) in
-combat — and for a real (integer) teleport NOT in combat: mid-fight
-there is no walking away through folded space.  SPELL-CASTABLE-P
-answers the yes/no of the same rule; the card is +TAKEOVER-COLUMNS+
-wide, so the reasons stay short.  The cast menu keeps its own one-line
-refusal (it has the log under it to say more); the card has no log
-beneath, so the reason has to stand on the page itself."
+combat, in reach of a foe when the spell's REACH falls short of where
+the nearest monster stands — and for a real (integer) teleport NOT in
+combat: mid-fight there is no walking away through folded space.
+SPELL-CASTABLE-P answers the yes/no of the same rule; the card is
++TAKEOVER-COLUMNS+ wide, so the reasons stay short.  The cast menu
+keeps its own one-line refusal (it has the log under it to say more);
+the card has no log beneath, so the reason has to stand on the page
+itself."
   (let ((type (find-spell-type name)))
     (cond ((not (spell-known-p hero name)) "Not in the book.")
           ((< (hero-sp hero) (spell-type-cost type))
@@ -183,6 +205,8 @@ beneath, so the reason has to stand on the page itself."
           ((and (effect-spec-combat-only-p (spell-type-effect type))
                 (not (game-combat game)))
            "Only in a fight.")
+          ((%spell-out-of-reach-p game type)
+           "The foes are too far.")
           ((and (game-combat game)
                 (integerp (getf (spell-type-effect type) :teleport)))
            "Not in a fight.")
@@ -253,9 +277,11 @@ roll, or everything missing for :FULL."
       (- (hero-max-hp hero) (hero-hp hero))
       (max 0 (roll-dice spec))))
 
-(defun %apply-instant-effects (game hero effect target)
+(defun %apply-instant-effects (game hero effect target &optional reach)
   "Resolve EFFECT's instant keys for the caster HERO (TARGET is the
-chosen hero for the single-target kinds, defaulting to the caster).
+chosen hero for the single-target kinds, defaulting to the caster;
+REACH is how far the spell carries in feet, NIL for the unmeasured —
+it decides how much of the field an all-foes key covers).
 The combat-only kinds may assume a fight with living monsters — the
 cast refusals guarantee it.  An integer :teleport folds space for
 real when TARGET carries the prompt's (DIR DISTANCE); the keys whose
@@ -295,26 +321,28 @@ line so the canonical spell already casts."
            (string-capitalize (dir-keyword (game-facing game)))))
     (when (getf effect :disarm-traps)
       (%disarm-traps-ahead game (getf effect :disarm-traps)))
-    ;; the damage family — each strike re-aims at the front survivor
-    (flet ((front () (first (alive-monsters combat)))
+    ;; the damage family — each strike re-aims at the nearest survivor,
+    ;; and the wide kinds cover only what the spell's REACH takes in:
+    ;; a word that carries 30 feet leaves the line at 50 untouched
+    (flet ((nearest () (nearest-monster combat))
            (strike (monster dmg)
              (%strike-monster game (hero-name hero) monster dmg)))
-      (when (and (getf effect :damage) (front))
-        (strike (front) (max 1 (roll-dice (getf effect :damage)))))
-      (when (and (getf effect :damage-per-level) (front))
-        (strike (front)
+      (when (and (getf effect :damage) (nearest))
+        (strike (nearest) (max 1 (roll-dice (getf effect :damage)))))
+      (when (and (getf effect :damage-per-level) (nearest))
+        (strike (nearest)
                 (max 1 (* (roll-dice (getf effect :damage-per-level))
                           (hero-level hero)))))
-      (when (and (getf effect :damage-group) (front))
-        (let ((kind (monster-kind (front))))
-          (dolist (m (alive-monsters combat))
-            (when (eq (monster-kind m) kind)
-              (strike m (max 1 (roll-dice (getf effect :damage-group))))))))
+      (when (and (getf effect :damage-group) (nearest))
+        ;; the group the spell breaks is the one it lands among — the
+        ;; nearest, whoever else in the fight shares its kind
+        (dolist (m (group-monsters combat (monster-group (nearest))))
+          (strike m (max 1 (roll-dice (getf effect :damage-group))))))
       (when (getf effect :damage-all)
-        (dolist (m (alive-monsters combat))
+        (dolist (m (monsters-in-reach combat reach))
           (strike m (max 1 (roll-dice (getf effect :damage-all))))))
-      (when (and (getf effect :slay) (front))
-        (let ((monster (front)))
+      (when (and (getf effect :slay) (nearest))
+        (let ((monster (nearest)))
           (if (< (roll 100) (getf effect :slay))
               (strike monster (monster-hp monster))
               (say game "The ~A resists the spell!"
@@ -378,19 +406,40 @@ WHEN-FLAG or ONCE stays hidden from the zap."
             (say game "A hidden trap is destroyed!"))))))
   (say game "The way ahead is made safe."))
 
+(defun %spell-out-of-reach-p (game type)
+  "Does spell TYPE fall short of the nearest enemy group?  True only
+when the campaign gave the spell a :REACH, the spell is one that
+reaches for the enemy at all (EFFECT-SPEC-REACHES-FOES-P — a mending
+word measures no distance), and the fight's nearest group stands
+beyond it (COMBAT-DISTANCE).  A spell with no reach measures nothing
+and always carries — the rule before distance existed."
+  (let ((reach (spell-type-reach type))
+        (combat (game-combat game)))
+    (when (and reach combat
+               (effect-spec-reaches-foes-p (spell-type-effect type)))
+      (let ((distance (combat-distance combat)))
+        (and distance (> distance reach))))))
+
 (defun %spell-strike-blocked-p (game type)
-  "Say why and return T when spell TYPE carries a battle effect and
-there is no fight — or nothing left alive to strike.  Both casts and
-\(:cast SPELL) item triggers refuse through this check."
+  "Say why and return T when spell TYPE cannot reach what it aims at:
+a battle effect with no fight around it, nothing left alive to strike,
+or an enemy-facing word whose reach falls short of the nearest group.
+Both casts and (:cast SPELL) item triggers refuse through this check."
   (let ((effect (spell-type-effect type)))
     (cond
-      ((not (effect-spec-combat-only-p effect)) nil)
-      ((not (game-combat game))
+      ((and (effect-spec-combat-only-p effect)
+            (not (game-combat game)))
        (say game "There is nothing to strike ~A at."
             (spell-type-title type))
        t)
-      ((null (alive-monsters (game-combat game)))
+      ((and (effect-spec-combat-only-p effect)
+            (null (alive-monsters (game-combat game))))
        (say game "There is nothing left to strike.")
+       t)
+      ((%spell-out-of-reach-p game type)
+       (say game "~A falls short at ~D feet."
+            (spell-type-title type)
+            (combat-distance (game-combat game)))
        t))))
 
 (defun %resolve-spell-cast (game hero type target)
@@ -398,7 +447,8 @@ there is no fight — or nothing left alive to strike.  Both casts and
 an item's (:cast SPELL) trigger: apply TYPE's instant keys for caster
 HERO and install its timed keys as one effect record."
   (let ((effect (spell-type-effect type)))
-    (%apply-instant-effects game hero effect target)
+    (%apply-instant-effects game hero effect target
+                            (spell-type-reach type))
     (when (loop for entry in *timed-effect-keys*
                 thereis (getf effect (first entry)))
       (apply-effect-spec game (spell-type-title type) effect

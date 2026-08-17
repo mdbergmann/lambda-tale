@@ -765,9 +765,12 @@ viewed hero's new slot and the others close ranks — order matters,
 because the first three living members are the front ranks, and reach
 cuts both ways: they are the heroes monsters can hit and the only
 ones who can trade melee blows back.  A hero behind them attacks only
-with an equipped **bow and arrows** (the arrows carry the damage
-dice, the shot aims by DEX instead of STR); bare of the pair, the
-attack action is out of reach and the orders page says so.  A weapon
+with a **missile** — an equipped bow and arrows (the arrows carry the
+damage dice, the shot aims by DEX instead of STR), or a weapon given
+a `:reach` of its own, the **thrown** kind, which needs no bow beside
+it.  Bare of either, the attack action is out of reach and the orders
+page says so; carrying one, the hero shoots as far as its `:reach`
+allows (see the distance rules under Combat).  A weapon
 defined `:two-handed` fills both hands, D&D-style: it will not go on
 beside a shield, nor a shield beside it, and the pack and shop pages
 mark it `(2H)`.  Equipment is managed
@@ -1189,7 +1192,31 @@ round and `n` throws the orders away and asks again from the first
 hero.  On the Amiga all these pages take over the message area,
 with the enemy's portrait in the view column.  Then
 the round runs — heroes strike first, then every surviving monster
-swings at a random front-rank hero.  Each round opens with a
+swings at a random front-rank hero.
+
+The enemy also stands at a **distance**, in feet, on the scale the
+spellbooks already speak: ten feet is one dungeon square, and a group
+at `+melee-distance+` (10') is toe to toe with the front rank — the
+only distance at which a melee blow lands, in either direction.
+`start-combat`'s spec takes a distance per group, `(MONSTER COUNT
+DISTANCE)`, and a zone's encounter table a fourth element for the
+same; name none and the groups line up from melee backwards, one
+`*combat-group-spacing*` apart (10', 30', 50' …), so a fight of one
+group opens at melee and plays as it always did.  At the end of every
+round the lines still walking cover one `*combat-close-step*` and say
+so; set that to `NIL` for a campaign of fixed skirmish lines.  Blows
+and bolts land on the **nearest** group (`nearest-monster`); a group
+spell breaks the group it lands among, and an all-foes word covers
+only what stands inside its reach (`monsters-in-reach`).  A missile
+carries as far as its `:reach` says and a spell as far as its
+`:reach`, each measured against `combat-distance` — a spell that falls
+short is refused before it is paid for, and the orders page drops the
+Attack row for a hero with nothing in range.  Both are campaign data:
+an item or a spell given no `:reach` goes unmeasured and carries
+however far the fight asks, which is what keeps a campaign written
+before distance existed playing unchanged.
+
+Each round opens with a
 `-- Round N --` line and its transcript plays out one message at a
 time on a fresh page of its own; `+`/`-` set the pace (5 speeds, from
 a second per line — the starting pace — to instant).  A won fight

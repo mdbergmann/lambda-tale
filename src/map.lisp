@@ -314,25 +314,32 @@ wandering encounter, a real in (0,100]."
 
 (defun %zone-encounter-table (path key table)
   "Validate TABLE, a zone KEY wandering-monster table — a non-empty
-list of (MONSTER-NAME COUNT-DICE [WEIGHT]) entries: a monster name
-string, a count dice spec (see PARSE-DICE) and an optional positive
-integer weight (default 1).  The names are resolved at spawn time
-\(FIND-MONSTER-TYPE), not here — the campaign may load after the map."
+list of (MONSTER-NAME COUNT-DICE [WEIGHT [DISTANCE]]) entries: a
+monster name string, a count dice spec (see PARSE-DICE), an optional
+positive integer weight (default 1) and an optional DISTANCE in feet,
+how far off the group is met (default: the fight opens at melee).  The
+names are resolved at spawn time (FIND-MONSTER-TYPE), not here — the
+campaign may load after the map."
   (unless (consp table)
     (error "~A: zone ~S ~S must be a non-empty list of ~
-\(MONSTER-NAME COUNT-DICE [WEIGHT]) entries" path key table))
+\(MONSTER-NAME COUNT-DICE [WEIGHT [DISTANCE]]) entries" path key table))
   (dolist (entry table table)
-    (unless (and (consp entry) (<= 2 (length entry) 3)
+    (unless (and (consp entry) (<= 2 (length entry) 4)
                  (stringp (first entry))
                  (or (integerp (second entry)) (stringp (second entry))))
       (error "~A: zone ~S entry ~S must be (MONSTER-NAME COUNT-DICE ~
-[WEIGHT])" path key entry))
+[WEIGHT [DISTANCE]])" path key entry))
     (parse-dice (second entry))
-    (let ((weight (third entry)))
+    (let ((weight (third entry))
+          (distance (fourth entry)))
       (when weight
         (unless (and (integerp weight) (plusp weight))
           (error "~A: zone ~S weight ~S in ~S must be a positive integer"
-                 path key weight entry))))))
+                 path key weight entry)))
+      (when distance
+        (unless (and (integerp distance) (plusp distance))
+          (error "~A: zone ~S distance ~S in ~S must be a positive ~
+integer in feet" path key distance entry))))))
 
 (defun %apply-map-form (map form path)
   (unless (and (consp form) (symbolp (first form)))
