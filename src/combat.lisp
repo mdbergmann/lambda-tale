@@ -3,7 +3,8 @@
 ;;; Monster types are campaign data (DEFINE-MONSTER); the engine only
 ;;; knows the mechanics.  Combat is Bard's Tale round-based: the party
 ;;; declares actions, heroes strike first, then every surviving monster
-;;; swings at a random front-rank hero.  The whole transcript travels as
+;;; swings at a random front-rank hero — or shoots, where it stands off
+;;; and its type can (see below).  The whole transcript travels as
 ;;; :MESSAGE events; :COMBAT-START and :COMBAT-END frame the fight.
 ;;;
 ;;; Reach cuts both ways (HERO-IN-REACH-P): the front ranks are the
@@ -13,6 +14,14 @@
 ;;; the arrows carrying the dice); bare of one, the attack action is
 ;;; simply out of reach for it, and the orders page says so instead
 ;;; of recording it.
+;;;
+;;; The enemy answers in kind.  A monster type the campaign gave a
+;;; :MISSILE shoots from where it stands while its group is still
+;;; walking in (MONSTER-CAN-SHOOT-P), and an arrow — or a spat venom,
+;;; or a word out of the dark — does not care which rank a hero stands
+;;; in: its field is the whole party, the mirror of the back-rank hero
+;;; shooting over the enemy's heads.  Bare of a missile, a group short
+;;; of melee has nothing to spend its round on but the ground it covers.
 ;;;
 ;;; To-hit: d20 + bonus hits when it reaches 20 - AC (descending AC,
 ;;; unarmored 10 = hit on 10+) — melee rides on STR, a shot on DEX.
@@ -26,6 +35,13 @@
   (hp-dice "1d8")
   (ac 10)
   (damage "1d4")
+  missile             ; dice its answer from a distance throws, or NIL:
+                      ; a type that must close before it can do anything
+  missile-reach       ; how far that answer carries, in feet — NIL is
+                      ; the unmeasured missile that always reaches
+  (missile-verb "SHOOTS")  ; the transcript's word for a landed shot
+  speed               ; feet it covers in a round — its own gait — or
+                      ; NIL to walk at *COMBAT-CLOSE-STEP* like the rest
   (xp 10)
   (gold-dice 0)
   item                ; item this monster may carry, or NIL
@@ -36,9 +52,25 @@
 (defvar *monster-types* (make-hash-table :test 'equalp))
 
 (defun define-monster (name &key (level 1) (hp-dice "1d8") (ac 10)
-                                 (damage "1d4") (xp 10) (gold 0)
+                                 (damage "1d4") missile missile-reach
+                                 (missile-verb "SHOOTS") speed
+                                 (xp 10) (gold 0)
                                  item (item-chance 100) inflicts image)
   "Register monster type NAME (a string).  Campaign data calls this.
+:MISSILE gives the type an answer from a distance — the dice its
+arrow, its venom or its breath throws while its group is still walking
+in — and :MISSILE-REACH how far in feet that answer carries, measured
+against where the group stands; leave the reach out and the missile
+goes unmeasured and always reaches, the rule the hero's own missiles
+follow.  A shot picks any living hero, whatever rank they stand in,
+and lands with the same to-hit roll and the same :INFLICTS as a blow;
+:MISSILE-VERB is the transcript's word for one (\"SHOOTS\", \"SPITS
+AT\").  A type without a :MISSILE is the plain fighter it always was:
+until its group reaches melee its round is the ground it covers.
+:SPEED is that gait — the feet it covers in a round, its own instead
+of *COMBAT-CLOSE-STEP*; 0 nails it where the fight found it, which
+with a missile is how a campaign fields an enemy that stands off and
+shoots.
 :ITEM names an item the monster carries into the fight — after a
 victory each fallen carrier rolls :ITEM-CHANCE percent, and the first
 success hands the party that item, one find per fight at most (see
@@ -58,9 +90,27 @@ fight lasts."
       (error "define-monster ~S: :inflicts wants (AILMENT PERCENT) ~
               entries over ~S, got ~S"
              name *ailments* entry)))
+  (when missile
+    (parse-dice missile))               ; bad dice fail here, not mid-fight
+  (when (and missile-reach
+             (not (and (integerp missile-reach) (plusp missile-reach))))
+    (error "define-monster ~S: :missile-reach must be a positive ~
+            integer in feet (got ~S)" name missile-reach))
+  (when (and missile-reach (not missile))
+    (error "define-monster ~S: :missile-reach wants a :missile to ~
+            carry it" name))
+  (unless (and (stringp missile-verb) (plusp (length missile-verb)))
+    (error "define-monster ~S: :missile-verb must be a word for the ~
+            transcript (got ~S)" name missile-verb))
+  (when (and speed (not (and (integerp speed) (not (minusp speed)))))
+    (error "define-monster ~S: :speed must be feet per round, zero or ~
+            more (got ~S)" name speed))
   (setf (gethash name *monster-types*)
         (%make-monster-type :name name :level level :hp-dice hp-dice
-                            :ac ac :damage damage :xp xp :gold-dice gold
+                            :ac ac :damage damage :missile missile
+                            :missile-reach missile-reach
+                            :missile-verb missile-verb :speed speed
+                            :xp xp :gold-dice gold
                             :item item :item-chance item-chance
                             :inflicts inflicts :image image))
   name)
@@ -98,8 +148,10 @@ gives the archers and casters their rounds while the rest walk in.  An
 encounter may name its own distances instead — see START-COMBAT.")
 
 (defparameter *combat-close-step* 10
-  "Feet a group beyond melee walks in at the end of each round.  NIL (or
-a non-positive value) nails every group where the fight found it.")
+  "Feet a group beyond melee walks in at the end of each round — the
+gait of every monster type that names no :SPEED of its own.  NIL (or a
+non-positive value) nails those groups where the fight found it; a
+type with its own speed keeps walking at it either way.")
 
 (defstruct (monster (:constructor %make-monster))
   kind                ; MONSTER-TYPE
@@ -116,6 +168,26 @@ a non-positive value) nails every group where the fight found it.")
   "Has the monster's group closed all the way in?  Only then does it
 swing, and only then can a front-rank hero swing back."
   (<= (monster-distance monster) +melee-distance+))
+
+(defun monster-can-shoot-p (monster)
+  "Can MONSTER answer from where it stands, short of melee?  True when
+its type carries a :MISSILE whose :MISSILE-REACH covers the ground
+still between them — an unmeasured missile carrying however far the
+fight asks, exactly as the hero's own does (HERO-STRIKE-FUNCTION).
+Melee comes first for the enemy too: a monster that has closed swings
+rather than shoots, so this is only asked of the ones still walking."
+  (let* ((type (monster-kind monster))
+         (reach (monster-type-missile-reach type)))
+    (and (monster-type-missile type)
+         (or (null reach) (>= reach (monster-distance monster))))))
+
+(defun monster-step (monster)
+  "Feet MONSTER covers at the end of a round: its type's own :SPEED
+where the campaign gave it a gait, else *COMBAT-CLOSE-STEP*, the pace
+everything else walks at.  Zero — or a dial turned off — leaves the
+line where it stands."
+  (let ((speed (monster-type-speed (monster-kind monster))))
+    (if speed speed *combat-close-step*)))
 
 (defstruct (combat (:constructor %make-combat))
   monsters            ; list of MONSTER (the fallen stay, filtered below)
@@ -511,9 +583,15 @@ the living's to carry."
           (when (and entry (< (roll 100) (second entry)))
             (afflict-hero game hero a)))))))
 
-(defun %monster-attack (game combat monster)
-  (let* ((targets (front-ranks game))
-         (hero (nth (roll (length targets)) targets))
+(defun %monster-strike (game combat monster targets dice verb)
+  "One monster strike — the swing and the shot share the resolution, as
+the hero's blow and arrow do.  TARGETS is the heroes it may find, DICE
+what it throws and VERB the transcript's word for a landed hit; a miss
+stays the quiet lowercase line either way.  Level is the to-hit bonus,
+a defence is worth 4 AC, and what a landed hit carries besides its
+damage (%MONSTER-INFLICT) does not care how far it travelled: a venom
+spat across thirty feet is the same venom."
+  (let* ((hero (nth (roll (length targets)) targets))
          (type (monster-kind monster))
          (ac (- (hero-effective-ac hero game)
                 (if (member hero (combat-defenders combat)) 4 0))))
@@ -521,42 +599,63 @@ the living's to carry."
     (if (%attack-hits-p (- (monster-type-level type)
                            (effects-foes-attack game))
                        ac)
-        (let ((dmg (max 1 (roll-dice (monster-type-damage type)))))
-          (say game "The ~A HITS ~A for ~D damage."
-               (monster-type-name type) (hero-name hero) dmg)
+        (let ((dmg (max 1 (roll-dice dice))))
+          (say game "The ~A ~A ~A for ~D damage."
+               (monster-type-name type) verb (hero-name hero) dmg)
           (damage-hero game hero dmg)
           (%monster-inflict game monster hero))
         (say game "The ~A misses ~A."
              (monster-type-name type) (hero-name hero)))))
 
+(defun %monster-attack (game combat monster)
+  "The swing of a monster that has closed: the front ranks are the
+heroes it can reach, and one of them at random takes it."
+  (%monster-strike game combat monster (front-ranks game)
+                   (monster-type-damage (monster-kind monster))
+                   "HITS"))
+
+(defun %monster-shoot (game combat monster)
+  "The answer of a monster still walking in: an arrow, a venom, a word
+out of the dark.  Rank is a melee line and a missile flies over it —
+the mirror of the back-rank hero shooting over the enemy's heads — so
+the whole standing party is its field, and the back ranks are for once
+no safer than the front."
+  (%monster-strike game combat monster (alive-heroes game)
+                   (monster-type-missile (monster-kind monster))
+                   (monster-type-missile-verb (monster-kind monster))))
+
 (defun %monsters-act (game combat)
   "The enemy's half of the round: every monster that has closed to
-melee swings.  A group still walking in has nothing to swing at — its
-round is the ground it covers (%CLOSE-IN)."
+melee swings, and every one still walking in shoots if its type
+carries a missile that reaches (MONSTER-CAN-SHOOT-P).  A group with
+neither has nothing to spend the round on but the ground it covers
+(%CLOSE-IN)."
   (dolist (m (alive-monsters combat))
-    (when (and (party-alive-p game) (monster-in-melee-p m))
-      (%monster-attack game combat m))))
+    (when (party-alive-p game)
+      (cond ((monster-in-melee-p m) (%monster-attack game combat m))
+            ((monster-can-shoot-p m) (%monster-shoot game combat m))))))
 
 (defun %close-in (game combat)
-  "End of the round: every group still short of melee walks one
-*COMBAT-CLOSE-STEP* nearer and says so, the ones arriving loudest.  A
-step of NIL (or less than one foot) leaves the lines where they stand."
-  (let ((step *combat-close-step*))
-    (when (and step (plusp step))
-      (dolist (index (combat-group-indices combat))
-        (let* ((members (group-monsters combat index))
-               (from (monster-distance (first members))))
-          (when (> from +melee-distance+)
-            (let* ((count (length members))
-                   (to (max +melee-distance+ (- from step)))
-                   (label (group-label (monster-kind (first members)) count))
-                   (many (> count 1)))
-              (dolist (m members)
-                (setf (monster-distance m) to))
-              (if (= to +melee-distance+)
-                  (say game "The ~A close~:[s~;~] in!" label many)
-                  (say game "The ~A advance~:[s~;~] to ~D feet."
-                       label many to)))))))))
+  "End of the round: every group still short of melee covers its own
+MONSTER-STEP and says so, the ones arriving loudest.  A step of NIL
+(or less than one foot) leaves that line where it stands — the
+shambler eats the archers' rounds while the runner is on top of the
+party in one, which is what a type's :SPEED is for."
+  (dolist (index (combat-group-indices combat))
+    (let* ((members (group-monsters combat index))
+           (step (monster-step (first members)))
+           (from (monster-distance (first members))))
+      (when (and step (plusp step) (> from +melee-distance+))
+        (let* ((count (length members))
+               (to (max +melee-distance+ (- from step)))
+               (label (group-label (monster-kind (first members)) count))
+               (many (> count 1)))
+          (dolist (m members)
+            (setf (monster-distance m) to))
+          (if (= to +melee-distance+)
+              (say game "The ~A close~:[s~;~] in!" label many)
+              (say game "The ~A advance~:[s~;~] to ~D feet."
+                   label many to)))))))
 
 (defun %award-victory (game combat)
   "Pay out a won fight, the Bard's Tale way: the fallen monsters' XP

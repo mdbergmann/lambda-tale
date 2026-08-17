@@ -198,6 +198,8 @@
    #:monster-type-level #:monster-type-ac #:monster-type-xp
    #:monster-type-item #:monster-type-item-chance
    #:monster-type-inflicts #:monster-type-image
+   #:monster-type-missile #:monster-type-missile-reach
+   #:monster-type-missile-verb #:monster-type-speed
    #:monster-kind #:monster-hp #:monster-alive-p
    #:start-combat #:combat-round #:attempt-flee #:hero-can-attack-p
    #:hero-strike-function
@@ -207,6 +209,7 @@
    ;; distance: where the groups stand and how they close
    #:+melee-distance+ #:*combat-group-spacing* #:*combat-close-step*
    #:monster-group #:monster-distance #:monster-in-melee-p
+   #:monster-can-shoot-p #:monster-step
    #:combat-distance #:nearest-monster #:monsters-in-reach
    #:group-monsters #:combat-group-indices #:group-label
    #:combat-monsters #:alive-monsters #:combat-groups #:combat-banner

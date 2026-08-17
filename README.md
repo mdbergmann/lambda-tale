@@ -1192,7 +1192,8 @@ round and `n` throws the orders away and asks again from the first
 hero.  On the Amiga all these pages take over the message area,
 with the enemy's portrait in the view column.  Then
 the round runs — heroes strike first, then every surviving monster
-swings at a random front-rank hero.
+swings at a random front-rank hero, or shoots from where it stands
+off if its type can (see the distance rules below).
 
 The enemy also stands at a **distance**, in feet, on the scale the
 spellbooks already speak: ten feet is one dungeon square, and a group
@@ -1203,8 +1204,12 @@ DISTANCE)`, and a zone's encounter table a fourth element for the
 same; name none and the groups line up from melee backwards, one
 `*combat-group-spacing*` apart (10', 30', 50' …), so a fight of one
 group opens at melee and plays as it always did.  At the end of every
-round the lines still walking cover one `*combat-close-step*` and say
-so; set that to `NIL` for a campaign of fixed skirmish lines.  Blows
+round the lines still walking cover their ground and say so — one
+`*combat-close-step*`, or the type's own `:speed` where the campaign
+gave it a gait, so a runner crosses in one round what a shambler takes
+four over; set the dial to `NIL` for a campaign of fixed skirmish
+lines, and a type's `:speed 0` nails that one line wherever the fight
+found it.  Blows
 and bolts land on the **nearest** group (`nearest-monster`); a group
 spell breaks the group it lands among, and an all-foes word covers
 only what stands inside its reach (`monsters-in-reach`).  A missile
@@ -1215,6 +1220,22 @@ Attack row for a hero with nothing in range.  Both are campaign data:
 an item or a spell given no `:reach` goes unmeasured and carries
 however far the fight asks, which is what keeps a campaign written
 before distance existed playing unchanged.
+
+**The enemy answers in kind.**  A monster type given a
+`:missile` — the dice its arrow, its venom or its breath
+throws — and a `:missile-reach` shoots from where it stands while its
+group is still walking in, under the same to-hit roll, the same `+4`
+for a defence and the same `:inflicts` as its blow; an unmeasured
+missile carries however far the fight asks, exactly as the hero's
+does.  Melee still comes first on both sides: a group that has closed
+swings rather than shoots.  A shot picks **any living hero, whatever
+rank they stand in** — rank is a melee line and a missile flies over
+it, the mirror of the back-rank hero shooting over the enemy's heads,
+and the only thing in the game that reaches the back ranks.
+`:missile-verb` is the transcript's word for a landed one (`SHOOTS` by
+default, `SPITS AT`, `WAILS AT`).  A type without a missile is the
+plain fighter it always was: until its group reaches melee, its round
+is the ground it covers.
 
 Each round opens with a
 `-- Round N --` line and its transcript plays out one message at a
@@ -1263,7 +1284,8 @@ Who hands them out and what lifting one costs is **campaign data**:
 - `define-monster ... :inflicts ((:poison 25) (:stone 5))` — a landed
   blow rolls each entry's percent chance on the hero it struck.  This is
   how the Bard's Tale monster powers are expressed; a blow that misses,
-  or that fells its target, carries nothing.
+  or that fells its target, carries nothing.  A landed **shot** carries
+  the same: a venom spat across thirty feet is the same venom.
 - a spell's `:cure (:poison :insanity)` lifts exactly the conditions it
   names — a word against poison leaves a madness where it found it.
   With `:heal-party` or `:resurrect` it reaches the whole roster.

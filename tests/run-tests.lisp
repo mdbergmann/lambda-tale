@@ -4249,6 +4249,165 @@ height" d)
   (check-true "standing off, the same hero shoots"
               (eq (hero-strike-function g h) #'%hero-shoot)))
 
+;;; The enemy's own reach: a type given a :MISSILE answers from where
+;;; it stands instead of spending the round walking, and a type given a
+;;; :SPEED covers the ground at its own gait.
+
+(define-monster "test archer"
+  :level 1 :hp-dice 3 :ac 10 :damage "1d2"
+  :missile "1d2" :missile-reach 30)
+
+(check "the missile is monster data" "1d2"
+       (monster-type-missile (find-monster-type "test archer")))
+(check "and carries a measured reach" 30
+       (monster-type-missile-reach (find-monster-type "test archer")))
+(check "whose word for a landed shot defaults" "SHOOTS"
+       (monster-type-missile-verb (find-monster-type "test archer")))
+(check "a plain fighter carries no missile" nil
+       (monster-type-missile (find-monster-type "test rat")))
+(check "and no gait of its own" nil
+       (monster-type-speed (find-monster-type "test rat")))
+
+;; A shot flies over the ranks: the archer standing off at 30 feet
+;; finds the FOURTH hero, whom no melee blow of its could reach.
+(let* ((m (parse-map *art* :name "test"))
+       (heroes (list (%combat-hero "A") (%combat-hero "B")
+                     (%combat-hero "C") (%combat-hero "D")))
+       (d (fourth heroes))
+       (g (new-game m :party heroes))
+       (msgs (watch-messages g)))
+  (start-combat g '(("test archer" 1 30)))
+  (check "the back rank is out of melee reach" nil (hero-in-reach-p g d))
+  (check-true "but the archer answers from where it stands"
+              (monster-can-shoot-p
+               (first (combat-monsters (game-combat g)))))
+  (with-rng (3 19 1)
+    (combat-round g '(:defend :defend :defend :defend)))
+  (check-true "and the shot finds the back rank"
+              (find "The test archer SHOOTS D for 2 damage." (funcall msgs)
+                    :test #'string=))
+  (check "which cost D hit points the front rank never paid for" 6
+         (hero-hp d))
+  (check "the line still covered its ground" 20
+         (combat-distance (game-combat g))))
+
+;; A missile that falls short is no answer at all: the same archer met
+;; at 40 feet spends its round walking, and shoots only once the ground
+;; between is inside its reach.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero "A"))))
+       (msgs (watch-messages g)))
+  (start-combat g '(("test archer" 1 40)))
+  (check "the shot falls ten feet short" nil
+         (monster-can-shoot-p (first (combat-monsters (game-combat g)))))
+  (with-rng (0 19 1) (combat-round g '(:defend)))
+  (check "so the round is the ground it covers" 30
+         (combat-distance (game-combat g)))
+  (check-true "and nothing was loosed"
+              (notany (lambda (s) (search "SHOOTS" s)) (funcall msgs)))
+  (with-rng (0 19 1) (combat-round g '(:defend)))
+  (check-true "the next round it stands in its own range and shoots"
+              (find "The test archer SHOOTS A for 2 damage." (funcall msgs)
+                    :test #'string=)))
+
+;; Melee comes first for the enemy too: a group that has closed swings
+;; its :DAMAGE rather than shooting over a rank it is standing on.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero "A"))))
+       (msgs (watch-messages g)))
+  (start-combat g '(("test archer" 1)))
+  (with-rng (0 19 1) (combat-round g '(:defend)))
+  (check-true "at melee it HITS instead"
+              (find "The test archer HITS A for 2 damage." (funcall msgs)
+                    :test #'string=)))
+
+;; An unmeasured missile carries however far the fight asks — the hero
+;; side's rule — and its word is the campaign's to choose.  What a
+;; landed shot carries besides damage is what a landed blow carries.
+(define-monster "test howler"
+  :level 1 :hp-dice 3 :ac 10 :damage "1d2"
+  :missile "1d2" :missile-verb "WAILS AT" :inflicts '((:poison 100)))
+
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero "A"))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (start-combat g '(("test howler" 1 50)))
+  (check-true "a missile the campaign never measured always reaches"
+              (monster-can-shoot-p (first (combat-monsters (game-combat g)))))
+  (with-rng (0 19 1) (combat-round g '(:defend)))
+  (check-true "and speaks in the campaign's own word"
+              (find "The test howler WAILS AT A for 2 damage." (funcall msgs)
+                    :test #'string=))
+  (check-true "a venom rides the shot as it rides the blow"
+              (hero-ailment-p h :poison)))
+
+;; A gait of its own: :SPEED is the feet a type covers in a round, and
+;; the charger crosses in two what the shambler would take four over.
+(define-monster "test charger"
+  :level 1 :hp-dice 3 :ac 10 :damage "1d2" :speed 30)
+
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero "A"))))
+       (msgs (watch-messages g)))
+  (start-combat g '(("test charger" 1 50)))
+  (check "the type carries its own gait" 30
+         (monster-step (first (combat-monsters (game-combat g)))))
+  (with-rng (0 19 1) (combat-round g '(:defend)))
+  (check "and covers it in one round" 20 (combat-distance (game-combat g)))
+  (with-rng (0 19 1) (combat-round g '(:defend)))
+  (check "the second brings it to melee" 10
+         (combat-distance (game-combat g)))
+  (check-true "arriving in the words every group arrives in"
+              (find "The 1 test charger closes in!" (funcall msgs)
+                    :test #'string=)))
+
+;; :SPEED 0 with a missile is the enemy that stands off and shoots: it
+;; never closes, and the party must out-shoot it or run.
+(define-monster "test lurker"
+  :level 1 :hp-dice 3 :ac 10 :damage "1d2"
+  :missile "1d2" :missile-verb "SPITS AT" :speed 0)
+
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero "A"))))
+       (msgs (watch-messages g)))
+  (start-combat g '(("test lurker" 1 40)))
+  (with-rng (0 19 1) (combat-round g '(:defend)))
+  (check "it holds the ground it was met on" 40
+         (combat-distance (game-combat g)))
+  (check-true "and answers from it"
+              (find "The test lurker SPITS AT A for 2 damage." (funcall msgs)
+                    :test #'string=)))
+
+;; The dial is the default, not the law: with *COMBAT-CLOSE-STEP* off
+;; the plain line is pinned where the fight found it while a type with
+;; a gait of its own still walks.
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m :party (list (%combat-hero "A"))))
+       (*combat-close-step* nil))
+  (start-combat g '(("test rat" 1 30) ("test charger" 1 50)))
+  (check "a type with no speed of its own follows the dial" nil
+         (monster-step (first (combat-monsters (game-combat g)))))
+  (with-rng (0 19 1) (combat-round g '(:defend)))
+  (check "so the pinned line holds" 30
+         (monster-distance (first (combat-monsters (game-combat g)))))
+  (check "and the charger keeps its own pace" 20
+         (monster-distance (second (combat-monsters (game-combat g))))))
+
+;; Bad monster data fails at registration, not mid-fight.
+(check-error "a reach wants a missile to carry it"
+  (define-monster "test bad" :missile-reach 30))
+(check-error "and the reach is feet, a positive number of them"
+  (define-monster "test bad" :missile "1d2" :missile-reach 0))
+(check-error "missile dice must parse"
+  (define-monster "test bad" :missile "d6"))
+(check-error "the missile's word must be one"
+  (define-monster "test bad" :missile "1d2" :missile-verb ""))
+(check-error "and a speed is feet per round, never backwards"
+  (define-monster "test bad" :speed -10))
+(check-error "an unregistered failure leaves no type behind"
+  (find-monster-type "test bad"))
+
 ;; The strikes land on the NEAREST group, not on the encounter's first.
 (let* ((m (parse-map *art* :name "test"))
        (g (new-game m :party (list (%combat-hero)))))
