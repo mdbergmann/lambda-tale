@@ -61,10 +61,12 @@ push the page's last rows off the lores screen)."
 ;;; menu returns exactly as it was.  The SAVE-MENU-ACT instruction
 ;;; pattern, like the guild's (:SAVES ...).
 
-(defparameter *notice-linger* 5
+(defparameter *notice-linger* 3
   "Seconds a front-end holds a (:NOTICE TEXT) page before the
 location's own menu comes back — a beat to read a refusal, no key
-needed.")
+needed.  The victory page's *VICTORY-LINGER* is the same beat: long
+enough for one sentence, short enough that a player who has already
+read it is not kept waiting.")
 
 (defun notice-lines (game text)
   "The page a (:NOTICE TEXT) instruction shows: the location's banner
