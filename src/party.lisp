@@ -1072,9 +1072,62 @@ have drawn.  Returns the number of heroes bitten."
 ;;; ---------------------------------------------------------------------
 ;;; Experience and levels
 
+;;; The experience ladder is the campaign's, not the engine's: how long
+;;; a game is, and how much of it a monster tier is worth, is content.
+;;; The engine keeps the mechanism and its own curve for a game that
+;;; registers none — the fixture world plays on that one.
+
+(defparameter *xp-table* nil
+  "The campaign's experience ladder: the running totals to reach levels
+2, 3, 4, ... in order, or NIL for the engine's own curve.  Register one
+with DEFINE-XP-TABLE, which checks its shape.")
+
+(defparameter *xp-growth* 3/2
+  "What a level past the end of *XP-TABLE* costs: the last total times
+this, once per level beyond it.  Kept rational so the arithmetic stays
+exact until XP-FOR-LEVEL's closing ROUND.")
+
+(defun define-xp-table (totals &key (growth 3/2))
+  "Register the campaign's experience ladder.  TOTALS are the running
+experience totals to reach levels 2, 3, 4, ... in order; GROWTH is what
+each level past the end of the list multiplies the last total by, so
+the ladder never simply stops.  Returns TOTALS.
+
+Signals an error unless TOTALS is a non-empty list of positive integers
+that strictly increases, and GROWTH is greater than 1: a ladder that
+stalls or turns back downhill would leave a hero either for ever ready
+to rise or never ready at all, and a campaign should hear about that
+when it loads rather than when someone plays it."
+  (unless (and (consp totals)
+               (every (lambda (n) (and (integerp n) (plusp n))) totals))
+    (error "DEFINE-XP-TABLE: TOTALS must be a non-empty list of ~
+            positive integers, not ~S" totals))
+  (loop for (a b) on totals
+        while b
+        unless (< a b)
+          do (error "DEFINE-XP-TABLE: TOTALS must strictly increase, ~
+                     but ~D is followed by ~D" a b))
+  (unless (and (realp growth) (> growth 1))
+    (error "DEFINE-XP-TABLE: GROWTH must be a real greater than 1, ~
+            not ~S" growth))
+  (setf *xp-table* (copy-list totals)
+        *xp-growth* growth)
+  totals)
+
 (defun xp-for-level (level)
-  "Total experience required to reach LEVEL."
-  (* 50 level (1- level)))
+  "Total experience required to reach LEVEL.  Level 1 is free.  With a
+campaign ladder registered (DEFINE-XP-TABLE) the table answers for as
+far as it reaches and *XP-GROWTH* compounds beyond its end; with none,
+the engine's own curve does — 50 x LEVEL x (LEVEL - 1), which is gentle
+enough for a one-dungeon fixture and far too gentle for a long game."
+  (cond ((<= level 1) 0)
+        ((null *xp-table*) (* 50 level (1- level)))
+        (t (let ((n (length *xp-table*)))
+             (if (<= level (1+ n))
+                 ;; the table's first entry is level 2's total
+                 (nth (- level 2) *xp-table*)
+                 (round (* (nth (1- n) *xp-table*)
+                           (expt *xp-growth* (- level 1 n)))))))))
 
 (defun %maybe-raise-stats (game hero)
   "Bard's Tale stat growth on a level-up: every ability, in str dex iq

@@ -38,6 +38,20 @@
 ;;;                              wrap in ONCE for a one-shot trap.
 ;;;   (heal DICE)                heal every living hero
 ;;;   (gold DICE)                treasure (goes to the leading hero)
+;;;   (give-item NAME)           treasure with a name: the first living
+;;;                              hero with pack room takes it, and with
+;;;                              every pack full it is left behind (the
+;;;                              combat find's rule) — a chest, a niche,
+;;;                              a reward, anything a monster does not
+;;;                              carry in for the party to kill it for
+;;;   (take-item NAME)           one NAME leaves the party: a key spent
+;;;                              on the gate it opened.  Carrying none
+;;;                              is not an error
+;;;   (when-item NAME OP...)     run OP... if anyone carries NAME
+;;;   (unless-item NAME OP...)   ... if nobody does.  The pair is
+;;;                              WHEN-FLAG's twin for things the party
+;;;                              can hold, drop and hand around, where a
+;;;                              flag only remembers that they once could
 ;;;   (encounter (MONSTER COUNT)...)  start combat; ops after this one
 ;;;                              are skipped (combat interrupts)
 ;;;   (event TOPIC ARG...)       emit a story event for subscribers
@@ -134,6 +148,14 @@ to the cell the party just left."
        (when h
          (incf (hero-gold h) n)
          (say game "The party finds ~D gold!" n))))
+    (give-item (run-give-item-op game (second op)))
+    (take-item (run-take-item-op game (second op)))
+    (when-item
+     (when (party-carrying-p game (second op))
+       (run-special game (cddr op))))
+    (unless-item
+     (unless (party-carrying-p game (second op))
+       (run-special game (cddr op))))
     (encounter (start-combat game (rest op)))
     (event (apply #'emit game (rest op)))
     (t (error "Unknown special op ~S in cell (~D,~D) of ~A"
@@ -145,6 +167,36 @@ to the cell the party just left."
   "The story-flag key marking the trap on cell (X,Y) of MAP disarmed
 for good (Trap Zap's work) — the ONCE key pattern."
   (list :trap-disarmed (dungeon-map-name map) x y))
+
+(defun run-give-item-op (game name)
+  "The GIVE-ITEM op: the map hands the party an item, the way GOLD
+hands it coin.  The first living hero with pack room takes it —
+%AWARD-LOOT's rule, so a chest and a corpse fill a pack the same way —
+and GIVE-ITEM says whose pack was full on the way past.  With every
+pack full the item is left where it lay and nobody carries it, which
+is a game situation and not an error.  Returns the hero who took it,
+or NIL.  Signals an error on an unregistered NAME."
+  (find-item-type name)
+  (say game "The party finds ~A!" (item-title name))
+  (dolist (h (alive-heroes game))
+    (when (give-item game h name)
+      (say game "~A takes it." (hero-name h))
+      (return-from run-give-item-op h)))
+  nil)
+
+(defun run-take-item-op (game name)
+  "The TAKE-ITEM op: one NAME leaves the party, a key spent on the gate
+it opened.  The first carrier in party order gives it up, standing or
+fallen (PARTY-CARRIER's rule, so a WHEN-ITEM gate and the TAKE-ITEM
+behind it never disagree about who counts), and the last copy leaves
+the hands it was worn in (DROP-ITEM).  Carrying none is silent and not
+an error: the map may spend what the party does not have, and the
+gates that must not are written with WHEN-ITEM.  Returns the hero it
+came from, or NIL."
+  (let ((h (party-carrier game name)))
+    (when h
+      (drop-item game h name)
+      h)))
 
 (defun run-trap-op (game args)
   "The TRAP op: ARGS is (DICE [TEXT] [DIFFICULTY]), the two optionals

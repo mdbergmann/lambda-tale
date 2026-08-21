@@ -976,7 +976,22 @@ counterparts (see "Wandering monsters").
 The op vocabulary — `message`, `set-flag`/`clear-flag`,
 `when-flag`/`unless-flag`, `at-night`/`at-day`, `once`, `teleport`,
 `travel`, `location`, `spin`, `damage`, `trap`, `heal`, `gold`,
-`encounter`, `event` — is documented in `src/specials.lisp`.
+`give-item`/`take-item`, `when-item`/`unless-item`, `encounter`,
+`event` — is documented in `src/specials.lisp`.
+
+**The item ops.**  `gold` hands the party coin; `(give-item NAME)`
+hands it something with a name — a chest, a niche, a reward, anything
+no monster carries in for the party to kill it for.  The first living
+hero with pack room takes it, the same rule a combat find follows, and
+with every pack full it is left where it lay.  `(take-item NAME)`
+spends one copy — a key on the gate it opened — and carrying none is
+silent, not an error.  `(when-item NAME OP...)` and its `unless-item`
+twin are `when-flag`'s counterpart for things the party can hold, drop
+and hand around: a flag only remembers that the party once could, while
+these ask what it is carrying now.  All four count a fallen hero's pack
+— a key its bearer died holding is still the party's — and all four
+signal an error on an unregistered item name, because that is a typo in
+map data.
 
 **Traps.**  A `(trap DICE [TEXT] [DIFFICULTY])` op is a floor trap
 with three layers of defence: a levitating party (a `:levitate`
@@ -1134,7 +1149,17 @@ at all.
 ## Party and combat
 
 Heroes have Bard's Tale-ish stats (str/dex/iq/con/lck, descending AC,
-hit dice per class) and bank experience toward xp thresholds; a
+hit dice per class) and bank experience toward xp thresholds.  **The
+ladder those thresholds climb is the campaign's**, not the engine's:
+how long a game runs, and how much of it a monster tier is worth, is
+content.  `(define-xp-table '(TOTAL ...) :growth N)` registers the
+running totals to reach levels 2, 3, 4, ... in order, with `:growth`
+compounding the last of them once per level beyond the list so the
+ladder never simply stops; the form checks that the totals are
+positive, strictly increasing and that the growth exceeds 1, since a
+ladder that stalls would leave a hero for ever ready to rise.  A game
+that registers none plays the engine's own gentle curve
+(50 x L x (L-1)), which is what the fixture world does.  A
 crossed threshold flags the hero in the roster (a white up-arrow
 beside the name) and the rise itself is taken by hand on the
 character sheet — `l`, one level per press, each rise reporting its

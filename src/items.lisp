@@ -182,6 +182,21 @@ equips (or buys)."
 (defun hero-carrying-p (hero name)
   (member name (hero-items hero)))
 
+(defun party-carrying-p (game name)
+  "Does anyone in the party carry item NAME?  Standing or fallen: a key
+in a dead man's pack is still the party's, so a gate that asks for one
+opens for a party carrying its bearer's body.  Signals an error on an
+unregistered NAME — a typo in map data should be loud."
+  (find-item-type name)
+  (and (find-if (lambda (h) (hero-carrying-p h name)) (game-party game)) t))
+
+(defun party-carrier (game name)
+  "The first hero in the party carrying item NAME, or NIL.  Party order,
+standing or fallen — PARTY-CARRYING-P's rule, so a gate and whatever
+spends the key behind it always agree about who counts."
+  (find-item-type name)
+  (find-if (lambda (h) (hero-carrying-p h name)) (game-party game)))
+
 (defun give-item (game hero name)
   "Put item NAME into HERO's pack.  Returns T, or says the pack is full
 and returns NIL (like JOIN-PARTY, a full pack is a game situation, not

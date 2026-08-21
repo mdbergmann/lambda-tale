@@ -124,6 +124,9 @@
    #:+party-limit+ #:party-full-p #:join-party #:move-hero
    #:damage-hero #:heal-hero #:stat-bonus #:stat-gift #:saving-throw
    #:award-xp #:xp-for-level
+   ;; the experience ladder is the campaign's — the engine keeps the
+   ;; mechanism and a gentle curve for a game that registers none
+   #:define-xp-table #:*xp-table* #:*xp-growth*
    #:hero-level-up-pending-p #:advance-level
    ;; changing class — the second ladder; an art left behind freezes at
    ;; the level it was left and keeps granting what it opened
@@ -138,6 +141,7 @@
    #:define-item #:find-item-type #:item-title #:item-usable-p
    #:item-fit-marker #:item-target-kind #:*item-kinds*
    #:+inventory-limit+ #:hero-items #:hero-equipped #:hero-carrying-p
+   #:party-carrying-p #:party-carrier
    #:give-item #:drop-item #:pass-item #:discard-item
    #:equip-item #:unequip-item #:equipped-of-kind
    #:toggle-equip #:equipped-instance-p

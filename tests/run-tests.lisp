@@ -2617,6 +2617,169 @@ height" d)
   (check "spinner facing" +south+ (game-facing g))
   (check "spinner is silent" '() (funcall msgs)))
 
+;; gold goes to the leading hero, and says so.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%make-hero :name "Ann" :class :packer :hp 5 :max-hp 5))
+       (b (%make-hero :name "Bob" :class :packer :hp 5 :max-hp 5))
+       (g (new-game m :party (list a b)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((gold "2d4")))
+  (turn-right g)
+  (with-rng (3) (move-party g :forward))
+  (check "the gold op says what the party found"
+         (list (format nil "The party finds ~D gold!" (hero-gold a)))
+         (funcall msgs))
+  (check-true "and it went to the leading hero alone"
+              (and (plusp (hero-gold a)) (zerop (hero-gold b)))))
+
+;;; The item ops: what a map can put into a pack, take out of one, and
+;;; ask about.  WHEN-FLAG remembers that the party once could do a
+;;; thing; these four are about what it is carrying right now.
+
+;; :startable NIL keeps the pack-mule out of the guild's creation page,
+;; whose tests take the first eight startable classes as they come.
+(define-hero-class :packer :hp-dice "1d8" :damage "1d4" :ac 9
+                   :startable nil)
+(define-item 'test-relic)
+(define-item 'test-charm)
+
+;; give-item: the find goes to the first LIVING hero with pack room,
+;; and the op names both the prize and its taker.
+(let* ((m (parse-map *art* :name "test"))
+       (a (%make-hero :name "Ann" :class :packer :hp 5 :max-hp 5))
+       (b (%make-hero :name "Bob" :class :packer :hp 5 :max-hp 5))
+       (g (new-game m :party (list a b)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((give-item test-relic)))
+  (turn-right g)
+  (move-party g :forward)
+  (check "give-item names the find and its taker"
+         '("The party finds Test Relic!" "Ann takes it.") (funcall msgs))
+  (check "the first hero carries it" '(test-relic) (hero-items a))
+  (check "and nobody else does" '() (hero-items b)))
+
+;; a full pack is stepped over — the next hero takes it, and the op
+;; leaves GIVE-ITEM's own word about the full one standing
+(let* ((m (parse-map *art* :name "test"))
+       (a (%make-hero :name "Ann" :class :packer :hp 5 :max-hp 5
+                      :items (make-list +inventory-limit+
+                                        :initial-element 'test-charm)))
+       (b (%make-hero :name "Bob" :class :packer :hp 5 :max-hp 5))
+       (g (new-game m :party (list a b)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((give-item test-relic)))
+  (turn-right g)
+  (move-party g :forward)
+  (check "a full pack is named and passed over"
+         '("The party finds Test Relic!" "Ann's pack is full."
+           "Bob takes it.")
+         (funcall msgs))
+  (check "the full pack is untouched" +inventory-limit+ (length (hero-items a)))
+  (check "the next hero took it" '(test-relic) (hero-items b)))
+
+;; every pack full: the find is left where it lay, and nobody has it
+(let* ((m (parse-map *art* :name "test"))
+       (a (%make-hero :name "Ann" :class :packer :hp 5 :max-hp 5
+                      :items (make-list +inventory-limit+
+                                        :initial-element 'test-charm)))
+       (g (new-game m :party (list a))))
+  (setf (cell-special m 1 0) '((give-item test-relic)))
+  (turn-right g)
+  (move-party g :forward)
+  (check "nothing was taken" +inventory-limit+ (length (hero-items a)))
+  (check-true "and the relic is not in the pack"
+              (not (hero-carrying-p a 'test-relic))))
+
+;; the fallen do not pick things up
+(let* ((m (parse-map *art* :name "test"))
+       (dead (%make-hero :name "Mor" :class :packer :hp 0 :max-hp 5))
+       (b (%make-hero :name "Bob" :class :packer :hp 5 :max-hp 5))
+       (g (new-game m :party (list dead b))))
+  (setf (cell-special m 1 0) '((give-item test-relic)))
+  (turn-right g)
+  (move-party g :forward)
+  (check "a fallen hero's hands stay empty" '() (hero-items dead))
+  (check "the living one takes it" '(test-relic) (hero-items b)))
+
+;; when-item / unless-item branch on what is carried, not on a flag
+(let* ((m (parse-map *art* :name "test"))
+       (a (%make-hero :name "Ann" :class :packer :hp 5 :max-hp 5))
+       (g (new-game m :party (list a)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((when-item test-relic (message "open"))
+                               (unless-item test-relic (message "locked"))))
+  (turn-right g)
+  (move-party g :forward)
+  (check "unless-item branch with an empty pack" '("locked") (funcall msgs))
+  (give-item g a 'test-relic)
+  (move-party g :back)
+  (move-party g :forward)
+  ;; the watcher accumulates, so the second reading carries the first
+  (check "when-item branch once it is carried"
+         '("locked" "open") (funcall msgs)))
+
+;; a key in a fallen hero's pack still counts — the party has it
+(let* ((m (parse-map *art* :name "test"))
+       (dead (%make-hero :name "Mor" :class :packer :hp 0 :max-hp 5
+                         :items (list 'test-relic)))
+       (b (%make-hero :name "Bob" :class :packer :hp 5 :max-hp 5))
+       (g (new-game m :party (list dead b)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((when-item test-relic (message "open"))))
+  (turn-right g)
+  (move-party g :forward)
+  (check "a gate opens for a key its bearer died holding"
+         '("open") (funcall msgs))
+  (check-true "which is what PARTY-CARRYING-P says too"
+              (party-carrying-p g 'test-relic)))
+
+;; take-item spends one copy, from the first carrier in party order,
+;; and takes the last one out of the hands that wore it
+(let* ((m (parse-map *art* :name "test"))
+       (a (%make-hero :name "Ann" :class :packer :hp 5 :max-hp 5
+                      :items (list 'test-relic 'test-relic)
+                      :equipped (list 'test-relic)))
+       (b (%make-hero :name "Bob" :class :packer :hp 5 :max-hp 5
+                      :items (list 'test-relic)))
+       (g (new-game m :party (list a b)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((take-item test-relic)))
+  (turn-right g)
+  (move-party g :forward)
+  (check "the first carrier gives one up" '(test-relic) (hero-items a))
+  (check "the spare went, so the worn copy stays worn"
+         '(test-relic) (hero-equipped a))
+  (check "the other carrier is untouched" '(test-relic) (hero-items b))
+  (check "spending a key is silent" '() (funcall msgs))
+  (move-party g :back)
+  (move-party g :forward)
+  (check "the second helping empties the pack" '() (hero-items a))
+  (check "and the hands with it" '() (hero-equipped a)))
+
+;; spending what nobody carries is a no-op, not an error
+(let* ((m (parse-map *art* :name "test"))
+       (a (%make-hero :name "Ann" :class :packer :hp 5 :max-hp 5))
+       (g (new-game m :party (list a)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((take-item test-relic)))
+  (turn-right g)
+  (move-party g :forward)
+  (check "take-item on an empty party says nothing" '() (funcall msgs))
+  (check "and changes nothing" '() (hero-items a)))
+
+;; an unregistered item name is loud in every one of the four
+(dolist (ops '(((give-item test-nonesuch))
+               ((take-item test-nonesuch))
+               ((when-item test-nonesuch (message "x")))
+               ((unless-item test-nonesuch (message "x")))))
+  (let* ((m (parse-map *art* :name "test"))
+         (a (%make-hero :name "Ann" :class :packer :hp 5 :max-hp 5))
+         (g (new-game m :party (list a))))
+    (setf (cell-special m 0 0) ops)
+    (check-error (format nil "~A of an unknown item is an error"
+                         (first (first ops)))
+                 (trigger-special g))))
+
 ;; unknown ops and malformed ops are loud.
 (let* ((m (parse-map *art* :name "test"))
        (g (new-game m)))
@@ -2874,8 +3037,64 @@ height" d)
 (check "stat-bonus 9" -1 (stat-bonus 9))
 (check "stat-bonus 3" -4 (stat-bonus 3))
 
+;;; The experience ladder.  With no campaign table registered the
+;;; engine's own gentle curve answers — the fixture world plays on it.
+(check "level 1 is free" 0 (xp-for-level 1))
 (check "xp-for-level 2" 100 (xp-for-level 2))
 (check "xp-for-level 3" 300 (xp-for-level 3))
+(check "the engine curve is 50 x L x (L-1)" 7800 (xp-for-level 13))
+
+;;; A campaign's own ladder: the table answers as far as it reaches,
+;;; *XP-GROWTH* compounds beyond its end.  Bound here, so the rest of
+;;; the suite goes on playing the engine's curve.
+(let ((*xp-table* nil)
+      (*xp-growth* 3/2))
+  (check "define-xp-table returns its totals" '(100 400 1000)
+         (define-xp-table '(100 400 1000) :growth 2))
+  (check "level 1 is still free" 0 (xp-for-level 1))
+  (check "the table's first entry is level 2's total" 100 (xp-for-level 2))
+  (check "and its last is the last level it reaches" 1000 (xp-for-level 4))
+  (check "one past the end costs the growth" 2000 (xp-for-level 5))
+  (check "and it compounds, once per level" 4000 (xp-for-level 6))
+  ;; a rational growth stays exact until the closing ROUND: 100 x
+  ;; (6/5)^3 is 172.8, and only the answer is rounded
+  (define-xp-table '(100) :growth 6/5)
+  (check "a rational growth rounds only at the end" 173 (xp-for-level 5))
+  ;; a hero standing past the table's end still has a next rung to
+  ;; reach for — the ladder never simply stops
+  (define-xp-table '(100 400))
+  (let ((h (%make-hero :name "Kel" :class :tester :level 9 :xp 0)))
+    (check-true "a hero above the table is not yet ready"
+                (not (hero-level-up-pending-p h)))
+    (setf (hero-xp h) (xp-for-level 10))
+    (check-true "and rises on the compounded threshold"
+                (hero-level-up-pending-p h))))
+(check "the campaign table did not outlive its binding" nil *xp-table*)
+(check "nor its growth" 3/2 *xp-growth*)
+(check "so the engine curve answers again" 100 (xp-for-level 2))
+
+;; a ladder that stalls, turns downhill, or is not a ladder at all
+(check-error "define-xp-table rejects an empty table"
+             (define-xp-table '()))
+(check-error "define-xp-table rejects a non-list"
+             (define-xp-table 100))
+(check-error "define-xp-table rejects a non-integer total"
+             (define-xp-table '(100 2.5 400)))
+(check-error "define-xp-table rejects a total at zero"
+             (define-xp-table '(0 100)))
+(check-error "define-xp-table rejects a negative total"
+             (define-xp-table '(100 -400)))
+(check-error "define-xp-table rejects totals that stall"
+             (define-xp-table '(100 400 400)))
+(check-error "define-xp-table rejects totals that turn back down"
+             (define-xp-table '(100 400 300)))
+(check-error "define-xp-table rejects a growth of 1"
+             (define-xp-table '(100) :growth 1))
+(check-error "define-xp-table rejects a growth below 1"
+             (define-xp-table '(100) :growth 1/2))
+(check-error "define-xp-table rejects a growth that is not a number"
+             (define-xp-table '(100) :growth :fast))
+(check "and none of that touched the engine's curve" nil *xp-table*)
 
 ;; Party queries, damage and healing.
 (let* ((m (parse-map *art* :name "test"))
