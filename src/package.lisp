@@ -65,7 +65,7 @@
    #:game-time #:advance-time #:daylight-p #:clock-line
    #:game-dark-p #:game-view-depth #:render-view-depth
    #:time-of-day #:game-time-of-day #:time-of-day-name #:time-of-day-line
-   #:sky-color-for #:ground-color-for
+   #:sky-color-for #:ground-color-for #:zone-pen-colors
    #:*idle-clock-rate* #:idle-minutes-elapsed #:idle-minutes-cost
    #:*moonlight-depth*
    #:*minutes-per-action* #:*new-game-minutes* #:+minutes-per-day+

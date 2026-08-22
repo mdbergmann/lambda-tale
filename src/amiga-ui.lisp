@@ -413,7 +413,7 @@ perspective on top of it."
           ;; to the flat fill that was once the only outdoor option.
           ;;
           ;; The day/night effect survives a blit because it was never
-          ;; the fill doing the work — %APPLY-DAYTIME-PALETTE turns the
+          ;; the fill doing the work — %APPLY-ZONE-PALETTE turns the
           ;; two colour REGISTERS, so painted pixels drawn in pens 5/6
           ;; follow the hour exactly as the fill did.  What sky.iff and
           ;; ground.iff must respect is that ONLY those two pens move:
@@ -2096,24 +2096,31 @@ file should see the true screen — but the file is not what decides."
         (let ((rgb (and (< pen (length palette)) (aref palette pen))))
           (when rgb (%set-pen-rgb vp pen rgb)))))))
 
-(defun %apply-daytime-palette (scr game)
-  "Tint the sky (+ART-PEN-SKY+) and ground (+ART-PEN-GROUND+) colour
-registers for GAME's current day-band — the outdoor day/night effect
-\(see SKY-COLOR-FOR).  A palette-only change: two SET-RGB4 calls repaint
-the whole sky, no redraw of the view.
+(defun %apply-zone-palette (scr game)
+  "Load the zone's own sky (+ART-PEN-SKY+) and ground (+ART-PEN-GROUND+)
+colour registers — the outdoor day/night effect, and underground a
+zone's own colour for the ceiling and floor its pack painted.
+ZONE-PEN-COLORS decides both cases and says which pens to touch; this
+only writes what it hands back, so a register it answers NIL for keeps
+the colour %APPLY-PACK-PALETTE loaded from the pack.
 
-Indoor zones (ZONE :DARK ...) are skipped — there is no sky underground,
-so those pens keep the colour %APPLY-PACK-PALETTE loaded from the pack.
-Runs AFTER %APPLY-PACK-PALETTE (which would otherwise reset pens 5/6 to
-the pack's noon colours) and again whenever the band turns."
-  (let ((map (game-map game)))
-    (unless (dungeon-map-dark map)
-      (let ((vp (amiga.intuition:screen-viewport scr))
-            (band (game-time-of-day game)))
-        (%set-pen-rgb vp +art-pen-sky+
-                      (sky-color-for (dungeon-map-sky map) band))
-        (%set-pen-rgb vp +art-pen-ground+
-                      (ground-color-for (dungeon-map-ground map) band))))))
+A palette-only change: two SET-RGB4 calls repaint the whole sky, no
+redraw of the view.  Runs AFTER %APPLY-PACK-PALETTE (which would
+otherwise reset pens 5/6 to the pack's own colours) and again whenever
+the band turns.
+
+Was %APPLY-DAYTIME-PALETTE, which returned early for any dark map on
+the grounds that there is no sky underground.  True, and it made the
+per-zone colour lever unreachable exactly where a shared dungeon pack
+most wants it: several zones sharing one dungeon pack, and the only
+cheap way to tell one zone's colour from another's is these two
+registers.  The day BAND is still ignored underground — that half of
+the old rule was right."
+  (multiple-value-bind (sky ground)
+      (zone-pen-colors (game-map game) (game-time-of-day game))
+    (let ((vp (amiga.intuition:screen-viewport scr)))
+      (when sky (%set-pen-rgb vp +art-pen-sky+ sky))
+      (when ground (%set-pen-rgb vp +art-pen-ground+ ground)))))
 
 (defun %call-with-game-window (display fn)
   "Open DISPLAY per the active *DISPLAY-PROFILE* and call FN with the
@@ -2463,8 +2470,10 @@ combat round owns the keys."
                                    (when (eq display :screen)
                                      (%apply-pack-palette scr walls-pal)
                                      ;; ...then override the sky/ground
-                                     ;; pens for the current hour
-                                     (%apply-daytime-palette scr game))
+                                     ;; pens with the zone's own — for
+                                     ;; the current hour out of doors,
+                                     ;; unblended underground
+                                     (%apply-zone-palette scr game))
                                    ;; the pack may carry its own
                                    ;; pointer.iff; re-showing also
                                    ;; re-latches the sprite colors
@@ -2665,9 +2674,11 @@ combat round owns the keys."
                             (%chrome-frames rp game l))
                           ;; re-tint the sky/ground for the hour: an
                           ;; action may have turned the day-band without
-                          ;; a zone change, and it costs two SET-RGB4
+                          ;; a zone change, and it costs two SET-RGB4.
+                          ;; Underground this re-asserts the same two
+                          ;; colours, which is why it may run blind
                           (when (eq display :screen)
-                            (%apply-daytime-palette scr game))
+                            (%apply-zone-palette scr game))
                           ;; the click targets are rebuilt with the
                           ;; frame: a full-page catch-all (leave) first
                           ;; where the mode has one, the renderers'

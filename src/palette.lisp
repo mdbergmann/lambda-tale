@@ -182,7 +182,7 @@ packs."
 ;;; +ART-PEN-GROUND+) take a different colour in each band of the day
 ;;; (see TIME.LISP).  It is a palette-only effect — no new art, no
 ;;; redraw: when the band turns the front-end reloads just those two
-;;; colour registers (%APPLY-DAYTIME-PALETTE), so a 14MHz 020 pays a
+;;; colour registers (%APPLY-ZONE-PALETTE), so a 14MHz 020 pays a
 ;;; couple of SET-RGB4 calls for the whole change.
 ;;;
 ;;; A zone declares its own sky/ground colour with (ZONE :SKY C :GROUND

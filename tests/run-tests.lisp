@@ -2157,6 +2157,58 @@ height" d)
   (%parse-map-forms (parse-map *art* :name "bad") "(zone :sky (10 20 300))"
                     "bad"))
 
+;; ZONE-PEN-COLORS: which colours the two pack registers take, and —
+;; the part that earns the function — which registers to leave alone.
+;; The front end writes exactly what this returns (%APPLY-ZONE-PALETTE),
+;; so a NIL here is "the pack's own colour stands", not "black".
+(let ((m (parse-map *art* :name "outdoor")))
+  (%parse-map-forms m "(zone :sky (10 20 30) :ground (40 50 60))" "outdoor")
+  ;; out of doors, noon is the declared base exactly...
+  (multiple-value-bind (sky ground) (zone-pen-colors m :noon)
+    (check "an outdoor zone's noon sky is what it declared" '(10 20 30) sky)
+    (check "an outdoor zone's noon ground is what it declared"
+           '(40 50 60) ground))
+  ;; ...and every other band is the band blend, not the base
+  (multiple-value-bind (sky ground) (zone-pen-colors m :night)
+    (check "an outdoor zone's night sky is blended" (sky-color-for '(10 20 30) :night) sky)
+    (check "an outdoor zone's night ground is blended"
+           (ground-color-for '(40 50 60) :night) ground)))
+(let ((m (parse-map *art* :name "outdoor-bare")))
+  ;; an outdoor zone that declares nothing still gets a sky: the engine
+  ;; default, blended.  Out here NIL would be a black hole overhead.
+  (multiple-value-bind (sky ground) (zone-pen-colors m :noon)
+    (check-true "a bare outdoor zone still gets a sky" (and sky t))
+    (check-true "a bare outdoor zone still gets a ground" (and ground t))
+    (check "the bare outdoor sky is the engine default" *default-sky* sky)
+    (check "the bare outdoor ground is the engine default" *default-ground* ground)))
+;; Underground: a dark zone's declared colours reach the registers —
+;; this is what the whole change is for — but unblended, because there
+;; is no hour down there for a ceiling to follow.
+(let ((m (parse-map *art* :name "dark-zone")))
+  (%parse-map-forms m "(zone :dark t :sky (10 20 30) :ground (40 50 60))"
+                    "dark-zone")
+  (dolist (band '(:noon :night :morning :evening))
+    (multiple-value-bind (sky ground) (zone-pen-colors m band)
+      (check (format nil "a dark zone's ceiling ignores the ~A band" band)
+             '(10 20 30) sky)
+      (check (format nil "a dark zone's floor ignores the ~A band" band)
+             '(40 50 60) ground))))
+;; ...and a dark zone that declares nothing must get NIL, not a default.
+;; Its pack painted those two pens; handing back *DEFAULT-SKY* here
+;; would repaint the ceiling art of every dungeon that never asked.
+(let ((m (parse-map *art* :name "dark-bare")))
+  (%parse-map-forms m "(zone :dark t)" "dark-bare")
+  (multiple-value-bind (sky ground) (zone-pen-colors m :noon)
+    (check "a bare dark zone leaves the pack's ceiling alone" nil sky)
+    (check "a bare dark zone leaves the pack's floor alone" nil ground)))
+;; The two are independent: a zone may colour its floor and say nothing
+;; about its roof, and the roof must keep the pack's.
+(let ((m (parse-map *art* :name "dark-half")))
+  (%parse-map-forms m "(zone :dark 2 :ground (40 50 60))" "dark-half")
+  (multiple-value-bind (sky ground) (zone-pen-colors m :noon)
+    (check "a dark zone may colour its floor alone" '(40 50 60) ground)
+    (check "and its untouched roof keeps the pack's colour" nil sky)))
+
 ;;; ---------------------------------------------------------------------
 ;;; The living-world idle clock (pure arithmetic; see time.lisp).
 
@@ -13076,7 +13128,7 @@ full asset-size viewport" pname)
                                            (+ (ui-layout-by l) front-y)))
               ;; the fixture map has no :DARK, so it is an outdoor
               ;; zone: since day/night the ceiling and floor are flat
-              ;; fills in the sky/ground pens (%APPLY-DAYTIME-PALETTE
+              ;; fills in the sky/ground pens (%APPLY-ZONE-PALETTE
               ;; tints them per hour) — the pack's backdrop bitmaps
               ;; only cover indoor/dark zones
               (check (format nil "~A: outdoor ceiling is the flat ~

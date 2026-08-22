@@ -418,10 +418,9 @@ A pack holds the 40 wall pieces plus optional extras:
   horizon, one below, and the walls blit on top, carving the
   perspective.  A zone takes **one** pair — `ceiling`/`floor` when it
   is `:dark`, `sky`/`ground` when it has a sky — because the two are
-  painted to different rules: a dungeon floor is drawn in pen 5, which
-  outdoors is the sky.  A pack that ships `ground.iff` paints its
-  street instead of settling for one flat colour; only pens 5 and 6
-  follow the day bands, so whatever in `sky.iff`/`ground.iff` should
+  painted to different rules.  A pack that ships `ground.iff` paints
+  its street instead of settling for one flat colour; only pens 5 and
+  6 follow the day bands, so whatever in `sky.iff`/`ground.iff` should
   darken with the hour must *be* one of those two pens.  A missing
   file leaves a flat fill — pens 5 and 6 in the open, black
   underground.  The
@@ -430,6 +429,19 @@ A pack holds the 40 wall pieces plus optional extras:
   perspective-plane rows so each band lines up with a corridor depth —
   a pack can use the same trick, since the bands sit at fixed screen
   rows.
+
+  **Put the ceiling on pen 5 and the floor on pen 6**, whichever pair
+  a pack ships.  The names are the contract, and a zone's
+  `:sky`/`:ground` now reaches those two registers underground as well
+  as out of doors (see "Every zone can declare its own colours"), so a
+  dungeon pack laid out this way can be recoloured per zone for free —
+  one pack dressing many dungeons.  The demo packs predate that and do
+  not: `draw-backdrop-piece` spends pen 6 on its *near ceiling band*
+  and paints the floor in a fixed mid grey, which means a zone colour
+  on one of them repaints the ceiling and calls it a floor.  They are
+  a drawing sample, not the layout to copy; Closure's
+  `worlds/closure/gfx-cellar/make-pack.lisp` is the worked example
+  that keeps the contract.
 - `palette.iff` — any ILBM whose CMAP provides the pack's colors.  Only
   the pens a pack owns are read from it (see
   [the pen contract](#the-pen-contract)); entries for the engine's pens
@@ -1059,13 +1071,26 @@ Every zone can declare its own colours:
 too) giving the zone's **noon** colour; the engine derives the other
 bands by tinting that base, so a zone that paints a red alien sky still
 goes dark at nightfall.  A zone that declares neither uses the engine
-defaults (`*default-sky*` / `*default-ground*`).  Indoor zones — any
-`(zone ... :dark ...)` — are left alone: there is no sky underground,
-so the cellar keeps its own stone colours whatever the hour.  The tint
-tables (`*sky-band-tints*` / `*ground-band-tints*`) and the pure
-`sky-color-for` / `ground-color-for` functions live in
-`src/palette.lisp`; the "Day-time sky and ground colour" section of
-`tests/run-tests.lisp` is the spec.
+defaults (`*default-sky*` / `*default-ground*`).
+
+**Indoor zones take their colours too, but not the clock.**  In a
+`(zone ... :dark ...)` the same two pens are the *ceiling* and the
+*floor*, and a ceiling does not brighten at dawn — so a dark zone's
+`:sky` and `:ground` are used exactly as declared, with no band tint.
+Declaring them is how several dungeons share one tile pack and still
+look like different places: the pack paints the stone, the zone line
+colours it.  A dark zone that declares **neither** keeps whatever its
+pack loaded — there is no engine default underground, because
+substituting one would repaint art the pack meant to show.  The two
+are independent, so a zone may colour its floor and leave its roof to
+the pack.
+
+`zone-pen-colors` is the single function that decides all of this
+(`src/map.lisp`); the front end loads exactly what it returns and
+nothing else.  The tint tables (`*sky-band-tints*` /
+`*ground-band-tints*`) and the pure `sky-color-for` /
+`ground-color-for` live in `src/palette.lisp`; the "Day-time sky and
+ground colour" section of `tests/run-tests.lisp` is the spec.
 
 ### Wandering monsters
 

@@ -421,6 +421,33 @@ idle encounters here)" path idle-encounter-minutes))
                    (special (x y) op...))"
                   path (first form)))))
 
+(defun zone-pen-colors (map band)
+  "The colours MAP's two pack registers should carry at day-band BAND:
+\(VALUES SKY GROUND), each an (R G B) or NIL for \"leave the pack's own
+colour standing\".  The front end loads whatever comes back and nothing
+else (%APPLY-ZONE-PALETTE).
+
+Out of doors both are always a colour: the zone's declared noon base —
+or the engine default when it declared none — blended for the band, so
+the sky moves through the day whether the map asked for it or not.
+
+Underground there is no clock, and the band is ignored: a dark zone's
+sky and ground are its ceiling and its floor, and a ceiling does not
+brighten at dawn.  What it CAN do is have a colour of its own, and that
+is the whole reason this is not simply skipped for dark maps.  A zone
+that declares :SKY or :GROUND gets exactly what it declared, unblended;
+one that declares neither gets NIL for both and keeps whatever its tile
+pack loaded.  That default matters: a pack paints its ceiling and floor
+in those two pens, so overriding them with an engine default would
+repaint the art of every dungeon that never asked for anything.
+
+The two are independent — a zone may colour its floor and say nothing
+about its roof — so this answers per pen rather than all or nothing."
+  (if (dungeon-map-dark map)
+      (values (dungeon-map-sky map) (dungeon-map-ground map))
+      (values (sky-color-for (dungeon-map-sky map) band)
+              (ground-color-for (dungeon-map-ground map) band))))
+
 (defun %parse-map-forms-stream (map in path)
   "Read map data forms from stream IN until EOF and apply them to MAP
 — *READ-EVAL* bound to NIL, forms never evaluated.  When the debug log
