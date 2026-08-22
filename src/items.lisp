@@ -32,7 +32,8 @@
 (in-package :tale)
 
 (defconstant +inventory-limit+ 8
-  "Maximum items a hero can carry (Bard's Tale pack size).")
+  "Maximum items a hero can carry (Bard's Tale pack size) — of the
+gear, that is: a :QUEST piece is counted by nobody (see PACK-BURDEN).")
 
 (defparameter *item-kinds*
   '(:weapon :armor :shield :helmet :gloves :bow :arrow
@@ -59,6 +60,9 @@ and every equipped item's :AC bonus counts.")
                       ; (:heal DICE), a timed spec (:light t :duration
                       ; MIN), or (:cast SPELL); NIL = not usable
   consumed            ; T: one use, the item leaves the pack
+  quest               ; T: a plot piece — carried outside the eight-slot
+                      ; limit, on the pack's own quest page, and neither
+                      ; sold nor thrown away (see PACK-BURDEN)
   image               ; effects-band icon for the timed :use, or NIL
   description         ; player-facing text — the pack page's item card
                       ; shows it; NIL = the card shows the facts alone
@@ -69,7 +73,7 @@ and every equipped item's :AC bonus counts.")
 (defvar *item-types* (make-hash-table :test 'eq))
 
 (defun define-item (name &key title (kind :misc) (price 0) damage reach (ac 0)
-                              classes two-handed use consumed image
+                              classes two-handed use consumed quest image
                               description notes)
   "Register item type NAME (a symbol).  Campaign data calls this.
 TITLE defaults to the capitalized name (SHORT-SWORD -> \"Short Sword\").
@@ -92,7 +96,12 @@ shared vocabulary that need no battle (e.g. (:heal DICE),
 that installs its effect; or (:cast SPELL) — using the item casts the
 already-registered spell for free, so register the spell first.
 :CONSUMED spends the item on use and :IMAGE names the installed
-effect's band icon."
+effect's band icon.
+:QUEST marks a plot piece — a key, a token, a proof.  It rides outside
+the eight-slot pack limit (PACK-BURDEN), reads on the pack's own quest
+page instead of among the gear, and no shop buys it and no hand throws
+it away: a party should never have to choose between carrying the
+story and carrying a sword, nor be able to sell the way forward."
   (unless (member kind *item-kinds*)
     (error "define-item ~S: kind ~S is not one of ~{~S~^ ~}"
            name kind *item-kinds*))
@@ -132,6 +141,9 @@ effect's band icon."
                    name use)))))
   (when (and consumed (not use))
     (error "define-item ~S: :consumed without a :use" name))
+  (when (and quest (plusp price))
+    (error "define-item ~S: a :quest piece has no price -- no shop ~
+            buys it and none sells it (got ~S)" name price))
   (when (and reach (not (and (integerp reach) (plusp reach))))
     (error "define-item ~S: :reach must be a positive integer in feet ~
             (got ~S)" name reach))
@@ -145,7 +157,8 @@ effect's band icon."
                     (string-capitalize (substitute #\Space #\- (string name))))
          :kind kind :price price :damage damage :reach reach
          :ac ac :classes classes
-         :two-handed two-handed :use use :consumed consumed :image image
+         :two-handed two-handed :use use :consumed consumed :quest quest
+         :image image
          :description description :notes notes))
   name)
 
@@ -182,6 +195,39 @@ equips (or buys)."
 (defun hero-carrying-p (hero name)
   (member name (hero-items hero)))
 
+(defun quest-item-p (name)
+  "Is item NAME a plot piece (DEFINE-ITEM's :QUEST)?  Those ride
+outside the pack limit and are neither sold nor thrown away."
+  (and (item-type-quest (find-item-type name)) t))
+
+(defun pack-burden (hero)
+  "How much of HERO's pack the eight-slot limit counts: the gear, and
+not the quest pieces.  A party carrying eleven shards of a broken
+crown is still a party with eight hands free."
+  (count-if-not #'quest-item-p (hero-items hero)))
+
+(defun pack-gear (hero)
+  "HERO's gear as (INDEX . NAME) pairs in pack order — everything
+PACK-BURDEN counts, with INDEX its position in HERO-ITEMS.  The index
+travels with the name because EQUIPPED-INSTANCE-P counts duplicate
+copies by it, so the pack page can star the worn one while showing
+the quest pieces elsewhere."
+  (let ((i -1))
+    (loop for name in (hero-items hero)
+          do (incf i)
+          unless (quest-item-p name)
+            collect (cons i name))))
+
+(defun hero-quest-items (hero)
+  "The plot pieces in HERO's pack, in pack order."
+  (remove-if-not #'quest-item-p (hero-items hero)))
+
+(defun party-quest-items (game)
+  "Every plot piece the party carries, in party then pack order —
+what the story has handed them so far."
+  (loop for h in (game-party game)
+        append (hero-quest-items h)))
+
 (defun party-carrying-p (game name)
   "Does anyone in the party carry item NAME?  Standing or fallen: a key
 in a dead man's pack is still the party's, so a gate that asks for one
@@ -200,9 +246,11 @@ spends the key behind it always agree about who counts."
 (defun give-item (game hero name)
   "Put item NAME into HERO's pack.  Returns T, or says the pack is full
 and returns NIL (like JOIN-PARTY, a full pack is a game situation, not
-a bug)."
+a bug).  A :QUEST piece always fits: it is carried outside the limit
+and so can never be the thing a full pack turns away."
   (find-item-type name)
-  (if (>= (length (hero-items hero)) +inventory-limit+)
+  (if (and (not (quest-item-p name))
+           (>= (pack-burden hero) +inventory-limit+))
       (progn
         (say game "~A's pack is full." (hero-name hero))
         nil)
@@ -259,18 +307,23 @@ page's 't', behind its are-you-sure row (the only pack action that
 destroys; a shop at least pays half).  The last copy is unequipped on
 the way out (a spare goes first — see DROP-ITEM).  Returns T and
 emits :ITEM-DISCARDED; says why and returns NIL when the hero does
-not carry it."
+not carry it, or when it is a :QUEST piece — the story is not the
+player's to destroy, and the pack page never offers one."
   (find-item-type name)                 ; an unknown item is a bug, not a refusal
-  (if (not (hero-carrying-p hero name))
-      (progn
-        (say game "~A does not carry ~A." (hero-name hero)
-             (item-title name))
-        nil)
-      (progn
-        (drop-item game hero name)
-        (say game "~A throws ~A away." (hero-name hero) (item-title name))
-        (emit game :item-discarded hero name)
-        t)))
+  (cond
+    ((not (hero-carrying-p hero name))
+     (say game "~A does not carry ~A." (hero-name hero)
+          (item-title name))
+     nil)
+    ((quest-item-p name)
+     (say game "~A will not part with ~A." (hero-name hero)
+          (item-title name))
+     nil)
+    (t
+     (drop-item game hero name)
+     (say game "~A throws ~A away." (hero-name hero) (item-title name))
+     (emit game :item-discarded hero name)
+     t)))
 
 ;;; ---------------------------------------------------------------------
 ;;; Equipment
@@ -450,7 +503,10 @@ player-facing :DESCRIPTION beneath, when it carries one."
        (list (format nil "Reach: ~D feet" (item-type-reach type))))
      (unless (zerop (item-type-ac type))
        (list (format nil "AC bonus: ~D" (item-type-ac type))))
-     (list (format nil "Price: ~D gold" (item-type-price type)))
+     ;; a quest piece has no price and no shop — the row would say
+     ;; nothing but zero
+     (unless (item-type-quest type)
+       (list (format nil "Price: ~D gold" (item-type-price type))))
      (when (item-type-classes type)
        ;; the card has the room the list rows lack: the full word
        ;; here, the terse (u) of ITEM-FIT-MARKER on the rows
@@ -464,41 +520,62 @@ player-facing :DESCRIPTION beneath, when it carries one."
        (list (if (item-type-consumed type)
                  "Usable, consumed on use"
                  "Usable")))
+     (when (item-type-quest type)
+       (list "A quest piece"))
      (when (item-type-description type)
        (list "" (item-type-description type))))))
 
 (defun %equip-item-rows (hero)
-  "The pack as numbered rows, or the one empty-pack row.  The numbers
-are absolute pack positions — the pack holds at most
-+INVENTORY-LIMIT+ items, so every row keeps a single-digit key no
-matter how the page is scrolled, and EQUIP-ACT picks by the printed
-number with no window math.  The star marks the worn COPY, not the
-worn name — with a duplicate in the pack only one row wears it
-(EQUIPPED-INSTANCE-P)."
-  (if (hero-items hero)
-      (let ((i 0))
-        (mapcar (lambda (name)
-                  (incf i)
-                  (menu-numbered
-                   i (format nil "~D) ~A~:[~;*~]~A~A" i (item-title name)
-                             (equipped-instance-p hero name (1- i))
-                             (item-hand-marker name)
-                             (item-fit-marker hero name))))
-                (hero-items hero)))
-      (list "The pack is empty.")))
+  "The gear as numbered rows, or the one empty-pack row.  The numbers
+run over PACK-GEAR — the eight the limit counts, so every row keeps a
+single-digit key no matter how the page is scrolled, and EQUIP-ACT
+picks by the printed number with no window math.  The quest pieces
+are deliberately not here: they answer to none of this page's verbs
+and would push the gear past nine (see %EQUIP-QUEST-ROWS).  The star
+marks the worn COPY, not the worn name — with a duplicate in the pack
+only one row wears it (EQUIPPED-INSTANCE-P), which is why the pairs
+carry their pack index."
+  (let ((gear (pack-gear hero)))
+    (if gear
+        (let ((i 0))
+          (mapcar (lambda (pair)
+                    (incf i)
+                    (menu-numbered
+                     i (format nil "~D) ~A~:[~;*~]~A~A" i
+                               (item-title (cdr pair))
+                               (equipped-instance-p hero (cdr pair) (car pair))
+                               (item-hand-marker (cdr pair))
+                               (item-fit-marker hero (cdr pair)))))
+                  gear))
+        (list "The pack is empty."))))
+
+(defun %equip-quest-rows (hero)
+  "The quest pieces as a document: each one's title and, under it, the
+description it was registered with.  No numbers — the page has nothing
+to pick, since a plot piece is neither worn, handed over nor thrown
+away; it is read."
+  (let ((quest (hero-quest-items hero)))
+    (if quest
+        (loop for name in quest
+              append (cons (item-title name)
+                           (let ((text (item-type-description
+                                        (find-item-type name))))
+                             (if text (list text "") (list "")))))
+        (list "Nothing of the story yet."))))
 
 (defun %equip-page-lines (game view)
   "The pack page for VIEW as one whole document, scroll ignored — the
-window over it is EQUIP-LINES' business.  Five pages share the model,
+window over it is EQUIP-LINES' business.  Six pages share the model,
 as in SHOP-LINES: the pack itself (the title, the AC/attack header
 showing the effect of every toggle, the items, then the page's own
 letter keys and the carousel's NEXT — the sheet turns on to the
 spells/songs page or back to the stat block, see HERO-SHEET-LINES),
 the give, inspect and throw-away pickers (the same list under the
 prompt row that tells the three apart), the recipient page (the
-party, each with the room left in their pack) and the throw-away
+party, each with the room left in their pack), the throw-away
 confirmation (the picked item behind a clickable yes/no — the one
-pack action that destroys — the pack below it for a second look)."
+pack action that destroys — the pack below it for a second look) and
+the quest page (`r`), which is read rather than picked from."
   (let* ((hero (equip-view-hero view))
          (title (format nil "*** ~A's Pack ***" (hero-name hero))))
     (case (equip-view-mode view)
@@ -513,13 +590,15 @@ pack action that destroys — the pack below it for a second look)."
                     (incf i)
                     (menu-numbered
                      i (format nil "~D) ~A  (pack ~D/~D)~A" i (hero-name h)
-                               (length (hero-items h)) +inventory-limit+
+                               (pack-burden h) +inventory-limit+
                                (if (eq h hero) " (giver)" ""))))
                   (game-party game)))))
       (:give
        (list* title "Give what?" "" (%equip-item-rows hero)))
       (:inspect
        (list* title "Inspect what?" "" (%equip-item-rows hero)))
+      (:quest
+       (list* title "*** Quest pieces ***" "" (%equip-quest-rows hero)))
       (:toss
        (if (equip-view-pending view)
            (append
@@ -541,8 +620,16 @@ pack action that destroys — the pack below it for a second look)."
         (list ""
               (menu-option #\p "Pass an item")
               (menu-option #\i "Inspect an item")
-              (menu-option #\t "Throw away an item")
-              ""
+              (menu-option #\t "Throw away an item"))
+        ;; the quest key only where there is something to read: a party
+        ;; the story has handed nothing yet is offered no page.  'r'
+        ;; and not 'q': both front ends take Q for quit before the pack
+        ;; page ever sees a key, and this page is read, not picked from
+        (when (hero-quest-items hero)
+          (list (menu-option
+                 #\r (format nil "Read the quest pieces (~D)"
+                             (length (hero-quest-items hero))))))
+        (list ""
               (menu-next-option)))))))
 
 (defun equip-lines (game view)
@@ -568,7 +655,9 @@ page of its own."
 that item — the starred worn copy comes off, any other row goes on
 (EQUIP-ITEM says why when it cannot; see EQUIPPED-INSTANCE-P for how
 duplicates keep the star honest) — p opens the give page, i the
-inspect page, t the throw-away page, u/d turn a windowed page and Esc
+inspect page, t the throw-away page, r the quest page (where the plot
+pieces are read; the key is offered only when the hero carries one),
+u/d turn a windowed page and Esc
 closes it.  On the give page a digit chooses the item to hand over,
 and the recipient page then chooses who receives it (PASS-ITEM says
 why when it cannot); the page stays open for the next item, the way
@@ -576,9 +665,10 @@ the shop's sell page keeps selling.  On the inspect page a digit
 shows that item's card, and the page stays open for the next card.
 On the throw-away page a digit picks the item and y then destroys it
 (DISCARD-ITEM) while n keeps it — the page stays open for the next
-item.  A digit always picks the item's printed number — the rows are
-numbered absolutely, so a scrolled page changes what is visible,
+item.  A digit always picks the item's printed number — the gear rows
+are numbered absolutely, so a scrolled page changes what is visible,
 never what a digit means — and every page change opens at its top.
+The quest page takes no digit at all: it is a document, u/d and Esc.
 Esc steps back one page at a time (SHOP-ACT's pattern).  Returns
 :CANCELLED on Esc at the pack page, :NEXT on n there — the sheet
 carousel's page turn, the front-end closes the pack and opens the
@@ -587,8 +677,11 @@ next page — else NIL."
         (mode (equip-view-mode view))
         (digit (digit-char-p char)))
     (flet ((picked-item ()
+             ;; the printed number counts gear rows, so it indexes
+             ;; PACK-GEAR and not the pack itself — the quest pieces
+             ;; the rows skip must not shift what a digit means
              (when (and digit (plusp digit))
-               (nth (1- digit) (hero-items hero))))
+               (cdr (nth (1- digit) (pack-gear hero)))))
            (turn-to (mode)
              (setf (equip-view-mode view) mode
                    (equip-view-top view) 0))
@@ -663,29 +756,42 @@ next page — else NIL."
                 (turn-to :pack)
                 nil)
                (t (scroll) nil)))
+        ;; the quest pieces — a document, read and scrolled
+        ((eq mode :quest)
+         (cond ((eql char #\Escape)
+                (turn-to :pack)
+                nil)
+               (t (scroll) nil)))
         ;; the pack itself
         (digit
-         (let ((name (picked-item)))
-           (when name
+         (let ((pair (and (plusp digit) (nth (1- digit) (pack-gear hero)))))
+           (when pair
              ;; the starred row (the worn copy) takes the item off; any
              ;; other row — an unworn duplicate included — puts that one
-             ;; on, so a digit never silently strips a different row
-             (if (equipped-instance-p hero name (1- digit))
-                 (toggle-equip game hero name)
-                 (equip-item game hero name))))
+             ;; on, so a digit never silently strips a different row.
+             ;; The pack index comes from the pair, not the row number:
+             ;; the two part company once a quest piece is carried
+             (if (equipped-instance-p hero (cdr pair) (car pair))
+                 (toggle-equip game hero (cdr pair))
+                 (equip-item game hero (cdr pair)))))
          nil)
         ((member char '(#\p #\P))
-         (if (hero-items hero)
+         (if (pack-gear hero)
              (turn-to :give)
              (say game "~A has nothing to give." (hero-name hero)))
          nil)
         ((member char '(#\i #\I))
-         (if (hero-items hero)
+         (if (pack-gear hero)
              (turn-to :inspect)
              (say game "~A has nothing to inspect." (hero-name hero)))
          nil)
+        ((member char '(#\r #\R))
+         (if (hero-quest-items hero)
+             (turn-to :quest)
+             (say game "~A carries nothing of the story." (hero-name hero)))
+         nil)
         ((member char '(#\t #\T))
-         (if (hero-items hero)
+         (if (pack-gear hero)
              (turn-to :toss)
              (say game "~A has nothing to throw away." (hero-name hero)))
          nil)
@@ -712,8 +818,9 @@ is a timed spec; a spec never mixes the two — DEFINE-ITEM refuses)."
 
 (defun item-target-kind (name)
   "What using item NAME needs aimed at: :HERO when its effect — or the
-spell a (:cast SPELL) use triggers — mends one chosen hero; else
-:NONE."
+spell a (:cast SPELL) use triggers — mends one chosen hero; :DESTINATION
+when a (:cast SPELL) use triggers a spell that carries the party
+somewhere named; else :NONE."
   (let ((use (item-type-use (find-item-type name))))
     (cond ((null use) :none)
           ((eq (first use) :cast) (spell-target-kind (second use)))
@@ -836,6 +943,8 @@ key (see MENU-NUMBERED)."
           (lambda (i name)
             (menu-numbered
              i (format nil "~D) ~A" i (item-title name)))))))
+       ((eq (item-target-kind item) :destination)
+        (destination-rows (format nil "~A -- where to?" (item-title item))))
        (t                              ; a mending item picks its target
         (append
          (list (format nil "~A on whom?" (item-title item)) "")
@@ -873,8 +982,10 @@ else NIL."
                                             (use-view-top view) digit)))
                 (when name
                   (setf (use-view-item view) name)
-                  (if (eq (item-target-kind name) :hero)
-                      nil               ; a mender picks its target next
+                  ;; a mender picks its target next, a homing item its
+                  ;; destination; anything else goes off at once
+                  (if (member (item-target-kind name) '(:hero :destination))
+                      nil
                       (%use-commit game view nil)))))
              ((eql char #\Escape)
               (setf (use-view-hero view) nil
@@ -885,6 +996,14 @@ else NIL."
                                       (length (usable-items hero)))))
                 (when top (setf (use-view-top view) top)))
               nil)))
+      ;; picking where the item's flight lands
+      ((eq (item-target-kind item) :destination)
+       (cond ((destination-by-digit digit)
+              (%use-commit game view (destination-by-digit digit)))
+             ((eql char #\Escape)
+              (setf (use-view-item view) nil)
+              nil)
+             (t nil)))
       ;; picking the heal target
       (t
        (cond ((and digit (<= 1 digit (length (game-party game))))

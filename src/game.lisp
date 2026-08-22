@@ -230,6 +230,76 @@ cell's special."
       (let ((*step-dir* nil))
         (trigger-special game)))))
 
+;;; ---------------------------------------------------------------------
+;;; Named destinations — the places a spell can carry the party to.
+;;;
+;;; A homing spell needs somewhere to home to, and where that is, is
+;;; the campaign's business: the engine holds the list and the flight,
+;;; the game names the guilds worth flying to.  A destination is a
+;;; travel target under a player-facing title, and the cast menu shows
+;;; the registered ones in registration order — the game writes the
+;;; menu by the order it registers them.
+
+(defstruct (destination (:constructor %make-destination))
+  name          ; symbol, e.g. TESTVILLE-GUILD
+  title         ; display string, e.g. "The Guild at Testville"
+  map           ; map file, resolved like the TRAVEL op's (see below)
+  x y           ; arrival cell, or NIL for the map's own start
+  facing)       ; arrival heading, or NIL for the map's start facing
+
+(defvar *destinations* '()
+  "Registered destinations, in registration order — the cast menu's
+order.  Campaign data fills this through DEFINE-DESTINATION.")
+
+(defun define-destination (name &key title map x y facing)
+  "Register destination NAME (a symbol) as the map file MAP, arriving
+at cell (X,Y) FACING a direction — each of the three optional, and
+omitted means the map's own start, exactly as for the TRAVEL op.
+TITLE defaults to the capitalized name.  MAP is resolved the way
+TRAVEL resolves its file: relative to the map the party is standing
+in when the flight begins, so a world keeps its maps in one directory
+or names them relative to it.  Registering a name twice replaces the
+destination and keeps its place in the menu.  Returns the destination."
+  (unless (and name (symbolp name))
+    (error "define-destination: NAME must be a symbol, not ~S" name))
+  (unless (stringp map)
+    (error "define-destination ~S: :MAP must be a map file name, not ~S"
+           name map))
+  (when (or (and x (not y)) (and y (not x)))
+    (error "define-destination ~S: give both :X and :Y or neither" name))
+  (let ((new (%make-destination
+              :name name
+              :title (or title (string-capitalize (substitute #\Space #\-
+                                                              (string name))))
+              :map map :x x :y y :facing facing))
+        (old (find name *destinations* :key #'destination-name)))
+    (if old
+        (setf *destinations* (substitute new old *destinations*))
+        (setf *destinations* (append *destinations* (list new))))
+    new))
+
+(defun find-destination (name &optional (errorp t))
+  "The registered destination NAME, or NIL when ERRORP is false and
+no such destination is registered."
+  (or (find name *destinations* :key #'destination-name)
+      (when errorp
+        (error "Unknown destination ~S (register it with ~
+                DEFINE-DESTINATION)" name))))
+
+(defun destinations ()
+  "The registered destinations, in menu order."
+  (copy-list *destinations*))
+
+(defun travel-to-destination (game name)
+  "Carry the party to destination NAME: TRAVEL-PARTY to its map and
+cell, so the arrival cell's special triggers and the zone's automap
+knowledge is kept, exactly as walking in would.  Signals an error on
+an unregistered NAME — a typo in campaign data should be loud."
+  (let ((where (find-destination name)))
+    (travel-party game (destination-map where)
+                  (destination-x where) (destination-y where)
+                  (destination-facing where))))
+
 ;;; Active effects — the UI's spell strip (shield, light, ...).
 ;;; An effect is a record: a display name, an optional expiry on the
 ;;; game clock (ADVANCE-TIME announces and drops it, see time.lisp),
@@ -336,8 +406,8 @@ carries its own icons — or NIL when the effect has none."
     (:scry             flag    nil) ; speaks the party's position
     (:disarm-traps     integer nil) ; traps ahead made safe (reach in squares)
     (:teleport         teleport nil) ; N: offset teleport, max N squares;
-                                    ;   T: flavor only (a named destination
-                                    ;   awaits its subsystem)
+                                    ;   T: carries the party to a named
+                                    ;   destination (DEFINE-DESTINATION)
     (:summon           string  nil)) ; flavor: a summoned ally (to come)
   "The instant-effect vocabulary: (SPEC-KEY VALUE-KIND COMBAT-ONLY-P).")
 
@@ -435,16 +505,17 @@ at no distance and measures none."
 (defun effect-spec-target-kind (spec)
   "What SPEC needs aimed at: :HERO when it heals, cures or raises one
 chosen hero; :OFFSET when it teleports a real distance (an integer
-:TELEPORT — the cast menu asks for a heading and a count; an item's
-\(:cast SPELL) trigger has no prompt and speaks the flavor line);
-else :NONE (damage strikes the melee target, buffs and light cover
-the party, :heal-party needs no choosing).  Spells and usable items
-share this rule."
+:TELEPORT — the menu asks for a heading and a count); :DESTINATION
+when it carries the party somewhere named (:TELEPORT T — the menu
+lists the registered destinations); else :NONE (damage strikes the
+melee target, buffs and light cover the party, :heal-party needs no
+choosing).  Spells and usable items share this rule."
   (cond ((and (not (getf spec :heal-party))
               (or (getf spec :heal) (getf spec :resurrect)
                   (getf spec :cure)))
          :hero)
         ((integerp (getf spec :teleport)) :offset)
+        ((eq (getf spec :teleport) t) :destination)
         (t :none)))
 
 ;;; ---------------------------------------------------------------------
@@ -505,10 +576,12 @@ as the word."
     (when phrase
       (cond
         ;; :TELEPORT alone of the valued keys may also be a bare flag
-        ;; (a named destination whose subsystem is still to come) —
-        ;; then it has no square count to quote
+        ;; (a flight to a named destination) — then it has no square
+        ;; count to quote
         ((eq key :teleport)
-         (if (eq value t) "Folds space" (format nil phrase value)))
+         (if (eq value t)
+             "Takes you to a known place"
+             (format nil phrase value)))
         ;; a flag's phrase is already a whole sentence
         ((eq value t) phrase)
         ((member key '(:heal :heal-party))

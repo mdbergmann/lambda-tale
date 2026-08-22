@@ -92,6 +92,11 @@
    ;; cell specials
    #:trigger-special #:run-special #:teleport-party
    #:trap-disarmed-flag
+   ;; named destinations (a homing spell's places)
+   #:define-destination #:find-destination #:destinations
+   #:travel-to-destination
+   #:destination-name #:destination-title #:destination-map
+   #:destination-x #:destination-y #:destination-facing
    ;; races (ability-score modifiers + which classes a race may take)
    #:define-race #:find-race #:races #:race-name #:race-title
    #:race-classes #:race-description #:race-image #:race-allows-class-p
@@ -104,7 +109,8 @@
    #:hero-xp #:hero-max-hp #:hero-hp #:hero-max-sp #:hero-sp
    #:hero-caster-p #:hero-str #:hero-dex #:hero-iq
    #:hero-con #:hero-lck #:hero-ac #:hero-damage #:hero-gold
-   #:hero-alive-p #:alive-heroes #:party-alive-p #:front-ranks
+   #:hero-alive-p #:alive-heroes #:party-alive-p #:party-leader
+   #:front-ranks
    #:hero-in-reach-p
    ;; ailments — the conditions a hero carries until something cures them
    #:*ailments* #:*poison-bite* #:ailment-p #:ailment-title #:ailment-noun
@@ -142,6 +148,9 @@
    #:item-fit-marker #:item-target-kind #:*item-kinds*
    #:+inventory-limit+ #:hero-items #:hero-equipped #:hero-carrying-p
    #:party-carrying-p #:party-carrier
+   ;; the plot pieces (:QUEST) — carried outside the eight-slot limit
+   #:item-type-quest #:quest-item-p #:pack-burden #:pack-gear
+   #:hero-quest-items #:party-quest-items
    #:give-item #:drop-item #:pass-item #:discard-item
    #:equip-item #:unequip-item #:equipped-of-kind
    #:toggle-equip #:equipped-instance-p

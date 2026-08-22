@@ -4,7 +4,11 @@
 ;;; after the art (see map.lisp) or via (SETF CELL-SPECIAL).  Ops are
 ;;; pure data interpreted here; map files are never evaluated.  The ops:
 ;;;
-;;;   (message TEXT...)          show each TEXT (a :MESSAGE event)
+;;;   (message TEXT...)          show each TEXT (a :MESSAGE event).
+;;;                              TEXT may name the party in braces —
+;;;                              {leader} is the hero walking in front
+;;;                              (see SPECIAL-TEXT); (damage ...) and
+;;;                              (trap ...) read their TEXT the same way
 ;;;   (set-flag KEY) (clear-flag KEY)
 ;;;   (when-flag KEY OP...)      run OP... if story flag KEY is set
 ;;;   (unless-flag KEY OP...)    ... if it is not
@@ -60,6 +64,64 @@
 
 (defvar *special-depth* 0)
 
+;;; ---------------------------------------------------------------------
+;;; What a special's text may name.
+;;;
+;;; Map text is literal — the ops carry strings, never forms, and a
+;;; map file is data that is read and never evaluated.  That leaves a
+;;; line unable to say a hero's name, which is exactly the line a
+;;; parting scene wants: "one of you stays behind" where a game would
+;;; say "Percival stays behind".  The braces are the whole mechanism —
+;;; a small, closed vocabulary of things a cell may name, expanded on
+;;; the way to the message log.
+
+(defun special-token-text (game token)
+  "What TOKEN — the word between the braces, without them — stands for
+here.  The vocabulary:
+
+  leader   the hero walking in front (PARTY-LEADER)
+
+Signals an error on any other word: a typo in map data should be as
+loud as an unknown op, and a silent {leadre} would go unnoticed until
+a player read it."
+  (cond ((string-equal token "leader")
+         (let ((h (party-leader game)))
+           (if h (hero-name h) "the party")))
+        (t (error "Unknown text token {~A} in cell (~D,~D) of ~A"
+                  token (game-x game) (game-y game)
+                  (dungeon-map-name (game-map game))))))
+
+(defun special-text (game text)
+  "TEXT as a special op speaks it: every {token} replaced by what it
+names (SPECIAL-TOKEN-TEXT), the rest carried through character for
+character.  A text with no brace comes back as it came — the common
+case pays nothing for the mechanism — and a brace with no closing
+twin is plain text, since a substitution needs both ends."
+  (if (null (position #\{ text))
+      text
+      (with-output-to-string (out)
+        (let ((len (length text))
+              (i 0))
+          (loop while (< i len)
+                do (let ((open (position #\{ text :start i)))
+                     (cond
+                       ((null open)
+                        (write-string text out :start i)
+                        (setf i len))
+                       (t
+                        (let ((close (position #\} text :start (1+ open))))
+                          (cond
+                            ((null close)
+                             (write-string text out :start i)
+                             (setf i len))
+                            (t
+                             (write-string text out :start i :end open)
+                             (write-string
+                              (special-token-text
+                               game (subseq text (1+ open) close))
+                              out)
+                             (setf i (1+ close)))))))))))))
+
 (defun trigger-special (game)
   "Run the special of the cell the party stands on, if any.  Movement
 and teleports call this; call it once by hand after NEW-GAME to fire
@@ -94,7 +156,7 @@ to the cell the party just left."
   (case (first op)
     (message
      (dolist (text (rest op))
-       (say game "~A" text)))
+       (say game "~A" (special-text game text))))
     (set-flag (set-flag game (second op)))
     (clear-flag (clear-flag game (second op)))
     (when-flag
@@ -133,7 +195,7 @@ to the cell the party just left."
      (let ((dice (second op))
            (text (third op)))
        (when text
-         (say game "~A" text))
+         (say game "~A" (special-text game text)))
        (dolist (h (alive-heroes game))
          (let ((n (max 0 (roll-dice dice))))
            (say game "~A TAKES ~D damage." (hero-name h) n)
@@ -227,7 +289,7 @@ save halving the blow."
         ((and finder (< (roll 100) (hero-trap-skill finder)))
          (say game "~A spots a trap and disarms it!" (hero-name finder)))
         (t
-         (say game "~A" text)
+         (say game "~A" (special-text game text))
          (dolist (h (alive-heroes game))
            (let* ((saved (saving-throw game h difficulty))
                   (n (max 0 (roll-dice dice)))

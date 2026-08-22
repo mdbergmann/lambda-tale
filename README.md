@@ -800,7 +800,9 @@ picks who receives it (each row showing the room left in their pack).
 Carrying is not using — an unfit item passes freely, so one hero can
 haul another's gear — and the fallen both give and receive, as with
 pooled gold; a full receiving pack refuses the item and leaves it
-whole with the giver.  `t` on the pack page **throws an item away**
+whole with the giver — and the numbered rows are the *gear*, the
+quest pieces having a page of their own (see **Quest pieces** below).
+`t` on the pack page **throws an item away**
 for good: a digit picks it and a clickable yes/no stands guard — the
 one pack action that destroys, so it alone asks twice.  `i` on the
 pack page — and on the shop's buy
@@ -817,6 +819,21 @@ and no spellbook; a battle spell politely waits for a fight.  A
 `:consumed` item is spent on use, and `:image` gives the effect its
 band icon.  See the "Usable items" and "Spell-trigger items" test
 sections of `tests/run-tests.lisp` for the exact rules.
+
+**Quest pieces.**  A pack holds eight things, and a long campaign
+hands out more keys, tokens and proofs than a party has hands.
+`:quest t` on an item marks it a plot piece: it rides **outside** the
+eight-slot limit, so it never fits or fails to fit and never crowds
+out a sword.  A quest piece has no price (`define-item` refuses one),
+no shop buys it and no hand throws it away — the way forward is not
+the player's to sell or destroy.  It reads on the pack page's own
+**quest page** (`r`, offered only to a hero carrying one) rather than
+among the numbered gear rows: a title and the item's `:description`
+under it, scrolled like any long page.  The gate ops
+(`when-item`, `take-item`) see it like any other item, so a piece is
+still something the party is *carrying* — visible, on a character
+sheet, spendable at the door it opens — and not a story flag wearing
+an item's name.
 
 Two more location kinds spend gold on recovery, Bard's Tale style.  A
 **temple** — `(location TITLE :temple :price N :raise M :raise-per-hp R
@@ -1004,6 +1021,17 @@ these ask what it is carrying now.  All four count a fallen hero's pack
 — a key its bearer died holding is still the party's — and all four
 signal an error on an unregistered item name, because that is a typo in
 map data.
+
+**Naming a hero in map text.**  Map text is literal — the ops carry
+strings, never forms — which leaves a line unable to say a hero's
+name, and that is exactly the line a parting scene wants.  A text may
+therefore name the party in braces: `{leader}` is the hero walking in
+front (the first living one in marching order, the rank the `gold` op
+pays), so `(message "{leader} stays behind.")` reads *Percival stays
+behind*.  `damage` and `trap` read their `TEXT` the same way.  The
+vocabulary is small and closed on purpose: an unknown `{token}` is an
+error, as loud as an unknown op, and a brace with no closing twin is
+just a brace.
 
 **Traps.**  A `(trap DICE [TEXT] [DIFFICULTY])` op is a floor trap
 with three layers of defence: a levitating party (a `:levitate`
@@ -1382,10 +1410,13 @@ installs five enchantments in one casting:
   space: the cast menu asks for a heading (N/E/S/W) and a count up to
   N, wrapping zones fold around the seam, a plain map's edge refuses
   (the spell is spent), and the destination cell's special fires on
-  arrival.  An integer teleport refuses to cast in combat; `:teleport
-  t` stays a flavor line for spells whose named destination awaits
-  its subsystem, and an item's `(:cast ...)` trigger (no prompt)
-  speaks the same line.  `:cure (:poison ...)` lifts the ailments it
+  arrival.  `:teleport t` is the other kind of flight: not a distance
+  but a **named destination** — the cast menu lists the places the
+  campaign registered (see **Named destinations** below) and a digit
+  picks one.  Neither teleport casts in combat: there is no walking
+  away from a fight, and a cast that reaches the mechanism anyway (an
+  item's free cast, a scripted `cast-spell`) finds the way shut.
+  `:cure (:poison ...)` lifts the ailments it
   names (see **Ailments** above) and refuses anything that is not one.
   `:summon` and the foe-handling keys carry canonical data and speak
   their line today; their subsystems (allies) are still to come.
@@ -1413,6 +1444,27 @@ points trickle back Bard's Tale style
 while walking outdoors in daylight.  The "Spells" and "extended
 effect vocabulary" test sections of `tests/run-tests.lisp` are the
 executable specification.
+
+**Named destinations.**  A homing spell needs somewhere to home to,
+and where that is, is the campaign's business:
+
+```lisp
+(define-destination 'testville-guild :title "The Guild at Testville"
+                    :map "town.map" :x 14 :y 28 :facing :north)
+```
+
+The engine keeps the list and flies the party there; the game names
+the places worth flying to.  `:x`/`:y` and `:facing` are optional and
+omitted means the map's own start, exactly as for the `travel` op —
+which is also how the map file is resolved, relative to the zone the
+party stands in when the flight begins.  Registration order is menu
+order, and registering a name twice replaces the destination without
+moving it.  The flight itself is a `travel`: the zone loads (or is
+remembered, automap and all) and the arrival cell's special fires, so
+a guild that greets its visitors greets these too.  With nothing
+registered the spell is one with nowhere to go and says so on its
+card.  An item that casts such a spell (`:use '(:cast SPELL)`) asks
+the same question from the use menu.
 
 ## Bard songs and taverns
 

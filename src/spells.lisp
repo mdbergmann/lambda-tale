@@ -159,8 +159,9 @@ reaches whatever it is aimed at (see COMBAT-DISTANCE)."
 
 (defun spell-target-kind (name)
   "What the spell needs aimed at: :HERO when it heals, cures or raises
-one chosen hero; else :NONE (see EFFECT-SPEC-TARGET-KIND, the shared
-rule items follow too)."
+one chosen hero, :OFFSET when it folds a distance, :DESTINATION when
+it carries the party to a named place; else :NONE (see
+EFFECT-SPEC-TARGET-KIND, the shared rule items follow too)."
   (effect-spec-target-kind (spell-type-effect (find-spell-type name))))
 
 (defun spell-known-p (hero name)
@@ -191,8 +192,11 @@ particular and answers to the hero's current level."
 card — or NIL when they can: known, affordable, for a spell that
 needs a fight (the damage family and the foe-handling keys) in
 combat, in reach of a foe when the spell's REACH falls short of where
-the nearest monster stands — and for a real (integer) teleport NOT in
-combat: mid-fight there is no walking away through folded space.
+the nearest monster stands — and for a teleport of either kind NOT in
+combat: mid-fight there is no walking away through folded space.  A
+flight to a named destination needs somewhere registered to fly to
+(DEFINE-DESTINATION); with the list empty it is a spell with nowhere
+to go, and says so.
 SPELL-CASTABLE-P answers the yes/no of the same rule; the card is
 +TAKEOVER-COLUMNS+ wide, so the reasons stay short.  The cast menu
 keeps its own one-line refusal (it has the log under it to say more);
@@ -208,8 +212,11 @@ itself."
           ((%spell-out-of-reach-p game type)
            "The foes are too far.")
           ((and (game-combat game)
-                (integerp (getf (spell-type-effect type) :teleport)))
+                (getf (spell-type-effect type) :teleport))
            "Not in a fight.")
+          ((and (eq (getf (spell-type-effect type) :teleport) t)
+                (null (destinations)))
+           "Nowhere to go.")
           (t nil))))
 
 (defun spell-castable-p (game hero name)
@@ -283,10 +290,13 @@ chosen hero for the single-target kinds, defaulting to the caster;
 REACH is how far the spell carries in feet, NIL for the unmeasured —
 it decides how much of the field an all-foes key covers).
 The combat-only kinds may assume a fight with living monsters — the
-cast refusals guarantee it.  An integer :teleport folds space for
-real when TARGET carries the prompt's (DIR DISTANCE); the keys whose
-subsystem is still to come (:cure, :summon, ...) speak their flavor
-line so the canonical spell already casts."
+cast refusals guarantee it.  A :teleport folds space for real: an
+integer TARGET carries the prompt's (DIR DISTANCE), T flies the party
+to the destination TARGET names — and either way this function itself
+refuses the fold while GAME-COMBAT holds, the last door behind the
+cast refusals' own guard, for a cast that never passed through the
+menu.  The keys whose subsystem is still to come (:cure, :summon,
+...) speak their flavor line so the canonical spell already casts."
   (let ((combat (game-combat game))
         (target (or target hero)))
     ;; the mending family first — a healer's round helps before it harms
@@ -359,11 +369,24 @@ line so the canonical spell already casts."
            (getf effect :summon)))
     (let ((fold (getf effect :teleport)))
       (when fold
-        (if (and (integerp fold) (consp target))
-            (%teleport-offset game (first target) (second target))
-            ;; :teleport t (a named destination awaits its subsystem),
-            ;; or an item's (:cast SPELL) trigger, which has no prompt.
-            (say game "Space folds and shimmers, but the way stays shut."))))))
+        (cond
+          ;; no walking away mid-fight, by whatever door: the cast
+          ;; menu refuses a teleport in combat, and this catches the
+          ;; ways in that never saw the menu (an item's free cast, a
+          ;; scripted CAST-SPELL)
+          ((game-combat game)
+           (say game "Space folds and shimmers, but the way stays shut."))
+          ((and (integerp fold) (consp target))
+           (%teleport-offset game (first target) (second target)))
+          ;; a flight to a named place: TARGET is the destination's
+          ;; name, straight off the picker
+          ((and (eq fold t) (symbolp target) (find-destination target nil))
+           (travel-to-destination game target))
+          ;; a prompt that never happened — a scripted cast with no
+          ;; target, or a destination nobody registered
+          (t
+           (say game
+                "Space folds and shimmers, but the way stays shut.")))))))
 
 (defun %teleport-offset (game dir distance)
   "Fold space DISTANCE squares toward DIR: step the map's own NEIGHBOR
@@ -498,6 +521,30 @@ instant keys and installs the timed keys as one effect record, emits
 pick); NIL starts at the who-casts page."
   (%make-cast-view :in-combat in-combat :hero hero))
 
+;;; The destination picker is the same page for a spell and for the
+;;; item that casts one, so both front-end flows read it from here.
+
+(defun destination-rows (prompt)
+  "The registered destinations as a numbered menu under PROMPT — the
+page a :DESTINATION spell or item asks its question on.  At most nine
+rows carry a digit key; a campaign that registers more has written a
+menu no hand can reach past the ninth, which DEFINE-DESTINATION's
+order makes its own choice."
+  (append
+   (list prompt "")
+   (let ((i 0))
+     (mapcar (lambda (where)
+               (incf i)
+               (menu-numbered
+                i (format nil "~D) ~A" i (destination-title where))))
+             (destinations)))))
+
+(defun destination-by-digit (digit)
+  "The destination DIGIT picks (1-based, menu order), or NIL."
+  (let ((where (and digit (plusp digit) (nth (1- digit) (destinations)))))
+    (when where
+      (destination-name where))))
+
 (defun %cast-commit (game view target)
   "Resolve the completed pick: cast directly; in combat fight one
 round where the caster casts and everyone else attacks; in :ORDERS
@@ -570,6 +617,8 @@ key (see MENU-NUMBERED)."
                             range (cast-view-distance view))
                     ""
                     "Type the count; Return casts"))))
+       ((eq (spell-target-kind spell) :destination)
+        (destination-rows (format nil "~A -- where to?" (spell-title spell))))
        (t                              ; a healing spell picks its target
         (append
          (list (format nil "~A on whom?" (spell-title spell)) "")
@@ -583,10 +632,12 @@ key (see MENU-NUMBERED)."
                    (game-party game)))))))))
 
 (defun cast-act (game view char)
-  "Apply key CHAR to the cast menu.  Returns :DONE when a cast
-resolved (the front-end drops the view) — in :ORDERS mode
-\(:ACTION (:CAST ...)) instead — :CANCELLED on Esc at the top level,
-else NIL."
+  "Apply key CHAR to the cast menu.  The pages follow the spell's
+SPELL-TARGET-KIND: a caster, a spell, and then — where the spell asks
+one — a hero, a heading and a count, or one of the registered
+destinations.  Returns :DONE when a cast resolved (the front-end drops
+the view) — in :ORDERS mode \(:ACTION (:CAST ...)) instead —
+:CANCELLED on Esc at the top level, else NIL."
   (let ((hero (cast-view-hero view))
         (spell (cast-view-spell view))
         (digit (digit-char-p char)))
@@ -608,7 +659,8 @@ else NIL."
                 (when name
                   (if (spell-castable-p game hero name)
                       (case (spell-target-kind name)
-                        ((:hero :offset)  ; both ask one more question
+                        ;; each of the three asks one more question
+                        ((:hero :offset :destination)
                          (setf (cast-view-spell view) name)
                          nil)
                         (t
@@ -671,6 +723,14 @@ else NIL."
                       (format nil "~A~D" entry digit))
                 nil)
                (t nil)))))
+      ;; picking where the flight lands
+      ((eq (spell-target-kind spell) :destination)
+       (cond ((destination-by-digit digit)
+              (%cast-commit game view (destination-by-digit digit)))
+             ((eql char #\Escape)
+              (setf (cast-view-spell view) nil)
+              nil)
+             (t nil)))
       ;; picking the heal target
       (t
        (cond ((and digit (<= 1 digit (length (game-party game))))

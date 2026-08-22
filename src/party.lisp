@@ -30,7 +30,9 @@
   (ac 10)             ; descending: lower is better
   (damage "1d4")      ; the hero's bare attack dice (no weapon)
   (gold 0)
-  (items '())         ; pack contents: item names, at most +inventory-limit+
+  (items '())         ; pack contents: item names.  The gear is capped at
+                      ; +inventory-limit+; the :QUEST pieces ride outside
+                      ; it, so the list itself may be longer (PACK-BURDEN)
   (equipped '())      ; equipped subset: one :weapon, :armor, :shield each
   (tunes 0)           ; song charges (singers; refilled at a tavern)
   (ailments '())      ; conditions carried until cured (see *AILMENTS*)
@@ -1005,6 +1007,15 @@ steps back to the pick page.  Returns :DONE when the trade lands,
 
 (defun party-alive-p (game)
   (not (null (alive-heroes game))))
+
+(defun party-leader (game)
+  "The hero the party's own words mean by \"the leader\": the first
+living hero in marching order — the rank that walks in front and takes
+what a cell hands out (the GOLD op's taker) — falling back to the
+first hero of all when every one of them is down, so a line that names
+the leader always has a name to use.  NIL only for an empty party."
+  (or (first (alive-heroes game))
+      (first (game-party game))))
 
 (defun acting-heroes (game)
   "The heroes who can take a round action, in party order — standing,

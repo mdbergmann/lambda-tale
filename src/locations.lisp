@@ -292,7 +292,7 @@ of that kind equipped and can use it.  Returns T on success."
            (say game "~A cannot afford ~A." (hero-name hero)
                 (item-type-title type))
            nil)
-          ((>= (length (hero-items hero)) +inventory-limit+)
+          ((>= (pack-burden hero) +inventory-limit+)
            (say game "~A's pack is full." (hero-name hero))
            nil)
           (t
@@ -310,18 +310,24 @@ of that kind equipped and can use it.  Returns T on success."
 
 (defun sell-item (game hero name)
   "HERO sells item NAME back to the shop at half price.  Returns T, or
-says why and returns NIL when the hero does not carry it."
-  (if (not (hero-carrying-p hero name))
-      (progn
-        (say game "~A does not carry ~A." (hero-name hero) (item-title name))
-        nil)
-      (let ((price (item-sell-price name)))
-        (drop-item game hero name)
-        (incf (hero-gold hero) price)
-        (emit game :coin price)
-        (say game "~A sells ~A for ~D gold." (hero-name hero)
-             (item-title name) price)
-        t)))
+says why and returns NIL when the hero does not carry it, or when it
+is a :QUEST piece — no shop buys the way forward, and the sell page
+never lists one."
+  (cond
+    ((not (hero-carrying-p hero name))
+     (say game "~A does not carry ~A." (hero-name hero) (item-title name))
+     nil)
+    ((quest-item-p name)
+     (say game "No shop will buy ~A." (item-title name))
+     nil)
+    (t
+     (let ((price (item-sell-price name)))
+       (drop-item game hero name)
+       (incf (hero-gold hero) price)
+       (emit game :coin price)
+       (say game "~A sells ~A for ~D gold." (hero-name hero)
+            (item-title name) price)
+       t))))
 
 ;;; ---------------------------------------------------------------------
 ;;; The shop interaction model (shared by both front-ends).
@@ -394,23 +400,21 @@ the inspect page — the same stock, a digit showing that item's card
              (list (format nil "~A sells.  Gold: ~D gp"
                            (hero-name hero) (hero-gold hero))
                    "")
-             ;; the star marks the worn COPY, not the worn name — with
-             ;; a duplicate in the pack only one row wears it, the same
-             ;; rule as the pack page (EQUIPPED-INSTANCE-P), so the
-             ;; window's start joins the row number to make the pack
-             ;; position absolute
-             (let ((start (menu-window (length (hero-items hero))
-                                       (shop-view-top view))))
-               (menu-scrolled-lines
-                (hero-items hero) (shop-view-top view)
-                (lambda (i name)
-                  (menu-numbered i (format nil "~D) ~A~:[~;*~]~A~A  ~D gp"
-                                           i (item-title name)
-                                           (equipped-instance-p
-                                            hero name (+ start i -1))
-                                           (item-hand-marker name)
-                                           (item-fit-marker hero name)
-                                           (item-sell-price name))))))
+             ;; the gear, never the quest pieces: no shop buys the way
+             ;; forward (PACK-GEAR, whose pairs carry the pack position
+             ;; the star needs — the star marks the worn COPY, not the
+             ;; worn name, so with a duplicate in the pack only one row
+             ;; wears it, the same rule as the pack page)
+             (menu-scrolled-lines
+              (pack-gear hero) (shop-view-top view)
+              (lambda (i pair)
+                (menu-numbered i (format nil "~D) ~A~:[~;*~]~A~A  ~D gp"
+                                         i (item-title (cdr pair))
+                                         (equipped-instance-p
+                                          hero (cdr pair) (car pair))
+                                         (item-hand-marker (cdr pair))
+                                         (item-fit-marker hero (cdr pair))
+                                         (item-sell-price (cdr pair))))))
              (when (zerop (shop-view-top view))
                (list ""
                      (menu-option #\b "Buy")
@@ -492,10 +496,10 @@ view then), else NIL."
               nil)))
       (t
        (cond (digit
-              (let ((name (menu-window-pick (hero-items hero)
+              (let ((pair (menu-window-pick (pack-gear hero)
                                             (shop-view-top view) digit)))
-                (when name
-                  (sell-item game hero name)))
+                (when pair
+                  (sell-item game hero (cdr pair))))
               nil)
              ((member char '(#\b #\B))
               (setf (shop-view-mode view) :buy
@@ -506,7 +510,7 @@ view then), else NIL."
               nil)
              (t
               (let ((top (menu-scroll (shop-view-top view) char
-                                      (length (hero-items hero)))))
+                                      (length (pack-gear hero)))))
                 (when top (setf (shop-view-top view) top)))
               nil))))))
 

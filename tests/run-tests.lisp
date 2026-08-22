@@ -6665,7 +6665,7 @@ height" d)
        (effect-summary-lines '(:disarm-traps 3)))
 (check "a real teleport quotes the squares" '("Folds space (4 sq)")
        (effect-summary-lines '(:teleport 4)))
-(check "a flavor teleport has no square count" '("Folds space")
+(check "a homing teleport names no square count" '("Takes you to a known place")
        (effect-summary-lines '(:teleport t)))
 (check "summon names the ally" '("Summons test wolf")
        (effect-summary-lines '(:summon "test wolf")))
@@ -6755,7 +6755,7 @@ height" d)
                 ((:scry t)                  "Tells where you are")
                 ((:disarm-traps 3)          "Disarms traps (3 sq)")
                 ((:teleport 9)              "Folds space (9 sq)")
-                ((:teleport t)              "Folds space")
+                ((:teleport t)              "Takes you to a known place")
                 ((:summon "wolf")           "Summons wolf")
                 ;; timed — each needs a duration to be a legal spec,
                 ;; so the run is checked separately below
@@ -7159,11 +7159,11 @@ height" d)
   (check-true "the ally answers -- for now in words"
               (find-if (lambda (s) (search "test wolf answers the call" s))
                        (funcall msgs)))
-  ;; :teleport t is the legacy flavor form — a spell whose NAMED
-  ;; destination (safety-spell's guild) awaits its subsystem; only an
-  ;; integer :teleport folds space for real (see the teleport section).
-  (check-true "the flavor teleport casts" (cast-spell g mage 'test-blink))
-  (check-true ":teleport t stays flavor (the named-destination form)"
+  ;; :teleport t flies to a named destination — with none picked (a
+  ;; scripted cast has no menu behind it) the way stays shut; the
+  ;; destination section below flies it for real.
+  (check-true "the homing teleport casts" (cast-spell g mage 'test-blink))
+  (check-true "and with nowhere named, the way stays shut"
               (find-if (lambda (s) (search "the way stays shut" s))
                        (funcall msgs)))
   (start-combat g '(("test rat" 1)))
@@ -7397,6 +7397,59 @@ height" d)
          (find-if (lambda (s) (search "destroyed" s)) (funcall msgs))))
 
 ;;; ---------------------------------------------------------------------
+;;; What a special's text may name: {leader}, so a parting scene can
+;;; say a hero's name instead of "one of you".
+
+(let* ((m (parse-map *art* :name "test"))
+       (a (make-hero "Percival" :tester))
+       (b (make-hero "Elaine" :tester))
+       (g (new-game m :party (list a b)))
+       (msgs (watch-messages g)))
+  (check "a text with no brace comes back whole"
+         "The stair goes down." (special-text g "The stair goes down."))
+  (check "{leader} is the hero in front"
+         "Percival steps through."
+         (special-text g "{leader} steps through."))
+  (check "a token may sit mid-sentence and twice over"
+         "Percival looks at Percival."
+         (special-text g "{leader} looks at {leader}."))
+  (check "the token is read without regard to case"
+         "Percival." (special-text g "{Leader}."))
+  (check "a brace with no closing twin is plain text"
+         "A {leader who never closes"
+         (special-text g "A {leader who never closes"))
+  (check-error "an unknown token is as loud as an unknown op"
+    (special-text g "{leadre} steps through."))
+  ;; the marching order decides, and death moves it on
+  (setf (hero-hp a) 0)
+  (check "with the first rank down the next one leads"
+         "Elaine steps through."
+         (special-text g "{leader} steps through."))
+  (setf (hero-hp b) 0)
+  (check "with all of them down the order still answers"
+         "Percival steps through."
+         (special-text g "{leader} steps through."))
+  (setf (hero-hp a) 8 (hero-hp b) 8)
+  ;; and the ops read their text through it
+  (setf (cell-special m 1 0) '((message "{leader} stays behind.")))
+  (turn-right g)
+  (move-party g :forward)
+  (check "the message op names the leader"
+         '("Percival stays behind.") (funcall msgs)))
+
+;; The damage and trap ops read their TEXT the same way.
+(let* ((m (parse-map *art* :name "test"))
+       (a (make-hero "Percival" :tester))
+       (g (new-game m :party (list a)))
+       (msgs (watch-messages g)))
+  (setf (cell-special m 1 0) '((damage "1d1" "{leader} takes the brunt.")))
+  (turn-right g)
+  (move-party g :forward)
+  (check-true "the damage op names the leader"
+              (find "Percival takes the brunt." (funcall msgs)
+                    :test #'string=)))
+
+;;; ---------------------------------------------------------------------
 ;;; Teleport: an integer :TELEPORT folds space for real
 
 (check-error ":teleport wants t or a positive range"
@@ -7406,7 +7459,7 @@ height" d)
 (define-spell 'test-fold :cost 1 :classes '(:t-mage) :teleport 3)
 (check "an offset teleport asks for a heading" :offset
        (spell-target-kind 'test-fold))
-(check "the flavor form still aims at nobody" :none
+(check "the homing form asks for a destination" :destination
        (spell-target-kind 'test-blink))
 
 ;; The full key-drive: pick the caster, scroll to the spell, answer the
@@ -7513,7 +7566,8 @@ height" d)
   (check "west of (0,0) wraps to the far column" '(1 0)
          (list (game-x g) (game-y g))))
 
-;; A real fold refuses to cast in combat; the flavor form may.
+;; Neither teleport casts in combat — there is no walking away from a
+;; fight, through folded space or over a map.
 (let* ((m (parse-map *art* :name "test"))
        (mage (%combat-mage))
        (g (new-game m :party (list mage))))
@@ -7522,8 +7576,26 @@ height" d)
   (start-combat g '(("test rat" 1)))
   (check "mid-fight there is no walking away" nil
          (spell-castable-p g mage 'test-fold))
-  (check-true "the flavor form is not barred"
-              (spell-castable-p g mage 'test-blink)))
+  (check "and none by the homing road either" nil
+         (spell-castable-p g mage 'test-blink)))
+
+;; A direct CAST-SPELL with a real heading still refuses mid-fight --
+;; the guard inside %APPLY-INSTANT-EFFECTS catches what never saw the
+;; cast menu (a scripted or item-driven CAST-SPELL, the same door the
+;; homing form's t-ring-home item covers further below).
+(let* ((m (parse-map *art* :name "test"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (msgs (watch-messages g)))
+  (start-combat g '(("test rat" 1)))
+  (check-true "the fold still casts and spends its sp"
+              (cast-spell g mage 'test-fold '(:north 1)))
+  (check "the party stays put mid-fight" '(0 0)
+         (list (game-x g) (game-y g)))
+  (check "the sp is spent anyway" (1- (hero-max-sp mage)) (hero-sp mage))
+  (check-true "and the way stays shut"
+              (find-if (lambda (s) (search "the way stays shut" s))
+                       (funcall msgs))))
 
 ;; An item-style cast (no prompt, no target) speaks the flavor line.
 (let* ((m (parse-map *art* :name "test"))
@@ -8403,6 +8475,106 @@ height" d)
   (check "pack down to seven" 7 (length (hero-items h)))
   (check "drop-item without the item" nil (drop-item g h 't-sword))
   (check-error "give-item checks the item exists" (give-item g h 't-nada)))
+
+;;; ---------------------------------------------------------------------
+;;; Quest pieces (:QUEST): carried outside the eight-slot limit, read on
+;;; the pack's own quest page, and neither sold nor thrown away.
+
+(define-item 't-key :kind :misc :title "T Key"
+  :quest t :description "A key of black iron.")
+(define-item 't-token :kind :misc :title "T Token" :quest t)
+(check-error "a quest piece may not carry a price"
+  (define-item 't-priced :kind :misc :quest t :price 5))
+(check-true "quest-item-p knows a plot piece" (quest-item-p 't-key))
+(check "quest-item-p says no to gear" nil (quest-item-p 't-sword))
+
+;; The limit counts the gear alone: eight swords and any number of
+;; keys fit the same pack.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g)))
+  (dotimes (i 8) (give-item g h 't-torch))
+  (check "the burden is the eight" 8 (pack-burden h))
+  (check "and the ninth torch is refused" nil (give-item g h 't-sword))
+  (check-true "a quest piece still fits a full pack"
+              (give-item g h 't-key))
+  (check-true "and a second one after it" (give-item g h 't-token))
+  (check "the pack now holds ten things" 10 (length (hero-items h)))
+  (check "but the burden is unchanged" 8 (pack-burden h))
+  (check "the gear rows are still the eight" 8 (length (pack-gear h)))
+  (check "the quest pieces list in pack order" '(t-key t-token)
+         (hero-quest-items h))
+  (check "the party's pieces are its heroes'" '(t-key t-token)
+         (party-quest-items g))
+  ;; no shop buys the way forward, no hand throws it away
+  (check "a quest piece is not sold" nil (sell-item g h 't-key))
+  (check-true "the shop says so"
+              (find-if (lambda (s) (search "No shop will buy" s))
+                       (funcall msgs)))
+  (check "a quest piece is not thrown away" nil (discard-item g h 't-key))
+  (check-true "the hero says so"
+              (find-if (lambda (s) (search "will not part with" s))
+                       (funcall msgs)))
+  (check-true "it is still carried" (hero-carrying-p h 't-key))
+  ;; the gate ops read it like any other item
+  (check-true "a WHEN-ITEM gate sees it" (party-carrying-p g 't-key))
+  (check-true "and TAKE-ITEM spends it" (run-take-item-op g 't-key))
+  (check "so the piece is gone" nil (hero-carrying-p h 't-key)))
+
+;; The pack page: gear numbered, quest pieces on their own page, and
+;; a digit means the gear row it prints even with a piece in the pack.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (view (make-equip-view h)))
+  (give-item g h 't-key)                ; the piece comes first in the pack
+  (give-item g h 't-sword)
+  (let ((texts (menu-texts (equip-lines g view))))
+    (check-true "the sword is row 1, the key not a row at all"
+                (find-if (lambda (s) (search "1) T Sword" s)) texts))
+    (check "no quest piece among the gear rows" nil
+           (find-if (lambda (s) (search "T Key" s)) texts))
+    (check-true "the quest key is offered, and counts"
+                (find-if (lambda (s) (search "Read the quest pieces (1)" s))
+                         texts)))
+  ;; row 1 is the sword, though the sword sits second in the pack
+  (equip-act g view #\1)
+  (check-true "the digit equips the gear row it printed"
+              (member 't-sword (hero-equipped h)))
+  (equip-act g view #\r)
+  (let ((texts (menu-texts (equip-lines g view))))
+    (check-true "the quest page names the piece"
+                (find-if (lambda (s) (search "T Key" s)) texts))
+    (check-true "and reads its description"
+                (find-if (lambda (s) (search "key of black iron" s)) texts)))
+  (check "Esc turns back to the pack" nil (equip-act g view #\Escape))
+  (check-true "the gear rows are back"
+              (find-if (lambda (s) (search "1) T Sword" s))
+                       (menu-texts (equip-lines g view)))))
+
+;; A hero carrying nothing but the story has no gear pages and says so.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h)))
+       (msgs (watch-messages g))
+       (view (make-equip-view h)))
+  (give-item g h 't-key)
+  (equip-act g view #\t)
+  (check-true "nothing to throw away"
+              (find-if (lambda (s) (search "nothing to throw away" s))
+                       (funcall msgs)))
+  (check-true "the empty-pack row still shows"
+              (find-if (lambda (s) (search "The pack is empty" s))
+                       (menu-texts (equip-lines g view)))))
+
+;; The shop's sell page lists the gear alone.
+(let* ((m (parse-map *art* :name "test"))
+       (h (%combat-hero))
+       (g (new-game m :party (list h))))
+  (give-item g h 't-key)
+  (give-item g h 't-sword)
+  (check "the sell page counts the gear" 1 (length (pack-gear h))))
 
 ;; Equipment: one per kind, class restrictions, misc not equippable.
 (let* ((m (parse-map *art* :name "test"))
@@ -9616,6 +9788,140 @@ height" d)
   (check-error "no traveling during combat"
     (travel-party g "tmp-dung.map")))
 
+;;; ---------------------------------------------------------------------
+;;; Named destinations: the places a homing spell can carry the party to.
+
+(check "the registry starts empty" '() (destinations))
+(check-error "a destination needs a symbol for a name"
+  (define-destination "town" :map "tmp-town.map"))
+(check-error "a destination needs a map file"
+  (define-destination 'test-nowhere))
+(check-error "a cell is both coordinates or neither"
+  (define-destination 'test-half :map "tmp-town.map" :x 1))
+(check-error "an unregistered destination is loud"
+  (find-destination 'test-nonesuch))
+(check "the soft lookup keeps quiet" nil
+       (find-destination 'test-nonesuch nil))
+
+(define-destination 'test-town :title "Testville Guild"
+  :map "tmp-town.map" :x 0 :y 0 :facing :north)
+(define-destination 'test-pit :map "tmp-dung.map")
+(check "registration order is menu order" '(test-town test-pit)
+       (mapcar #'destination-name (destinations)))
+(check "a title defaults to the name" "Test Pit"
+       (destination-title (find-destination 'test-pit)))
+(check "an omitted cell is the map's own start" nil
+       (destination-x (find-destination 'test-pit)))
+;; registering a name twice replaces it and keeps its place
+(define-destination 'test-town :title "Testville" :map "tmp-town.map")
+(check "the redefinition keeps its place" '(test-town test-pit)
+       (mapcar #'destination-name (destinations)))
+(check "and carries the new title" "Testville"
+       (destination-title (find-destination 'test-town)))
+(check "the menu numbers what it lists" 'test-pit (destination-by-digit 2))
+(check "and nothing past its end" nil (destination-by-digit 3))
+(check-true "the rows print the titles"
+            (equal '("Where to?" "" "1) Testville" "2) Test Pit")
+                   (menu-texts (destination-rows "Where to?"))))
+
+;; The flight itself lands where the destination says, arrival special
+;; and all — TRAVEL-PARTY's own manners.
+(let* ((m (load-map-file "tests/tmp-town.map"))
+       (g (new-game m)))
+  (travel-to-destination g 'test-pit)
+  (check "the flight lands in the named zone" "Testpit"
+         (map-title (game-map g)))
+  (check "at the map's own start" '(0 0) (list (game-x g) (game-y g)))
+  (check-error "an unregistered flight is loud"
+    (travel-to-destination g 'test-nonesuch)))
+
+;; The full key-drive: pick the caster, the spell, then the place.
+(let* ((m (load-map-file "tests/tmp-town.map"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (view (make-cast-view)))
+  (check "a homing spell asks for a destination" :destination
+         (spell-target-kind 'test-blink))
+  (check-true "and is castable with somewhere to go"
+              (spell-castable-p g mage 'test-blink))
+  (check "the caster digit picks the mage" nil (cast-act g view #\1))
+  (let* ((spells (spells-for-hero mage))
+         (pos (position 'test-blink spells))
+         (start (max 0 (min pos (- (length spells) +menu-page-size+))))
+         (digit (digit-char (1+ (- pos start)))))
+    (setf (cast-view-top view) start)
+    (check "the spell pick asks on instead of casting" nil
+           (cast-act g view digit)))
+  (check "the flight is chosen" 'test-blink (cast-view-spell view))
+  (check-true "the page lists the destinations"
+              (find-if (lambda (s) (search "2) Test Pit" s))
+                       (menu-texts (cast-lines g view))))
+  (check "a digit past the list does nothing" nil (cast-act g view #\9))
+  (check "the second row casts" :done (cast-act g view #\2))
+  (check "the party stands in the named zone" "Testpit"
+         (map-title (game-map g)))
+  (check "the flight pays its sp" (1- (hero-max-sp mage)) (hero-sp mage)))
+
+;; Esc backs out of the destination page to the spell list.
+(let* ((m (load-map-file "tests/tmp-town.map"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (view (make-cast-view)))
+  (setf (cast-view-hero view) mage
+        (cast-view-spell view) 'test-blink)
+  (check "Esc steps back one page" nil (cast-act g view #\Escape))
+  (check "the spell is unchosen" nil (cast-view-spell view))
+  (check "and the party has not moved" "Testville" (map-title (game-map g))))
+
+;; An item that casts a homing spell asks the same question.
+(define-item 't-ring-home :kind :ring :price 100
+  :title "T Ring Home" :use '(:cast test-blink))
+(check "the item asks for a destination" :destination
+       (item-target-kind 't-ring-home))
+(let* ((m (load-map-file "tests/tmp-town.map"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (view (make-use-view)))
+  (give-item g mage 't-ring-home)
+  (check "the user digit picks the mage" nil (use-act g view #\1))
+  (check "the item pick asks on instead of using" nil (use-act g view #\1))
+  (check-true "the page lists the destinations"
+              (find-if (lambda (s) (search "2) Test Pit" s))
+                       (menu-texts (use-lines g view))))
+  (check "the second row uses the ring" :done (use-act g view #\2))
+  (check "the ring carried the party" "Testpit" (map-title (game-map g)))
+  (check "and cost no spell points" (hero-max-sp mage) (hero-sp mage)))
+
+;; No flight out of a fight, whichever door it comes through.
+(let* ((m (load-map-file "tests/tmp-town.map"))
+       (mage (%combat-mage))
+       (g (new-game m :party (list mage)))
+       (msgs (watch-messages g)))
+  (give-item g mage 't-ring-home)
+  (start-combat g '(("test rat" 1)))
+  (check "the spell is refused mid-fight" nil
+         (spell-castable-p g mage 'test-blink))
+  (check-true "the ring still uses -- and goes nowhere"
+              (use-item g mage 't-ring-home 'test-pit))
+  (check "the party is where the fight is" "Testville"
+         (map-title (game-map g)))
+  (check-true "and the way stays shut"
+              (find-if (lambda (s) (search "the way stays shut" s))
+                       (funcall msgs))))
+
+;; With nothing registered the spell has nowhere to go, and says so --
+;; *DESTINATIONS* is bound locally so the empty registry lasts only for
+;; this check, not for whatever the file appends after it.
+(let ((*destinations* '()))
+  (check "clearing empties the registry" '() (destinations))
+  (let* ((m (load-map-file "tests/tmp-town.map"))
+         (mage (%combat-mage))
+         (g (new-game m :party (list mage))))
+    (check "a homing spell with nowhere to go is refused" nil
+           (spell-castable-p g mage 'test-blink))
+    (check "and the card says why" "Nowhere to go."
+           (spell-refusal g mage 'test-blink))))
+
 ;; The wandering roll respects the party's whereabouts: a step into a
 ;; location draws no roll, however certain-fire the street's table.
 (let* ((m (load-map-file "tests/tmp-town.map"))
@@ -10053,6 +10359,32 @@ height" d)
            (find-if (lambda (s) (search "2) T Sword*" s)) texts))
     (check-true "but the spare is listed"
                 (find-if (lambda (s) (search "2) T Sword " s)) texts)))
+  (leave-location g))
+
+;; A quest piece mixed into the pack: the sell page numbers gear only
+;; (PACK-GEAR), so row 1 is the sword even though the key sits first
+;; in HERO-ITEMS — the same pack-index-vs-row-number rule the pack
+;; page's EQUIP-ACT already gets a dedicated test for.
+(let* ((h (%combat-hero))
+       (g (new-game (parse-map *art* :name "test") :party (list h)))
+       (view (make-shop-view)))
+  (enter-location g '("The Reliquary" :shop :stock (t-sword)))
+  (give-item g h 't-key)                ; the piece comes first in the pack
+  (give-item g h 't-sword)
+  (shop-act g view #\1)                 ; the hero shops
+  (shop-act g view #\s)                 ; to the sell page
+  (let ((texts (menu-texts (shop-lines g view))))
+    (check-true "the sword is row 1, the key not a row at all"
+                (find-if (lambda (s) (search "1) T Sword" s)) texts))
+    (check "no quest piece among the sell rows" nil
+           (find-if (lambda (s) (search "T Key" s)) texts)))
+  ;; row 1 is the sword, though the key sits first in the pack
+  (shop-act g view #\1)
+  (check "the digit sells the gear row it printed" 5 (hero-gold h))
+  (check "the sword is gone from the pack" nil
+         (hero-carrying-p h 't-sword))
+  (check-true "the quest piece survives the sell"
+              (hero-carrying-p h 't-key))
   (leave-location g))
 
 ;; More than one hero: the bare prompt names the whole digit range.
