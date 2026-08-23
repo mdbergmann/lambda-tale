@@ -714,9 +714,15 @@ simply left behind."
          (emit game :combat-end :defeat)
          :defeat)
         ((null (alive-monsters combat))
-         (%award-victory game combat)
+         ;; the fight ends when the last foe falls, and the event says so
+         ;; BEFORE the spoils are told: a front-end that shows the won
+         ;; fight's treasure (the Amiga's chest picture) wants it up
+         ;; first and the victory lines — the xp, the gold, who takes the
+         ;; find — paced over it, not the picture arriving after the
+         ;; text it illustrates
          (setf (game-combat game) nil)
          (emit game :combat-end :victory)
+         (%award-victory game combat)
          :victory)
         (t :ongoing)))
 

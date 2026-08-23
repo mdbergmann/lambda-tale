@@ -112,9 +112,8 @@ when a digit picks a row."
   (let ((type (find-song-type name)))
     (append
      (list (format nil "*** ~A ***" (song-title name)) "")
-     (list (format nil "Level ~D   Tunes ~D/~D"
-                   (song-type-level type)
-                   (hero-tunes hero) (hero-max-tunes hero))
+     (list (format nil "Level ~D   ~A"
+                   (song-type-level type) (hero-tunes-text hero))
            "")
      (if (song-type-description type)
          (list (song-type-description type))
@@ -144,17 +143,37 @@ in hand — or NIL when the class needs none or the hands are empty."
   (let ((kind (hero-sings-with hero)))
     (and kind (equipped-of-kind hero kind))))
 
+(defun hero-tireless-p (hero)
+  "Does HERO's song tool spend no tune?  True when the instrument in
+hand was registered :TIRELESS (DEFINE-ITEM) — the singer plays as often
+as they like and HERO-TUNES never falls.  A class that sings without a
+tool never is: the trait rides on the instrument, not the singer."
+  (let ((tool (hero-song-tool hero)))
+    (and tool (item-type-tireless (find-item-type tool)) t)))
+
+(defun hero-tunes-text (hero)
+  "HERO's tunes for a menu row: \"Tunes 2/3\", or \"Tireless\" when the
+instrument in hand spends none — the count would still show, and a
+singer with none left who plays on regardless reads as a bug.  Short
+on purpose: the who-plays rows carry it in parentheses beside the name
+inside +TAKEOVER-COLUMNS+."
+  (if (hero-tireless-p hero)
+      "Tireless"
+      (format nil "Tunes ~D/~D" (hero-tunes hero) (hero-max-tunes hero))))
+
 (defun song-refusal (hero name)
   "Why HERO cannot play NAME right now, as a short line for the song
 card — or NIL when they can: known, an instrument in hand when the
-class needs one, and a tune left to spend.  SONG-PLAYABLE-P answers
-the yes/no of the same rule, and SING-SONG turns it down for the same
-three reasons in the log's own words.  The card is +TAKEOVER-COLUMNS+
-wide, so the reasons stay short."
+class needs one, and a tune left to spend (unless the instrument is
+tireless, HERO-TIRELESS-P).  SONG-PLAYABLE-P answers the yes/no of the
+same rule, and SING-SONG turns it down for the same three reasons in
+the log's own words.  The card is +TAKEOVER-COLUMNS+ wide, so the
+reasons stay short."
   (cond ((not (song-known-p hero name)) "Not in the book.")
         ((and (hero-sings-with hero) (null (hero-song-tool hero)))
          "No instrument in hand.")
-        ((< (hero-tunes hero) 1) "No tunes left.")
+        ((and (< (hero-tunes hero) 1) (not (hero-tireless-p hero)))
+         "No tunes left.")
         (t nil)))
 
 (defun song-playable-p (hero name)
@@ -172,9 +191,10 @@ marker), or NIL when no song plays."
   "HERO strikes up song NAME.  Says why and returns NIL when the hero
 does not know it, has no instrument in hand for a class that plays on
 one (:SINGS-WITH) or has no tunes left — SONG-REFUSAL's three rules,
-here in the log's own words; otherwise spends one tune, displaces any
-song already playing, installs the song's timed effect (:SONG-marked),
-emits :SONG-SUNG and returns T."
+here in the log's own words; otherwise spends one tune (none on a
+tireless instrument, HERO-TIRELESS-P), displaces any song already
+playing, installs the song's timed effect (:SONG-marked), emits
+:SONG-SUNG and returns T."
   (let ((type (find-song-type name)))
     (cond
       ((not (song-known-p hero name))
@@ -185,12 +205,13 @@ emits :SONG-SUNG and returns T."
        (say game "~A has no ~(~A~) in hand - the music needs one."
             (hero-name hero) (hero-sings-with hero))
        nil)
-      ((< (hero-tunes hero) 1)
+      ((and (< (hero-tunes hero) 1) (not (hero-tireless-p hero)))
        (say game "~A has no tunes left - the tavern would help."
             (hero-name hero))
        nil)
       (t
-       (decf (hero-tunes hero))
+       (unless (hero-tireless-p hero)
+         (decf (hero-tunes hero)))
        (let ((old (current-song game)))
          (when old
            (setf (game-effects game)
@@ -251,15 +272,13 @@ key (see MENU-NUMBERED)."
                       (incf i)
                       (when (hero-singer-p h)
                         (list (menu-numbered
-                               i (format nil "~D) ~A  (Tunes ~D/~D)"
+                               i (format nil "~D) ~A  (~A)"
                                          i (hero-name h)
-                                         (hero-tunes h)
-                                         (hero-max-tunes h))))))
+                                         (hero-tunes-text h))))))
                     (game-party game))))
          (append
-          (list (format nil "~A plays.  Tunes ~D/~D"
-                        (hero-name hero) (hero-tunes hero)
-                        (hero-max-tunes hero))
+          (list (format nil "~A plays.  ~A"
+                        (hero-name hero) (hero-tunes-text hero))
                 "")
           (menu-scrolled-lines
            (songs-for-hero hero) (sing-view-top view)

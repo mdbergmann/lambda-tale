@@ -790,7 +790,8 @@ page says so; carrying one, the hero shoots as far as its `:reach`
 allows (see the distance rules under Combat).  A weapon
 defined `:two-handed` fills both hands, D&D-style: it will not go on
 beside a shield, nor a shield beside it, and the pack and shop pages
-mark it `(2H)`.  Equipment is managed
+mark it `(2H)`; an instrument defined `:tireless` spends no tune (see
+Bard songs).  Equipment is managed
 from the character sheet: the `NEXT` row (`n`, or a click — the sheet
 pages as a carousel: stat block, pack, a caster's or singer's
 spells/songs page, back around) turns to the hero's **pack page**,
@@ -1366,9 +1367,11 @@ to **each** hero still standing, Bard's Tale style, rather than being
 divided among them — a hero who went down takes neither.  The fight
 may also turn up an item a
 fallen monster carried (`define-monster ... :item NAME :item-chance
-P`, one find per fight at most), and lingers on the campaign's
-`*victory-image*` treasure picture for `*victory-linger*` seconds
-before play resumes.  All randomness
+P`, one find per fight at most).  The `:combat-end :victory` event
+fires the moment the last foe falls, *before* the spoils are told, so
+the Amiga front end puts the campaign's `*victory-image*` treasure
+picture up first and the victory lines pace in under it; the page then
+lingers `*victory-linger*` seconds before play resumes.  All randomness
 goes through
 `*rng*`, so the test suite scripts entire fights deterministically.
 
@@ -1530,8 +1533,24 @@ on the spot, or says why it will not go (`song-refusal`: not in the
 book, no instrument in hand, no tunes left).  Tunes come back with a
 drink at a **tavern** — a `(location TITLE :tavern :price N)` map
 special; a tavern may also hold the way below (`:down FILE`, the
-trapdoor to the cellar).  The "Bard songs" test section of
-`tests/run-tests.lisp` is the executable specification.
+trapdoor to the cellar).  An instrument registered `:tireless t`
+(`define-item`, instruments only) spends no tune at all: a singer
+holding one never runs dry, the menus say "Tireless" where they would
+count, and the count waits on the sheet for the day the instrument
+comes off.  The "Bard songs" test section of `tests/run-tests.lisp` is
+the executable specification.
+
+## Magic at work
+
+The effects band shows an icon per active working; the **magic-at-work
+page** spells them out — every active effect by name (a song marked as
+one), what it does in the same phrases the spell and song cards use,
+and how long it has ("43 minutes left", "until dispelled").  `E`
+opens it on the road and in a fight alike (over the round's orders,
+while no cast/play/use picker of theirs is up), `E` or `Esc` closes
+it, `u`/`d` turn a long page; on the Amiga the band itself clicks to
+it.  `workings-lines` / `workings-act` in `src/help.lisp` are the
+model both front-ends draw.
 
 ## Sound
 

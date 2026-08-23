@@ -14,7 +14,9 @@
 ;;;   :blocked DIR           the party bumped into a wall
 ;;;   :door DIR              the party stepped through a door
 ;;;   :combat-start MONSTERS combat began
-;;;   :combat-end RESULT     combat ended (:victory, :defeat or :fled)
+;;;   :combat-end RESULT     combat ended (:victory, :defeat or :fled);
+;;;                          a :victory fires BEFORE the spoils are
+;;;                          told, so a front-end can show them first
 ;;;   :hit MONSTER DMG       the party landed a blow (melee or spell)
 ;;;   :slay MONSTER          ... and it felled the monster
 ;;;   :miss HERO MONSTER     a hero's swing missed

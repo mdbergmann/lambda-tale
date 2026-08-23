@@ -63,6 +63,9 @@ and every equipped item's :AC bonus counts.")
   quest               ; T: a plot piece — carried outside the eight-slot
                       ; limit, on the pack's own quest page, and neither
                       ; sold nor thrown away (see PACK-BURDEN)
+  tireless            ; T: songs played on this instrument spend no tune
+                      ; — the singer's charges never fall while it is the
+                      ; tool in hand (see HERO-TIRELESS-P in songs.lisp)
   image               ; effects-band icon for the timed :use, or NIL
   description         ; player-facing text — the pack page's item card
                       ; shows it; NIL = the card shows the facts alone
@@ -73,12 +76,16 @@ and every equipped item's :AC bonus counts.")
 (defvar *item-types* (make-hash-table :test 'eq))
 
 (defun define-item (name &key title (kind :misc) (price 0) damage reach (ac 0)
-                              classes two-handed use consumed quest image
-                              description notes)
+                              classes two-handed use consumed quest tireless
+                              image description notes)
   "Register item type NAME (a symbol).  Campaign data calls this.
 TITLE defaults to the capitalized name (SHORT-SWORD -> \"Short Sword\").
 :TWO-HANDED (weapons only) makes the weapon fill both hands: it will
 not go on beside a shield, nor a shield beside it.
+:TIRELESS (instruments only) makes the songs played on it spend no
+tune: a singer whose class plays on an instrument (:SINGS-WITH) and
+holds this one never runs dry — the Bard's Tale dry throat that the
+tavern cures never comes (see HERO-TIRELESS-P).
 :REACH is how far the item carries as a missile, in feet — the flight
 of a quiver of arrows, the throw of a hurled axe.  A :WEAPON given one
 is a thrown weapon: it shoots from any rank with no bow beside it (see
@@ -107,6 +114,9 @@ story and carrying a sword, nor be able to sell the way forward."
            name kind *item-kinds*))
   (when (and two-handed (not (eq kind :weapon)))
     (error "define-item ~S: :two-handed is a weapon trait (kind is ~S)"
+           name kind))
+  (when (and tireless (not (eq kind :instrument)))
+    (error "define-item ~S: :tireless is an instrument trait (kind is ~S)"
            name kind))
   (when (and description (not (stringp description)))
     (error "define-item ~S: :description must be a string (got ~S)"
@@ -158,7 +168,7 @@ story and carrying a sword, nor be able to sell the way forward."
          :kind kind :price price :damage damage :reach reach
          :ac ac :classes classes
          :two-handed two-handed :use use :consumed consumed :quest quest
-         :image image
+         :tireless tireless :image image
          :description description :notes notes))
   name)
 
@@ -489,8 +499,9 @@ shield lowers it further)."
   "The item card for item NAME — its registered facts one per row (the
 kind with the (2H) marker, damage dice, the reach of a missile, a
 non-zero AC bonus, the price, a class restriction with HERO's (unfit)
-marker when it bites, a :USE flagged Usable) and the campaign's
-player-facing :DESCRIPTION beneath, when it carries one."
+marker when it bites, a :USE flagged Usable, a :TIRELESS instrument
+saying its songs cost no tune) and the campaign's player-facing
+:DESCRIPTION beneath, when it carries one."
   (let ((type (find-item-type name)))
     (append
      (list (format nil "*** ~A ***" (item-type-title type)) "")
@@ -520,6 +531,8 @@ player-facing :DESCRIPTION beneath, when it carries one."
        (list (if (item-type-consumed type)
                  "Usable, consumed on use"
                  "Usable")))
+     (when (item-type-tireless type)
+       (list "Tireless: no tune spent"))
      (when (item-type-quest type)
        (list "A quest piece"))
      (when (item-type-description type)

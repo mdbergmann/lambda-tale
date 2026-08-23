@@ -196,8 +196,9 @@
    #:song-description #:song-card-lines
    #:songs-for-hero #:sing-song #:current-song
    #:song-refusal #:song-playable-p
-   #:hero-singer-p #:hero-tunes #:hero-max-tunes
-   #:hero-sings-with #:hero-song-tool
+   #:hero-singer-p #:hero-tunes #:hero-max-tunes #:hero-tunes-text
+   #:hero-sings-with #:hero-song-tool #:hero-tireless-p
+   #:item-type-tireless
    #:make-sing-view #:sing-view-hero #:sing-view-top
    #:sing-lines #:sing-act
    ;; taverns (drinks refill a singer's tunes)
@@ -252,9 +253,11 @@
    ;; rendering
    #:render-dungeon #:render-game #:render-first-person #:beside
    #:map-edge-runs #:map-legend-entries #:*legend-markers*
-   ;; the help screen and the quit confirmation
+   ;; the help screen, the quit confirmation and the magic-at-work page
    #:help-lines
    #:quit-confirm-lines #:quit-confirm-act
+   #:make-workings-view #:workings-view-top #:workings-lines #:workings-act
+   #:effect-payload-lines #:effect-time-left-text
    ;; keyboard input normalization (see src/keys.lisp)
    #:vanilla-key-char
    ;; the microfont (the 7x7 display face, plus the condensed bold

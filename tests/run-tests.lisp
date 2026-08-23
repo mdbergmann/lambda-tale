@@ -4207,14 +4207,27 @@ height" d)
        (h (%combat-hero))
        (g (new-game m :party (list h)))
        (msgs (watch-messages g))
-       (ended '()))
+       (ended '())
+       (said-at-end nil))
   (on-event g :combat-end (lambda (game result) (declare (ignore game))
-                            (push result ended)))
+                            (push result ended)
+                            ;; what had been said when the fight ended
+                            (setf said-at-end (funcall msgs))))
   (start-combat g '(("test rat" 1)))
   (check "single-monster banner" '("You face 1 test rat!") (funcall msgs))
   (check "victory round" :victory (with-rng (10 2) (combat-round g)))
   (check "combat cleared after victory" nil (game-combat g))
   (check "combat-end event" '(:victory) ended)
+  ;; the event fires the moment the last foe falls, BEFORE the spoils
+  ;; are told: a front-end puts the treasure picture up on the event and
+  ;; the victory lines then pace over it (the Amiga's chest), so the
+  ;; "Victory!" line must not yet be in the log when the event arrives —
+  ;; and must be there once the round has returned
+  (check-true "combat-end fires before the spoils are told"
+              (and said-at-end
+                   (notany (lambda (s) (search "Victory!" s)) said-at-end)))
+  (check-true "the victory line follows the event"
+              (find-if (lambda (s) (search "Victory!" s)) (funcall msgs)))
   (check "xp awarded" 10 (hero-xp h))
   (check "gold awarded" 6 (hero-gold h))
   ;; the killing blow names its damage — a spell's or an arrow's worth
@@ -5386,6 +5399,63 @@ height" d)
          (song-refusal piper 'test-dirge))
   (check "empty hands beat the empty throat" "No instrument in hand."
          (song-refusal piper 'test-march)))
+
+;; A :TIRELESS instrument: the songs played on it spend no tune, so a
+;; singer holding one never runs dry — the trait rides on the
+;; instrument, and leaves with it.
+(define-item 't-reed :kind :instrument :price 1000 :tireless t)
+(check-error "tireless is an instrument trait"
+  (define-item 't-bogus :kind :weapon :tireless t))
+(check-true "the trait reads back off the type"
+            (item-type-tireless (find-item-type 't-reed)))
+(check "an ordinary instrument is not tireless" nil
+       (item-type-tireless (find-item-type 't-lute)))
+(let* ((m (parse-map *art* :name "test"))
+       (piper (with-rng () (make-hero "Pip" :t-piper)))
+       (bard (with-rng () (make-hero "Mel" :t-bard)))
+       (g (new-game m :party (list piper bard))))
+  (check "empty hands are not tireless" nil (hero-tireless-p piper))
+  (check "a bare-handed singer never is" nil (hero-tireless-p bard))
+  (give-item g piper 't-reed)
+  (check "a packed reed is not in hand" nil (hero-tireless-p piper))
+  (equip-item g piper 't-reed)
+  (check-true "the reed in hand is tireless" (hero-tireless-p piper))
+  ;; the throat never empties: the count stands, and an empty count is
+  ;; no refusal
+  (check "one tune to start" 1 (hero-tunes piper))
+  (check-true "the march plays" (sing-song g piper 'test-march))
+  (check "and the tune was not spent" 1 (hero-tunes piper))
+  (setf (hero-tunes piper) 0)
+  (check "no tunes is no refusal on a tireless reed" nil
+         (song-refusal piper 'test-march))
+  (check-true "and the song still plays" (song-playable-p piper 'test-march))
+  (check-true "out of tunes, the piper plays on"
+              (sing-song g piper 'test-gleam))
+  (check "the tunes stayed at none" 0 (hero-tunes piper))
+  ;; the pages say so instead of counting
+  (check "the menu row says tireless" "Tireless" (hero-tunes-text piper))
+  (check-true "the song card says tireless"
+              (member "Level 1   Tireless" (song-card-lines piper 'test-march)
+                      :test #'equal))
+  (check-true "the item card names the trait"
+              (member "Tireless: no tune spent" (item-card-lines piper 't-reed)
+                      :test #'equal))
+  (check-true "the character sheet marks the count"
+              (find-if (lambda (s) (search "Tunes 0/1 (tireless)" s))
+                       (menu-texts (hero-sheet-lines g 0 0 nil nil))))
+  (check-true "the who-plays row carries it"
+              (find-if (lambda (s) (search "Pip  (Tireless)" s))
+                       (menu-texts (sing-lines g (make-sing-view)))))
+  ;; swap the reed for a plain lute: the dry throat is back
+  (give-item g piper 't-lute)
+  (equip-item g piper 't-lute)
+  (check "the lute took the slot" 't-lute (hero-song-tool piper))
+  (check "and it is not tireless" nil (hero-tireless-p piper))
+  (check "so no tunes is a refusal again" "No tunes left."
+         (song-refusal piper 'test-march))
+  (check "the menu row counts again" "Tunes 0/1" (hero-tunes-text piper))
+  (check "the empty throat refuses the song" nil
+         (sing-song g piper 'test-march)))
 
 ;; The song card pays the spell card's courtesy: a refusal keeps the
 ;; card up and stands on the page instead of vanishing into the log.
@@ -12915,6 +12985,93 @@ ground-pen fill" pname)
 (check "Q neither confirms nor cancels" nil (quit-confirm-act #\q))
 (check "a step key is swallowed" nil (quit-confirm-act #\w))
 (check "a digit is swallowed" nil (quit-confirm-act #\1))
+
+;;; ---------------------------------------------------------------------
+;;; The magic-at-work page (help.lisp): the effects strip spelled out —
+;;; every active effect, what it does in the cards' own phrases, and
+;;; how long it has.  Both front-ends draw it on E, on the road and in
+;;; a fight; the host suite owns its content.
+
+;; nothing at work: the page says so
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m))
+       (v (make-workings-view)))
+  (check "the empty page" '("*** Magic at Work ***" "" "Nothing is at work.")
+         (menu-texts (workings-lines g v)))
+  (check "E closes it" :closed (workings-act g v #\e))
+  (check "so does Esc" :closed (workings-act g v #\Escape))
+  (check "a scroll key on a short page does nothing" nil
+         (workings-act g v #\d))
+  (check "and the page stays at its top" 0 (workings-view-top v)))
+
+;; the workings: a song (marked as one), a spell's shield and a torch,
+;; each with its phrases and its time
+(let* ((m (parse-map *art* :name "test"))
+       (bard (with-rng () (make-hero "Mel" :t-bard)))
+       (g (new-game m :party (list bard)))
+       (v (make-workings-view)))
+  (sing-song g bard 'test-road)          ; regen-sp 2, extra-attacks 1, 60 min
+  (apply-effect-spec g "test shield" '(:buff-ac 2 :duration 30))
+  (add-effect g "mage light" :payload '(:light t))   ; no expiry
+  ;; the whole document (twelve rows — one more than a lores window,
+  ;; which is the windowing test's business below)
+  (check "every working, phrased and timed"
+         '("*** Magic at Work ***"
+           ""
+           "test road (song)"
+           "  SP return x2"
+           "  +1 strike a round"
+           "  60 minutes left"
+           "test shield"
+           "  AC 2 better"
+           "  30 minutes left"
+           "mage light"
+           "  Light"
+           "  until dispelled")
+         (menu-texts (%workings-page-lines g)))
+  (check "the page windows it to the lores rows" +takeover-rows+
+         (length (workings-lines g v)))
+  ;; the phrases are the cards' own: what the spell card promised is
+  ;; what the page reports, read from the same keys
+  (check "the payload phrases match the spec's"
+         (butlast (effect-summary-lines '(:buff-ac 2 :duration 30)))
+         (effect-payload-lines (find-effect g "test shield")))
+  ;; time passes: the page counts down and the singular reads right
+  (advance-time g 29)
+  (check "the shield has a minute" "a minute left"
+         (effect-time-left-text g (find-effect g "test shield")))
+  (check "the song has 31" "31 minutes left"
+         (effect-time-left-text g (find-effect g "test road")))
+  (advance-time g 1)
+  (check "the worn-off shield is gone from the page" nil
+         (find "test shield" (menu-texts (workings-lines g v))
+               :test #'equal))
+  ;; every row fits the narrow takeover column
+  (check-true "every row fits the lores column"
+              (every (lambda (s) (<= (length s) +takeover-columns+))
+                     (menu-texts (workings-lines g v)))))
+
+;; a long list of workings windows as one document, the pack page's
+;; way: u/d turn it, a page at a time
+(let* ((m (parse-map *art* :name "test"))
+       (g (new-game m))
+       (v (make-workings-view)))
+  (dotimes (i 5)
+    (apply-effect-spec g (format nil "working ~D" i)
+                       '(:buff-ac 1 :save-bonus 1 :duration 10)))
+  (let ((page (menu-texts (workings-lines g v))))
+    (check "the first window is the page's first eleven rows"
+           +takeover-rows+ (length page))
+    (check "it opens on the head" "*** Magic at Work ***" (first page))
+    (check-true "and reports its scroll geometry" *menu-scroll*))
+  (check "d turns the page" nil (workings-act g v #\d))
+  (check "down a window" +takeover-rows+ (workings-view-top v))
+  (check-true "the second window carries later workings"
+              (find "working 4" (menu-texts (workings-lines g v))
+                    :test #'equal))
+  (check "u turns back" nil (workings-act g v #\u))
+  (check "to the top" 0 (workings-view-top v))
+  (check "a stray key is swallowed" nil (workings-act g v #\w)))
 
 ;;; ---------------------------------------------------------------------
 ;;; The roster's class codes and column plists.

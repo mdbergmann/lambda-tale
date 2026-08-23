@@ -2339,6 +2339,8 @@ combat round owns the keys."
          (castv nil)        ; CAST-VIEW while the cast menu is open
          (usev nil)         ; USE-VIEW while the use menu is open
          (singv nil)        ; SING-VIEW while the sing menu is open
+         (workingsv nil)    ; WORKINGS-VIEW while the magic-at-work page
+                            ; is up (E, on the road or in a fight)
          (savem nil)        ; SAVE-MENU while the save/load picker is open
          (saves-prior-mode :play) ; mode to return to when the picker closes
          (zone-dirty nil)   ; party traveled: the chrome needs a repaint
@@ -2353,6 +2355,10 @@ combat round owns the keys."
                             ; transcript draws on a page of its own
          (pace-fn nil)      ; draws one paced transcript beat (set once
                             ; the window exists)
+         (spoils-fn nil)    ; puts the won fight's treasure picture up
+                            ; (set with PACE-FN); see SHOW-SPOILS
+         (spoils nil)       ; that picture is up: the round's end
+                            ; lingers on it before play resumes
          (idle-base nil)    ; internal-real-time the idle clock last
                             ; consumed, or NIL when not standing idle
                             ; (see the INTUITICKS handler's living clock)
@@ -2373,6 +2379,7 @@ combat round owns the keys."
                (setf castv nil)
                (setf usev nil)
                (setf singv nil)
+               (setf workingsv nil)
                (setf equipv nil)
                (setf tradev nil)
                (setf savem nil)
@@ -2403,8 +2410,15 @@ combat round owns the keys."
                            (setf ordersv (make-combat-orders))))
                (on-event g :combat-end
                          (lambda (gm result)
-                           (declare (ignore gm result))
-                           (setf ordersv nil)))
+                           (declare (ignore gm))
+                           (setf ordersv nil)
+                           ;; a won fight: the treasure picture goes up
+                           ;; NOW — the engine fires this before it
+                           ;; tells the spoils, so the victory lines
+                           ;; pace over the chest rather than the chest
+                           ;; arriving after them
+                           (when (and (eq result :victory) spoils-fn)
+                             (funcall spoils-fn))))
                (on-event g :game-won
                          (lambda (gm) (declare (ignore gm))
                            (setf over :won)
@@ -2639,8 +2653,41 @@ combat round owns the keys."
                           ;; question — is eating the keys
                           (not (or quitting
                                    (question-up-p)
-                                   savem castv usev singv equipv tradev
+                                   savem castv usev singv workingsv
+                                   equipv tradev
                                    (game-location game))))
+                        (workings-open-p ()
+                          ;; may the magic-at-work page open now?  On
+                          ;; the road with nothing else eating keys,
+                          ;; and in a fight while the round's orders
+                          ;; are being picked (the page reads, it does
+                          ;; not act, so it takes nothing from the
+                          ;; round) — never over a box waiting for its
+                          ;; answer, a picker (the orders page's own
+                          ;; cast/play/use picker included) or a
+                          ;; location's page, and not once the game is
+                          ;; over
+                          (and (eq mode :play)
+                               (not over)
+                               (menus-idle-p)
+                               (not (and ordersv
+                                         (combat-orders-sub ordersv)))))
+                        (open-workings ()
+                          (setf workingsv (make-workings-view))
+                          (redraw))
+                        (workings-page-act (c)
+                          ;; the page eats every key: u/d turn it, E or
+                          ;; Esc close it (the model reads the keys);
+                          ;; Q is quit as everywhere
+                          (let ((key (if (eq c :esc) #\Escape c)))
+                            (when (characterp key)
+                              (when (eq (workings-act game workingsv key)
+                                        :closed)
+                                (setf workingsv nil)
+                                (fresh-play)
+                                (return-from workings-page-act nil))))
+                          (redraw)
+                          nil)
                         (%roster-picking-p ()
                           ;; a location is asking who — the shop's who
                           ;; is shopping, the fount's who wants
@@ -2782,6 +2829,16 @@ combat round owns the keys."
                                     (%amiga-draw-page
                                      rp (sing-lines game singv) l
                                      log-lines))
+                                   ;; the magic-at-work page: a dialog
+                                   ;; like the pickers, over the view
+                                   ;; and the log — in a fight it
+                                   ;; covers the enemy portrait and the
+                                   ;; orders page for as long as it is
+                                   ;; read
+                                   (workingsv
+                                    (%amiga-draw-page
+                                     rp (workings-lines game workingsv) l
+                                     log-lines))
                                    (t
                                     (let ((picture
                                             (cond ((eq mode :sheet)
@@ -2814,7 +2871,19 @@ combat round owns the keys."
                                                         (ui-layout-fp-w l)
                                                         (ui-layout-fp-h l)
                                                         walls fp-back)))
-                                    (%amiga-draw-band rp game l icons log)))
+                                    (%amiga-draw-band rp game l icons log)
+                                    ;; the band clicks open as the E
+                                    ;; key whenever that key would: the
+                                    ;; icons are the question the page
+                                    ;; answers
+                                    (when (workings-open-p)
+                                      (%hotspot #\e
+                                                (- (ui-layout-log-x l) 4)
+                                                (ui-layout-band-y l)
+                                                (ui-layout-right l)
+                                                (+ (ui-layout-band-y l)
+                                                   (ui-layout-band-h l)
+                                                   -1)))))
                              ;; click-to-walk zones on the view — only
                              ;; while W/A/S/D actually walk (no menu or
                              ;; location eating keys, not in combat)
@@ -2829,7 +2898,7 @@ combat round owns the keys."
                              ;; covers it — nothing to draw under it
                              ;; (FRESH-PLAY repaints when the picker
                              ;; closes).
-                             (cond ((or savem castv usev singv))
+                             (cond ((or savem castv usev singv workingsv))
                                    ((eq mode :sheet)
                                     (%amiga-draw-takeover
                                      rp (cond (sheet-notes
@@ -2926,40 +2995,57 @@ combat round owns the keys."
                               (%amiga-draw-log rp log l log-lines))
                           (%amiga-party rp game l nil)
                           (sleep (combat-message-delay)))
+                        (show-spoils ()
+                          ;; the won fight's treasure: the campaign's
+                          ;; chest picture takes the view column from
+                          ;; the enemy portrait the moment the last foe
+                          ;; falls (the :COMBAT-END handler calls this,
+                          ;; before the engine says the spoils), and the
+                          ;; victory lines — xp, gold, who takes the
+                          ;; find — then pace in under it on the
+                          ;; transcript page.  The picture alone here:
+                          ;; the beat is paced by the messages that
+                          ;; follow, and the linger by FIGHT
+                          (let ((picture (victory-image-path game)))
+                            (when (and picture
+                                       (%amiga-draw-picture rp icons picture
+                                                            l log))
+                              (setf spoils t))))
                         (fight (thunk)
                           ;; run one round (or a flee attempt) with the
                           ;; paced transcript on a page of its own, then
                           ;; open fresh orders when combat goes on
                           (setf ordersv nil)
+                          (setf spoils nil)
                           (setf round-base (log-length log))
-                          (let ((result
-                                  (unwind-protect
-                                      (progn (setf pacing t)
-                                             (funcall thunk))
-                                    (setf pacing nil))))
-                            (if (game-combat game)
-                                (progn
-                                  (setf ordersv (make-combat-orders))
-                                  (redraw))
-                                (progn
-                                  ;; a won fight lingers on its spoils:
-                                  ;; the campaign's treasure picture
-                                  ;; over the victory transcript (xp,
-                                  ;; gold, the found item), a beat to
-                                  ;; read before play resumes
-                                  (when (eq result :victory)
-                                    (let ((picture (victory-image-path
-                                                    game)))
-                                      (when (and picture
-                                                 (%amiga-draw-picture
-                                                  rp icons picture l log))
-                                        (%amiga-party rp game l nil)
-                                        (sleep *victory-linger*))))
-                                  ;; combat over: the enemy portrait
-                                  ;; gives the view column back to the
-                                  ;; walls, so repaint the chrome under
-                                  ;; it too
-                                  (fresh-play)))))
+                          (unwind-protect
+                               (progn (setf pacing t)
+                                      (funcall thunk))
+                            (setf pacing nil))
+                          (if (game-combat game)
+                              (progn
+                                (setf ordersv (make-combat-orders))
+                                (redraw))
+                              (progn
+                                ;; a won fight lingers on its spoils:
+                                ;; the treasure picture SHOW-SPOILS put
+                                ;; up over the victory transcript (xp,
+                                ;; gold, the found item), a beat to read
+                                ;; before play resumes.  The transcript
+                                ;; and roster are drawn once more here:
+                                ;; at instant combat speed no message
+                                ;; paced them
+                                (when spoils
+                                  (%amiga-draw-transcript rp log l
+                                                          round-base
+                                                          log-lines)
+                                  (%amiga-party rp game l nil)
+                                  (sleep *victory-linger*)
+                                  (setf spoils nil))
+                                ;; combat over: the enemy portrait gives
+                                ;; the view column back to the walls, so
+                                ;; repaint the chrome under it too
+                                (fresh-play))))
                         (open-cast (in-combat)
                           (if (some #'hero-caster-p (alive-heroes game))
                               (setf castv
@@ -3433,31 +3519,44 @@ means the player asked to leave (ACT confirms it)."
                                   (singv
                                    ;; sing menu: same shape — see songs.lisp
                                    (sing-menu-act c))
+                                  (workingsv
+                                   ;; the magic-at-work page: read, then
+                                   ;; closed with E or Esc — see
+                                   ;; help.lisp; Q still quits
+                                   (if (eql lc #\q)
+                                       :quit
+                                       (workings-page-act c)))
                                   (ordersv
                                    ;; combat round orders: every hero
                                    ;; picks in turn (see combat.lisp);
-                                   ;; Q still quits, everything else
-                                   ;; feeds the model
-                                   (if (eql lc #\q)
-                                       :quit
-                                       (let* ((key (if (eq c :esc)
-                                                       #\Escape
-                                                       c))
-                                              (r (when (characterp key)
-                                                   (combat-orders-act
-                                                    game ordersv key))))
-                                         (cond ((eq r :flee)
-                                                (fight
-                                                 (lambda ()
-                                                   (attempt-flee game))))
-                                               ((and (consp r)
-                                                     (eq (first r) :fight))
-                                                (fight
-                                                 (lambda ()
-                                                   (combat-round
-                                                    game (second r)))))
-                                               (t (redraw)))
-                                         nil)))
+                                   ;; Q still quits, E opens the
+                                   ;; magic-at-work page over the orders
+                                   ;; (while no picker of theirs is up),
+                                   ;; everything else feeds the model
+                                   (cond ((eql lc #\q) :quit)
+                                         ((and (eql lc #\e)
+                                               (workings-open-p))
+                                          (open-workings)
+                                          nil)
+                                         (t
+                                          (let* ((key (if (eq c :esc)
+                                                          #\Escape
+                                                          c))
+                                                 (r (when (characterp key)
+                                                      (combat-orders-act
+                                                       game ordersv key))))
+                                            (cond ((eq r :flee)
+                                                   (fight
+                                                    (lambda ()
+                                                      (attempt-flee game))))
+                                                  ((and (consp r)
+                                                        (eq (first r) :fight))
+                                                   (fight
+                                                    (lambda ()
+                                                      (combat-round
+                                                       game (second r)))))
+                                                  (t (redraw)))
+                                            nil))))
                                   ((question-up-p)
                                    ;; a cell's question (the ASK op):
                                    ;; the shared model eats every key
@@ -3547,6 +3646,8 @@ means the player asked to leave (ACT confirms it)."
                                      (#\c (open-cast nil))
                                      (#\u (open-use))
                                      (#\p (open-sing nil))
+                                     (#\e (when (workings-open-p)
+                                            (open-workings)))
                                      (#\h (open-help))
                                      (#\? (open-help))
                                      ;; the map opens centered on the
@@ -3576,7 +3677,8 @@ means the player asked to leave (ACT confirms it)."
                        (dlog-timed ("chrome + first frame")
                          (%chrome-bg rp win l)
                          (%chrome-frames rp game l)
-                         (setf pace-fn #'pace)
+                         (setf pace-fn #'pace
+                               spoils-fn #'show-spoils)
                          ;; a fresh session's animations start at frame
                          ;; 0 — keeps the unattended autoplay sessions
                          ;; deterministic

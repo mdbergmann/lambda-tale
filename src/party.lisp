@@ -536,9 +536,13 @@ same source."
    (%art-rating-lines hero)
    (when (hero-caster-p hero)
      (list (format nil "SP ~D/~D" (hero-sp hero) (hero-max-sp hero))))
+   ;; the count stays on the sheet under a tireless instrument — it
+   ;; is what the tavern refills and what the singer falls back on
+   ;; with the instrument off — with the reason it will not fall
    (when (hero-singer-p hero)
-     (list (format nil "Tunes ~D/~D"
-                   (hero-tunes hero) (hero-max-tunes hero))))
+     (list (format nil "Tunes ~D/~D~:[~; (tireless)~]"
+                   (hero-tunes hero) (hero-max-tunes hero)
+                   (hero-tireless-p hero))))
    (list (format nil "STR ~D DEX ~D IQ ~D"
                  (hero-str hero) (hero-dex hero) (hero-iq hero))
          (format nil "CON ~D LCK ~D" (hero-con hero) (hero-lck hero))

@@ -126,6 +126,8 @@ engine has no default world; the game names its starting map."
          (cast nil)          ; CAST-VIEW while the cast menu is open
          (use nil)           ; USE-VIEW while the use menu is open
          (sing nil)          ; SING-VIEW while the sing menu is open
+         (workings nil)      ; WORKINGS-VIEW while the magic-at-work
+                             ; page is up (E, on the road or in a fight)
          (menu nil)          ; SAVE-MENU while the save/load picker is open
          (orders nil)        ; COMBAT-ORDERS while a round is picked
          (pacing nil)        ; a combat round is running: pace messages
@@ -143,6 +145,7 @@ engine has no default world; the game names its starting map."
                (setf cast nil)
                (setf use nil)
                (setf sing nil)
+               (setf workings nil)
                (setf equip nil)
                (setf trade nil)
                (setf menu nil)
@@ -214,7 +217,7 @@ engine has no default world; the game names its starting map."
                ;; sweep old news off the message board while the plain
                ;; walkabout page is showing (combat marks the log by
                ;; line count — see EXPIRE-MESSAGES)
-               (unless (or menu cast use sing pacing
+               (unless (or menu cast use sing workings pacing
                            (game-location game) (game-combat game))
                  (expire-messages log))
                ;; menu lines may carry their pick key (see MENU-OPTION);
@@ -230,6 +233,11 @@ engine has no default world; the game names its starting map."
                         (format t "~A~%" (menu-line-text line))))
                      (sing
                       (dolist (line (sing-lines game sing))
+                        (format t "~A~%" (menu-line-text line))))
+                     (workings
+                      ;; the magic-at-work page stands where the view
+                      ;; would, in a fight as on the road
+                      (dolist (line (workings-lines game workings))
                         (format t "~A~%" (menu-line-text line))))
                      ((game-location game)
                       (dolist (line (location-lines game locv))
@@ -249,7 +257,7 @@ engine has no default world; the game names its starting map."
                        (clock-line game))
                (dolist (m (log-recent log *log-lines*))
                  (format t "~%~A~%" m))
-               (cond ((or menu cast use sing)
+               (cond ((or menu cast use sing workings)
                       (when (game-combat game)
                         (format t "~A~%" (%combat-pane game))))
                      ((and (game-combat game) orders)
@@ -270,7 +278,7 @@ engine has no default world; the game names its starting map."
                      (t
                       (format t "[w]=forward [s]=back [a]=left [d]=right ~
                                  [m]=map [h]elp [c]ast [u]se [p]lay ~
-                                 [S]ave [L]oad [q]=quit~%"))))
+                                 [e]ffects [S]ave [L]oad [q]=quit~%"))))
              (draw-help-page ()
                (dolist (line (help-lines))
                  (format t "~A~%" line)))
@@ -319,18 +327,36 @@ engine has no default world; the game names its starting map."
                (when (game-combat game)
                  (setf orders (make-combat-orders))))
              (combat-act (c)
+               (cond ((member c '(#\q #\Q)) :quit)
+                     ;; the magic-at-work page opens over the orders
+                     ;; while no picker of theirs is up — it reads,
+                     ;; it does not act, so the round loses nothing
+                     ((and (member c '(#\e #\E))
+                           (not (and orders (combat-orders-sub orders))))
+                      (open-workings))
+                     (t
+                      (let ((r (combat-orders-act
+                                game
+                                (or orders
+                                    (setf orders (make-combat-orders)))
+                                c)))
+                        (cond ((eq r :flee)
+                               (fight (lambda () (attempt-flee game))))
+                              ((and (consp r) (eq (first r) :fight))
+                               (fight (lambda ()
+                                        (combat-round game (second r))))))
+                        nil))))
+             (open-workings ()
+               (setf workings (make-workings-view))
+               nil)
+             (workings-page-act (c)
+               ;; the page eats every key: u/d turn it, E or Esc close
+               ;; it — Q still quits
                (if (member c '(#\q #\Q))
                    :quit
-                   (let ((r (combat-orders-act
-                             game
-                             (or orders
-                                 (setf orders (make-combat-orders)))
-                             c)))
-                     (cond ((eq r :flee)
-                            (fight (lambda () (attempt-flee game))))
-                           ((and (consp r) (eq (first r) :fight))
-                            (fight (lambda ()
-                                     (combat-round game (second r))))))
+                   (progn
+                     (when (eq (workings-act game workings c) :closed)
+                       (setf workings nil))
                      nil)))
              (open-cast (in-combat)
                (if (some #'hero-caster-p (alive-heroes game))
@@ -592,6 +618,7 @@ engine has no default world; the game names its starting map."
                     (#\c (open-cast nil))
                     (#\u (open-use))
                     (#\p (open-sing nil))
+                    (#\e (open-workings))
                     (#\q :quit)
                     (t nil)))))
              (act-key (c)
@@ -604,6 +631,7 @@ engine has no default world; the game names its starting map."
                      (cast (cast-menu-act c))
                      (use (use-menu-act c))
                      (sing (sing-menu-act c))
+                     (workings (workings-page-act c))
                      ((game-combat game) (combat-act c))
                      ((game-question game)
                       ;; a cell's question (the ASK op): the shared
