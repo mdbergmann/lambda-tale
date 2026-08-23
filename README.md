@@ -1089,17 +1089,32 @@ boundaries and the `at-night`/`at-day` special ops make map encounters
 time-dependent.
 
 **Darkness and light.**  A zone declared `(zone ... :dark t)` — a
-dungeon or cellar — is **completely dark**: the party sees (and maps)
-one cell ahead until a light effect burns.  `:dark N` (a positive
-integer) keeps it dark but grants N cells of sight there.  **Outdoors at
-night** there is no sun but there is a moon: sight falls to
-**`*moonlight-depth*`** cells (a few — dimmer than the daytime
-`+view-depth+`, but not the blind one of the underground).  A light
-effect always restores the full depth.  `*moonlight-depth*` is a plain
-special (default 3, capped at `+view-depth+`); set it to 1 for
-pitch-black nights.  Active effects can carry durations on the clock and
-wear off with a message.  See the "Game time" sections of
-`tests/run-tests.lisp` for the exact rules.
+dungeon or cellar — is **pitch black**, the Bard's Tale dungeon: until
+a light effect burns the party sees nothing at all — the view is black,
+the automap learns only the cell the party stands on, and the door it
+faces (and any location behind it) goes unseen.  `:dark N` (a positive
+integer) keeps it dark but grants N cells of sight there, a dimly
+glowing place.  **Outdoors at night** there is no sun but there is a
+moon: sight falls to **`*moonlight-depth*`** cells (a few — dimmer than
+the daytime `+view-depth+`, but not the blind nothing of the
+underground).  `*moonlight-depth*` is a plain special (default 3, capped
+at `+view-depth+`); set it to 1 for near-black nights.
+
+A light effect — a torch, a lamp, a light spell or song — restores the
+full depth, then **gutters**: over its last minutes the circle of sight
+draws in a cell at a time (one cell per `*light-fade-minutes*`, default
+4, remaining — so the last twelve minutes go three cells, two, one,
+out), and in a pitch-black zone the walls, ceiling and floor **dim with
+it** (`light-brightness`, a palette-only effect on the pack's own pens —
+portraits, monsters and text keep their colour), so a failing torch is
+read off the view itself before the "wears off" line.  The view always
+shows whichever reaches further, the light or the zone's own glow: a
+guttering torch under the moon never shows less than the moon does.
+The schedule is in absolute minutes, not a share of the light's life — a
+four-hour lamp gutters over the same last minutes as a half-hour spell.
+Active effects can carry durations on the clock and wear off with a
+message.  See the "Game time" sections of `tests/run-tests.lisp` for the
+exact rules.
 
 ### The day-bands and the sky
 

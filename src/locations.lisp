@@ -146,14 +146,15 @@ names the street face and wins over :IMAGE (the picture shown inside,
 see LOCATION-IMAGE-PATH); a location with only an :IMAGE shows that
 from the street too.  The Amiga front-end shows it in the view
 column, so a city street reads as houses with faces, not one long
-grey wall (the Bard's Tale building-front look).  The wall directly
-ahead is visible even in the dark (GAME-VIEW-DEPTH is never less than
-one cell)."
+grey wall (the Bard's Tale building-front look).  NIL as well in pitch
+darkness (GAME-VIEW-DEPTH 0 — a lightless dungeon): the wall directly
+ahead is as unseen as the rest, and the view column stays black."
   (let* ((map (game-map game))
          (x (game-x game))
          (y (game-y game))
          (f (game-facing game)))
-    (when (eq (cell-wall map x y f) :door)
+    (when (and (plusp (game-view-depth game))
+               (eq (cell-wall map x y f) :door))
       (multiple-value-bind (nx ny) (neighbor map x y f)
         (when nx
           (let* ((loc (cell-location-op map nx ny))

@@ -392,12 +392,22 @@ the window directly, as it always did."
   "The view composition %AMIGA-DRAW-FP wraps: the blitted view starts
 from the ceiling/floor backdrop (black underground, the day-band
 colour outdoors, where the pack has none); the walls carve the
-perspective on top of it."
-  (let ((slices (compute-view (game-map game) (game-x game) (game-y game)
+perspective on top of it.  In pitch darkness — a lightless dungeon,
+RENDER-VIEW-DEPTH 0 — there is no view: the whole viewport is black,
+no backdrop, no walls, the Bard's Tale dungeon without a torch."
+  (let ((sight (game-view-depth game))
+        (slices (compute-view (game-map game) (game-x game) (game-y game)
                               (game-facing game) (render-view-depth game)))
         (planes (view-planes w h)))
-    (if (and walls (= w *fp-view-width*) (= h *fp-view-height*))
-        (progn
+    (cond
+      ((null slices)
+       ;; nothing seen: COMPUTE-VIEW at depth 0 answers no slice at
+       ;; all (any positive depth yields the standing cell), so this
+       ;; is exactly the pitch-black case
+       (amiga.gfx:set-a-pen rp 0)
+       (amiga.gfx:rect-fill rp ox oy (+ ox w -1) (+ oy h -1)))
+      ((and walls (= w *fp-view-width*) (= h *fp-view-height*))
+        (progn                          ; the blitted view
           ;; ceiling above the horizon, floor below, then the walls
           ;; cookie-cut on top so the corners they don't cover let the
           ;; backdrop show through.
@@ -436,14 +446,20 @@ perspective on top of it."
                              (amiga.gfx:rect-fill rp (+ ox x) (+ oy y)
                                                   (+ ox x pw -1)
                                                   (+ oy y ph -1)))))))
-          ;; The wall of night: when darkness truncated the view at an
-          ;; open front, the backdrop must not show a lit corridor
-          ;; receding beyond it — black out the plane past the last
-          ;; visible cell before the walls go on top.
+          ;; The wall of night: when it was SIGHT that ended the view at
+          ;; an open front — moonlight, a :DARK N zone's few cells, a
+          ;; guttering torch, anything short of the full depth — the
+          ;; backdrop must not show a lit corridor receding beyond it:
+          ;; black out the plane past the last visible cell before the
+          ;; walls go on top.  A view cut by the draw-distance knob
+          ;; instead (fewer slices than the party sees) keeps its
+          ;; backdrop: that corridor IS lit, the machine just stops
+          ;; drawing it — the look *DRAW-DEPTH* was given.
           (let ((s (car (last slices))))
             (when (and s
                        (eq (view-slice-front s) :open)
-                       (game-dark-p game))
+                       (< sight +view-depth+)
+                       (= (length slices) sight))
               (destructuring-bind (qx0 qy0 qx1 qy1)
                   (aref planes (1+ (view-slice-depth s)))
                 (amiga.gfx:set-a-pen rp 0)
@@ -466,19 +482,19 @@ perspective on top of it."
                         (amiga.gfx:blt-mask-bitmap-rastport
                          bm sx 0 rp (+ ox x) (+ oy y) pw ph mask)
                         (amiga.gfx:blt-bitmap-rastport
-                         bm sx 0 rp (+ ox x) (+ oy y) pw ph))))))))
-        (progn
-          (amiga.gfx:set-a-pen rp 0)
-          (amiga.gfx:rect-fill rp ox oy (+ ox w -1) (+ oy h -1))
-          (amiga.gfx:set-a-pen rp 1)
-          (dolist (prim (view-display-list slices planes))
-            (ecase (first prim)
-              (:line (destructuring-bind (x0 y0 x1 y1) (rest prim)
-                       (amiga.gfx:draw-line rp (+ ox x0) (+ oy y0)
-                                            (+ ox x1) (+ oy y1))))
-              (:door (destructuring-bind (cx cy hw hh) (rest prim)
-                       (%amiga-door-rect rp (+ ox cx) (+ oy cy)
-                                         hw hh)))))))))
+                         bm sx 0 rp (+ ox x) (+ oy y) pw ph)))))))))
+      (t
+       (amiga.gfx:set-a-pen rp 0)
+       (amiga.gfx:rect-fill rp ox oy (+ ox w -1) (+ oy h -1))
+       (amiga.gfx:set-a-pen rp 1)
+       (dolist (prim (view-display-list slices planes))
+         (ecase (first prim)
+           (:line (destructuring-bind (x0 y0 x1 y1) (rest prim)
+                    (amiga.gfx:draw-line rp (+ ox x0) (+ oy y0)
+                                         (+ ox x1) (+ oy y1))))
+           (:door (destructuring-bind (cx cy hw hh) (rest prim)
+                    (%amiga-door-rect rp (+ ox cx) (+ oy cy)
+                                      hw hh)))))))))
 
 ;;; ---------------------------------------------------------------------
 ;;; Wall-piece assets (M3): the data/gfx ILBMs loaded into offscreen
@@ -2077,9 +2093,10 @@ see src/palette.lisp for the contract and why it is split this way."
     (loop for (pen rgb) in *pointer-pens*
           do (%set-pen-rgb vp pen rgb))))
 
-(defun %apply-pack-palette (scr palette)
+(defun %apply-pack-palette (scr palette &optional (brightness 1))
   "Load the tile pack's own colors from PALETTE, a CMAP vector of
-(R G B) lists (see READ-ILBM).
+(R G B) lists (see READ-ILBM), each scaled by BRIGHTNESS (DIM-RGB —
+LIGHT-BRIGHTNESS's 0..1, 1 the pack as painted).
 
 Only PACK-PENS are taken — the sky, the ground and the art pens.  Every
 other entry in the pack's CMAP is ignored on purpose: those registers
@@ -2088,18 +2105,24 @@ a pack whose palette.iff is stale, hand-edited or simply wrong cannot
 recolor the UI text, the mouse pointer, or the monsters standing in
 front of its walls.  The generator writes the fixed entries into a
 pack's CMAP anyway (ART-PACK-PALETTE), because an artist opening the
-file should see the true screen — but the file is not what decides."
+file should see the true screen — but the file is not what decides.
+
+The same split is what lets BRIGHTNESS dim a dungeon and nothing else:
+the walls, ceiling and floor sink with the party's guttering torch
+while the heroes' portraits, a monster's and the text — all inked in
+engine pens — keep their colour."
   (when palette
     (let ((vp (amiga.intuition:screen-viewport scr)))
       (dolist (pen (pack-pens (display-profile-screen-depth
                                *display-profile*)))
         (let ((rgb (and (< pen (length palette)) (aref palette pen))))
-          (when rgb (%set-pen-rgb vp pen rgb)))))))
+          (when rgb (%set-pen-rgb vp pen (dim-rgb rgb brightness))))))))
 
-(defun %apply-zone-palette (scr game)
+(defun %apply-zone-palette (scr game &optional (brightness 1))
   "Load the zone's own sky (+ART-PEN-SKY+) and ground (+ART-PEN-GROUND+)
 colour registers — the outdoor day/night effect, and underground a
-zone's own colour for the ceiling and floor its pack painted.
+zone's own colour for the ceiling and floor its pack painted — scaled
+by BRIGHTNESS like the pack's own pens (see %APPLY-PACK-PALETTE).
 ZONE-PEN-COLORS decides both cases and says which pens to touch; this
 only writes what it hands back, so a register it answers NIL for keeps
 the colour %APPLY-PACK-PALETTE loaded from the pack.
@@ -2119,8 +2142,10 @@ the old rule was right."
   (multiple-value-bind (sky ground)
       (zone-pen-colors (game-map game) (game-time-of-day game))
     (let ((vp (amiga.intuition:screen-viewport scr)))
-      (when sky (%set-pen-rgb vp +art-pen-sky+ sky))
-      (when ground (%set-pen-rgb vp +art-pen-ground+ ground)))))
+      (when sky
+        (%set-pen-rgb vp +art-pen-sky+ (dim-rgb sky brightness)))
+      (when ground
+        (%set-pen-rgb vp +art-pen-ground+ (dim-rgb ground brightness))))))
 
 (defun %call-with-game-window (display fn)
   "Open DISPLAY per the active *DISPLAY-PROFILE* and call FN with the
@@ -2319,6 +2344,9 @@ combat round owns the keys."
          (zone-dirty nil)   ; party traveled: the chrome needs a repaint
          (plaque-dirty nil) ; entered/left a location: the plaque's
                             ; name changed hands (see PLAQUE-TITLE)
+         (pal-brightness nil) ; the LIGHT-BRIGHTNESS the pack pens were
+                            ; last loaded at, or NIL before any load
+                            ; (see APPLY-PALETTE)
          (ordersv nil)      ; COMBAT-ORDERS while a round is picked
          (pacing nil)       ; a combat round is running: pace messages
          (round-base nil)   ; log length when that round began — its
@@ -2427,6 +2455,24 @@ combat round owns the keys."
                           ;; then the zone's (ZONE :GFX ...), then the
                           ;; profile's pack (bound into *GFX-DIR*)
                           (or gfx-dir (zone-gfx-dir game) *gfx-dir*))
+                        (apply-palette (&optional force)
+                          ;; the view's colours, on our own screen only
+                          ;; (a Workbench window has no say over the
+                          ;; Workbench palette): the pack's pens at the
+                          ;; party's LIGHT-BRIGHTNESS — reloaded when
+                          ;; that changed since the last load (a torch
+                          ;; guttering underground dims the walls a
+                          ;; step at a time; PAL-BRIGHTNESS remembers)
+                          ;; or when FORCE says the pack itself is new
+                          ;; — then the zone's own sky/ground pens over
+                          ;; them, for the hour out of doors, unblended
+                          ;; underground, at the same brightness
+                          (when (eq display :screen)
+                            (let ((b (light-brightness game)))
+                              (when (or force (not (eql b pal-brightness)))
+                                (%apply-pack-palette scr walls-pal b)
+                                (setf pal-brightness b))
+                              (%apply-zone-palette scr game b))))
                         (ensure-walls ()
                           ;; (re)load the wall bitmaps when the wanted
                           ;; pack changed — first draw, zone travel
@@ -2467,13 +2513,9 @@ combat round owns the keys."
                                           pack-cache #'%free-wall-assets
                                           (when (eq *gfx-cache-packs* :auto)
                                             (%free-memory))))
-                                   (when (eq display :screen)
-                                     (%apply-pack-palette scr walls-pal)
-                                     ;; ...then override the sky/ground
-                                     ;; pens with the zone's own — for
-                                     ;; the current hour out of doors,
-                                     ;; unblended underground
-                                     (%apply-zone-palette scr game))
+                                   ;; the new pack's colours, and the
+                                   ;; zone's sky/ground over them
+                                   (apply-palette t)
                                    ;; the pack may carry its own
                                    ;; pointer.iff; re-showing also
                                    ;; re-latches the sprite colors
@@ -2636,6 +2678,7 @@ combat round owns the keys."
                                    ;; the sub-minute remainder carries on
                                    (incf idle-base (idle-minutes-cost mins))
                                    (let ((band (game-time-of-day game))
+                                         (light (light-depth game))
                                          (effects (length
                                                    (game-effects game))))
                                      (advance-time game mins)
@@ -2645,13 +2688,16 @@ combat round owns the keys."
                                      ;; vigil, see MAYBE-IDLE-ENCOUNTER —
                                      ;; the redraw opens the combat page),
                                      ;; the sky re-tints on a band turn,
-                                     ;; or a worn-off effect (or sunrise/
+                                     ;; the party's light guttered a step
+                                     ;; (the view draws in and dims), or
+                                     ;; a worn-off effect (or sunrise/
                                      ;; sunset) has just logged a line
                                      (when (or (maybe-idle-encounter
                                                 game mins)
                                                (not (eq band
                                                         (game-time-of-day
                                                          game)))
+                                               (/= light (light-depth game))
                                                (/= effects
                                                    (length (game-effects
                                                             game))))
@@ -2683,9 +2729,12 @@ combat round owns the keys."
                           ;; action may have turned the day-band without
                           ;; a zone change, and it costs two SET-RGB4.
                           ;; Underground this re-asserts the same two
-                          ;; colours, which is why it may run blind
-                          (when (eq display :screen)
-                            (%apply-zone-palette scr game))
+                          ;; colours, which is why it may run blind —
+                          ;; and when the party's light has guttered a
+                          ;; step since the last frame, the pack's pens
+                          ;; sink with it (APPLY-PALETTE reloads them
+                          ;; only on such a change)
+                          (apply-palette)
                           ;; the click targets are rebuilt with the
                           ;; frame: a full-page catch-all (leave) first
                           ;; where the mode has one, the renderers'

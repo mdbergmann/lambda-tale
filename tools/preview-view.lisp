@@ -93,6 +93,10 @@ shows."
            (out (make-image *fp-view-width* *fp-view-height* screen-depth
                             :palette palette))
            (slices (compute-view map x y facing depth)))
+      ;; pitch darkness (DEPTH 0, no slice): the Amiga draws no view at
+      ;; all, and neither does this — the fresh image is already black
+      (when (null slices)
+        (return-from preview-view out))
       ;; the backdrop first: ceiling above the horizon, floor below —
       ;; and, as %AMIGA-COMPOSE-FP does, the pair the zone's own kind
       ;; calls for.  A blank slot leaves the flat fill the Amiga would

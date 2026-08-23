@@ -10,12 +10,16 @@
 ;;;
 ;;; Darkness: the first-person view shrinks when the party cannot see.
 ;;; A zone declared (ZONE ... :DARK T) — a dungeon or cellar — is
-;;; completely dark, one cell, until a light effect burns; (ZONE :DARK N)
-;;; grants N cells there.  Outdoors at night there is no sun but there is
-;;; a moon: sight falls to *MOONLIGHT-DEPTH* (a few cells), not the blind
-;;; one of the underground, and a light still restores the full depth.
-;;; The automap honors the same rule: what the party cannot see, it
-;;; cannot map (OBSERVE draws through GAME-VIEW-DEPTH).
+;;; pitch black: nothing at all is seen until a light effect burns, the
+;;; Bard's Tale dungeon; (ZONE :DARK N) grants N cells there.  Outdoors
+;;; at night there is no sun but there is a moon: sight falls to
+;;; *MOONLIGHT-DEPTH* (a few cells), not the blind nothing of the
+;;; underground.  A light burns at the full depth, then GUTTERS over its
+;;; last minutes — fewer cells, dimmer colours (LIGHT-DEPTH,
+;;; LIGHT-BRIGHTNESS) — and the party is back to what the zone and the
+;;; hour give on their own.  The automap honors the same rule: what the
+;;; party cannot see, it cannot map (OBSERVE draws through
+;;; GAME-VIEW-DEPTH).
 
 (in-package :tale)
 
@@ -159,24 +163,98 @@ it is night in any other (outdoor) zone — unless a light effect burns."
 
 (defparameter *moonlight-depth* 3
   "Cells the party sees ahead outdoors at night with no light burning:
-moonlight, dimmer than the daytime +VIEW-DEPTH+ but not the blind one
-cell of a lightless dungeon.  A light effect still restores the full
-depth.  Capped at +VIEW-DEPTH+; set to 1 for pitch-black nights.
+moonlight, dimmer than the daytime +VIEW-DEPTH+ but not the blind
+nothing of a lightless dungeon.  A light effect still restores the full
+depth.  Capped at +VIEW-DEPTH+; set to 1 for near-black nights.
 Underground and other (ZONE ... :DARK ...) zones ignore this — there is
 no moon down there.")
 
+(defun ambient-view-depth (game)
+  "How many cells ahead the zone and the hour let the party see with no
+light of its own burning: +VIEW-DEPTH+ in daylight, *MOONLIGHT-DEPTH*
+outdoors at night, the declared count in a (ZONE :DARK N) zone, and
+NOTHING — 0 — in a plain (ZONE :DARK T) zone: a lightless dungeon or
+cellar is pitch black.  Capped at +VIEW-DEPTH+."
+  (let ((dark (dungeon-map-dark (game-map game))))
+    (cond ((integerp dark) (min dark +view-depth+))        ; :DARK N
+          (dark 0)                                          ; :DARK T
+          ((daylight-p (game-time game)) +view-depth+)
+          (t (min *moonlight-depth* +view-depth+)))))       ; night outdoors
+
+;;; ---------------------------------------------------------------------
+;;; The light the party carries, and how it gutters.
+;;;
+;;; A torch, a lamp, a Kindled Ember — every effect LIGHT-ACTIVE-P counts
+;;; — burns at the full depth for most of its life, then fails the way a
+;;; torch does: over its last minutes the circle of light draws in a
+;;; cell at a time and the colours sink with it, and when it dies the
+;;; party has what the zone gives on its own (AMBIENT-VIEW-DEPTH — in a
+;;; pitch-black dungeon, nothing).  So a burning light is a warning the
+;;; player can read off the view itself, before the "wears off" line.
+;;;
+;;; The schedule is in absolute minutes, not a fraction of the light's
+;;; life: a four-hour lamp gutters over the same last minutes as a
+;;; half-hour spell, so a long light is not a long twilight.
+
+(defparameter *light-fade-minutes* 4
+  "A burning light grants one cell of sight for every this many minutes
+it has left, up to +VIEW-DEPTH+ — so it burns at full sight while more
+than (1- +VIEW-DEPTH+) times this remain and gutters over those last
+minutes: three cells, two, one, out.  See LIGHT-DEPTH.")
+
+(defun light-minutes-left (game)
+  "How long the party's light burns yet: the minutes to the LATEST
+expiry among the effects that let it see (LIGHT-ACTIVE-P's — :LIGHT,
+:REVEAL, :NIGHT-VISION), :INDEFINITE when one of them burns until
+removed, NIL when none burns.  A timed effect still listed has not
+expired (ADVANCE-TIME drops them), so a number here is at least 1."
+  (let ((best nil))
+    (dolist (e (game-effects game) best)
+      (let ((p (effect-payload e)))
+        (when (or (getf p :light) (getf p :reveal) (getf p :night-vision))
+          (let ((at (effect-expires-at e)))
+            (cond ((null at) (setf best :indefinite))
+                  ((eq best :indefinite))
+                  (t (let ((left (max 1 (- at (game-time game)))))
+                       (when (or (null best) (> left best))
+                         (setf best left)))))))))))
+
+(defun light-depth (game)
+  "Cells of sight the party's own light grants, whatever the zone: 0
+with no light burning; +VIEW-DEPTH+ for one that burns until removed
+or has more than (* (1- +VIEW-DEPTH+) *LIGHT-FADE-MINUTES*) minutes
+left; as it gutters, one cell per *LIGHT-FADE-MINUTES* remaining,
+rounded up — never 0 while it burns."
+  (let ((left (light-minutes-left game)))
+    (cond ((null left) 0)
+          ((eq left :indefinite) +view-depth+)
+          (t (min +view-depth+
+                  (max 1 (ceiling left (max 1 *light-fade-minutes*))))))))
+
 (defun game-view-depth (game)
-  "How many cells ahead the party can see: +VIEW-DEPTH+ in light.  In
-darkness (see GAME-DARK-P): the zone's (ZONE :DARK N) cell count when it
-declares one, one cell for a plain :DARK T zone (a lightless dungeon or
-cellar — completely dark), and *MOONLIGHT-DEPTH* at night in an outdoor
-zone (moonlight).  All capped at +VIEW-DEPTH+."
-  (if (game-dark-p game)
-      (let ((dark (dungeon-map-dark (game-map game))))
-        (cond ((integerp dark) (min dark +view-depth+))  ; :DARK N
-              (dark 1)                                    ; :DARK T, pitch black
-              (t (min *moonlight-depth* +view-depth+))))  ; night outdoors
-      +view-depth+))
+  "How many cells ahead the party can see: what the zone and the hour
+give on their own (AMBIENT-VIEW-DEPTH — the full +VIEW-DEPTH+ by day,
+moonlight at night, a :DARK N zone's N, nothing in a pitch-black :DARK T
+one) or what its light grants (LIGHT-DEPTH — the full depth, fewer as
+it gutters), whichever reaches further.  0 is pitch black: nothing
+drawn, nothing mapped, no facade seen ahead."
+  (max (ambient-view-depth game) (light-depth game)))
+
+(defun light-brightness (game)
+  "How brightly the zone's own colours — the pack pens its walls, ceiling
+and floor are painted in — show: a rational 0..1 the front-end scales
+those colour registers by (a palette-only effect, like the day bands).
+1 wherever there is light besides the party's own — daylight, moonlight,
+a :DARK N zone's glow — and while a light burns at full sight.  In a
+pitch-black (:DARK T) zone lit only by a guttering light it falls with
+the light, (1+ cells)/(1+ +VIEW-DEPTH+): four-fifths, three-fifths,
+two-fifths as the last cells go — the torch fails before the eyes,
+then the view is black and nothing is drawn to dim."
+  (let ((d (light-depth game)))
+    (if (and (eq (dungeon-map-dark (game-map game)) t)
+             (< 0 d +view-depth+))
+        (/ (1+ d) (1+ +view-depth+))
+        1)))
 
 (defun render-view-depth (game)
   "How many cells ahead the view DRAWS: GAME-VIEW-DEPTH capped by the
@@ -185,7 +263,7 @@ machine's draw distance (*DRAW-DEPTH*, see view.lisp).
 The renderers call this; OBSERVE deliberately calls GAME-VIEW-DEPTH
 instead, so lowering the draw distance for frames never shrinks what
 the automap learns.  Darkness still wins when it is the tighter of the
-two — a torchless dungeon shows one cell however fast the machine is."
+two — a torchless dungeon shows nothing however fast the machine is."
   (min (game-view-depth game) (%draw-depth)))
 
 (defun %time-band-crossings (old new)

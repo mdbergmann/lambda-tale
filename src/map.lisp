@@ -76,7 +76,8 @@
   gfx                 ; zone's tile-pack dir from (ZONE :GFX ...), or NIL
   sfx                 ; zone's sound-pack dir from (ZONE :SFX ...), or NIL
   dark                ; always dark (ZONE :DARK D) — needs a light;
-                      ; T = one cell of sight, an integer = that many
+                      ; T = pitch black (no sight at all), an integer =
+                      ; that many cells of sight
   sky                 ; (ZONE :SKY (R G B)) noon sky colour, or NIL for
                       ;   *DEFAULT-SKY* (see SKY-COLOR-FOR)
   ground              ; (ZONE :GROUND (R G B)) noon ground colour, or NIL
@@ -383,7 +384,7 @@ integer in feet" path key distance entry))))))
              (setf (dungeon-map-sfx map) sfx))
            (when dark
              (unless (or (eq dark t) (and (integerp dark) (plusp dark)))
-               (error "~A: zone :dark ~S must be T (one cell of sight) ~
+               (error "~A: zone :dark ~S must be T (pitch black) ~
 or a positive integer (cells of sight in the dark)" path dark))
              (setf (dungeon-map-dark map) dark))
            (when sky
@@ -507,8 +508,9 @@ the map, read with *READ-EVAL* bound to NIL and never evaluated:
                              zone's sound-pack directory (see
                              ZONE-SFX-DIR); :dark D makes
                              the zone dark at all hours (see GAME-DARK-P):
-                             T = one cell of sight, a positive integer =
-                             that many cells (see GAME-VIEW-DEPTH); :sky
+                             T = pitch black, nothing seen without a
+                             light; a positive integer = that many cells
+                             of sight (see GAME-VIEW-DEPTH); :sky
                              and :ground are (R G B) colours — the zone's
                              NOON sky/ground, from which the engine tints
                              every day-band (see SKY-COLOR-FOR); omitted,

@@ -2349,8 +2349,9 @@ height" d)
                 (member "Mage flame wears off." (funcall msgs)
                         :test #'equal))))
 
-;; Darkness: night and :dark zones shrink the view (and the automap) to
-;; one cell; a light effect restores it.
+;; Darkness: night and :dark zones shrink the view (and the automap) —
+;; moonlight to a few cells, a lightless dungeon to nothing at all; a
+;; light effect restores it.
 (defparameter *corridor-art*
 "+-+-+-+-+
 |@      |
@@ -2371,7 +2372,7 @@ height" d)
          (length (compute-view (game-map g) (game-x g) (game-y g)
                                (game-facing g) (game-view-depth g))))
   (let ((*moonlight-depth* 1))
-    (check "moonlight 1 is a pitch-black night" 1 (game-view-depth g)))
+    (check "moonlight 1 is a near-black night" 1 (game-view-depth g)))
   (let ((*moonlight-depth* 99))
     (check "moonlight is capped at +view-depth+" +view-depth+
            (game-view-depth g)))
@@ -2380,6 +2381,70 @@ height" d)
   (check "lit night: full view depth" +view-depth+ (game-view-depth g))
   (remove-effect g "torchlight")
   (check "light gone: moonlit again" *moonlight-depth* (game-view-depth g)))
+
+;; The party's light gutters: a timed light burns at the full depth until
+;; its last (1- +VIEW-DEPTH+) * *LIGHT-FADE-MINUTES* minutes, then draws
+;; in a cell per *LIGHT-FADE-MINUTES* — and the view is whatever reaches
+;; further, the light or the zone's own: a guttering torch outdoors at
+;; night never shows LESS than the moon does.
+(let* ((m (parse-map *corridor-art* :name "gutter-test" :start-facing :east))
+       (g (new-game m))
+       (*light-fade-minutes* 4))
+  (check "no light: nothing left to burn" nil (light-minutes-left g))
+  (check "no light: the light grants no sight" 0 (light-depth g))
+  (add-effect g "torch" :duration 60 :payload '(:light t))
+  (check "a fresh torch has its whole hour" 60 (light-minutes-left g))
+  (check "a fresh torch grants the full depth" +view-depth+ (light-depth g))
+  ;; 13 minutes left: more than 3 * 4, still the full depth
+  (setf (game-time g) (- (effect-expires-at (find-effect g "torch")) 13))
+  (check "13 minutes left still burn at the full depth" +view-depth+
+         (light-depth g))
+  (incf (game-time g))                  ; 12 left
+  (check "12 minutes left: the first cell goes" 3 (light-depth g))
+  (incf (game-time g) 4)                ; 8 left
+  (check "8 minutes left: two cells" 2 (light-depth g))
+  (incf (game-time g) 4)                ; 4 left
+  (check "4 minutes left: one cell" 1 (light-depth g))
+  (incf (game-time g) 3)                ; 1 left
+  (check "the last minute still shows the one cell" 1 (light-depth g))
+  ;; by day the gutter is invisible: the sun reaches further
+  (setf (game-time g) 720)              ; noon
+  (add-effect g "torch" :duration 4 :payload '(:light t)) ; 4 left
+  (check "a guttering torch by day still grants one cell" 1 (light-depth g))
+  (check "a guttering torch by day: the day wins" +view-depth+
+         (game-view-depth g))
+  ;; at night the moon does: three cells where the torch gives one
+  (setf (game-time g) 1320)             ; 22:00
+  (add-effect g "torch" :duration 4 :payload '(:light t))
+  (check "a guttering torch at night: the moon wins" *moonlight-depth*
+         (game-view-depth g))
+  (add-effect g "torch" :duration 60 :payload '(:light t))
+  (check "a fresh torch at night: the full depth" +view-depth+
+         (game-view-depth g))
+  ;; several lights: the one that burns longest sets the sight, and an
+  ;; indefinite one never gutters
+  (add-effect g "candle" :duration 2 :payload '(:light t))
+  (check "two lights: the longer one counts" 60 (light-minutes-left g))
+  (add-effect g "everlight" :payload '(:light t))
+  (check "an indefinite light burns on" :indefinite (light-minutes-left g))
+  (check "and never gutters" +view-depth+ (light-depth g))
+  (remove-effect g "everlight")
+  (remove-effect g "torch")
+  (remove-effect g "candle")
+  ;; :REVEAL and :NIGHT-VISION are lights here too
+  (add-effect g "cat eyes" :duration 8 :payload '(:night-vision t))
+  (check "night-vision gutters like a torch" 2 (light-depth g))
+  (remove-effect g "cat eyes")
+  ;; the schedule is a knob: a longer fade minute stretches the gutter
+  (let ((*light-fade-minutes* 10))
+    (add-effect g "torch" :duration 25 :payload '(:light t))
+    (check "ten minutes a cell: 25 left is three cells" 3 (light-depth g))
+    (remove-effect g "torch"))
+  ;; outdoors the colours never dim — the moon and the sun are not the
+  ;; party's torch
+  (add-effect g "torch" :duration 4 :payload '(:light t))
+  (check "outdoors a guttering torch dims nothing" 1 (light-brightness g))
+  (remove-effect g "torch"))
 
 ;; The automap honors darkness, and moonlight widens it.  A long corridor
 ;; runs east from (0,0); the party is born at night (NEW-GAME's first
@@ -2408,27 +2473,104 @@ height" d)
     (check-true "a light reaches three cells ahead, past the moonlight"
                 (wall-known-p (game-knowledge moonlit) 3 0 +east+))))
 
-;; A (zone :dark t) zone is dark at any hour.
+;; A (zone :dark t) zone is dark at any hour — and PITCH black: the
+;; Bard's Tale dungeon, where without a light the party sees nothing,
+;; draws nothing, maps nothing but the cell it stands on, and does not
+;; even see the door it faces.  A light opens it to the full depth, and
+;; as the light gutters the colours sink with the cells.
 (let ((path "tests/tmp-dark.map"))
   (with-open-file (s path :direction :output :if-exists :supersede)
-    (write-string "+-+-+
-|@  |
-+-+-+
-(zone :kind :dungeon :title \"the crypt\" :dark t)
+    (write-string "+-+-+-+
+|@D   |
++ +-+-+
+|     |
++-+-+-+
+(zone :kind :dungeon :title \"the crypt\" :dark t :start-facing :east)
+(special (1 0) (location \"The Shrine\" :house :image \"shrine.iff\"))
 " s))
   (let* ((m (load-map-file path))
          (g (new-game m)))
     (check-true "zone :dark parses" (dungeon-map-dark m))
+    (check "the shrine stands behind the door ahead" :door
+           (cell-wall m 0 0 +east+))
     (check-true "a :dark zone is dark at noon"
                 (progn (setf (game-time g) 720) (game-dark-p g)))
-    (check "a plain :dark t zone sees one cell" 1 (game-view-depth g))
-    (add-effect g "mage flame" :payload '(:light t))
-    (check-true "light works underground too" (not (game-dark-p g))))
+    (check "a plain :dark t zone gives no sight of its own" 0
+           (ambient-view-depth g))
+    (check "a plain :dark t zone is pitch black: no cell seen" 0
+           (game-view-depth g))
+    (check "pitch black: the view has no slice to draw" nil
+           (compute-view m (game-x g) (game-y g) (game-facing g)
+                         (game-view-depth g)))
+    (check "pitch black: the drawn view is nothing too" 0
+           (render-view-depth g))
+    ;; the automap learns the standing cell (by feel — KNOW-CELL marks
+    ;; its four walls) and nothing beyond it: facing the open south
+    ;; side, the next cell's far wall stays unknown
+    (check-true "pitch black: the standing cell is known"
+                (cell-explored-p (game-knowledge g) 0 0))
+    (setf (game-facing g) +south+)
+    (observe g)
+    (check-true "pitch black: the cell beyond the open side is not mapped"
+                (not (wall-known-p (game-knowledge g) 0 1 +south+)))
+    ;; the shrine behind the door east is not found, and its picture
+    ;; does not show in the view column — the door itself is unseen
+    (setf (game-facing g) +east+)
+    (observe g)
+    (check-true "pitch black: the place behind the door is not found"
+                (not (cell-found-p (game-knowledge g) 1 0)))
+    (check "pitch black: no facade shows ahead" nil
+           (facing-location-image-path g))
+    (check "pitch black: the colours are not dimmed (nothing is drawn)" 1
+           (light-brightness g))
+    ;; a light: the full depth, the place ahead found, the colours whole
+    (add-effect g "mage flame" :duration 60 :payload '(:light t))
+    (check-true "light works underground too" (not (game-dark-p g)))
+    (check "a light opens the dark to the full depth" +view-depth+
+           (game-view-depth g))
+    (observe g)
+    (check-true "lit: the place behind the door is found"
+                (cell-found-p (game-knowledge g) 1 0))
+    (check-true "lit: the shrine's face shows ahead"
+                (let ((p (facing-location-image-path g)))
+                  (and p (search "shrine.iff" p) t)))
+    (setf (game-facing g) +south+)
+    (observe g)
+    (check-true "lit: the cell beyond the open side is mapped"
+                (wall-known-p (game-knowledge g) 0 1 +south+))
+    (setf (game-facing g) +east+)
+    (check "lit at full sight: the colours are whole" 1 (light-brightness g))
+    ;; the flame gutters underground: a cell and a fifth of the colour
+    ;; at a time — (1+ cells)/(1+ +VIEW-DEPTH+) of the pack's own pens
+    (let ((*light-fade-minutes* 4))
+      (setf (game-time g) (- (effect-expires-at (find-effect g "mage flame")) 12))
+      (check "guttering to three cells underground" 3 (game-view-depth g))
+      (check "three cells: four-fifths brightness" 4/5 (light-brightness g))
+      (incf (game-time g) 4)
+      (check "two cells: three-fifths" 3/5 (light-brightness g))
+      (incf (game-time g) 4)
+      (check "one cell: two-fifths" 2/5 (light-brightness g))
+      (check "one cell of sight left" 1 (game-view-depth g))
+      ;; the light dies (ADVANCE-TIME drops it): black again, and the
+      ;; pens back to the pack's own — nothing is drawn to dim
+      (advance-time g 4)
+      (check "the flame is out" nil (find-effect g "mage flame"))
+      (check "out: pitch black again" 0 (game-view-depth g))
+      (check "out: colours whole again" 1 (light-brightness g)))
+    ;; the colours scale exactly as DIM-RGB says, and 1 is identity
+    (check "dim-rgb 1 is the colour itself" '(204 187 153)
+           (dim-rgb '(204 187 153) 1))
+    (check "dim-rgb 4/5 sinks it toward black" '(163 150 122)
+           (dim-rgb '(204 187 153) 4/5))
+    (check "dim-rgb 2/5" '(82 75 61) (dim-rgb '(204 187 153) 2/5))
+    (check "dim-rgb 0 is black" '(0 0 0) (dim-rgb '(204 187 153) 0)))
   (delete-file path))
 
-;; (zone :dark N) — dark at any hour, but with N cells of sight (the
-;; Closure cellar plays with 3): a light effect still buys the full
-;; view depth, and N is capped at +VIEW-DEPTH+.
+;; (zone :dark N) — dark at any hour, but with N cells of sight, a
+;; dimly glowing place: a light effect still buys the full view depth,
+;; a guttering one never shows less than the zone's own glow and never
+;; dims its colours (the glow is not the torch), and N is capped at
+;; +VIEW-DEPTH+.
 (let* ((m (parse-map "+-+-+-+-+-+-+
 |@          |
 +-+-+-+-+-+-+"
@@ -2445,6 +2587,13 @@ height" d)
   (check "a light buys the full view depth" +view-depth+
          (game-view-depth g))
   (remove-effect g "torchlight")
+  (let ((*light-fade-minutes* 4))
+    (add-effect g "torchlight" :duration 4 :payload '(:light t))
+    (check "a torch down to one cell: the zone's three still show" 3
+           (game-view-depth g))
+    (check "and the glow does not dim with the torch" 1
+           (light-brightness g))
+    (remove-effect g "torchlight"))
   (setf (dungeon-map-dark m) 99)
   (check ":dark above +view-depth+ is capped" +view-depth+
          (game-view-depth g)))

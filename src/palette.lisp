@@ -251,6 +251,16 @@ BASE*(1-WEIGHT) + ANCHOR*WEIGHT, rounded and clamped to 0-255."
 \(NIL = *DEFAULT-GROUND*) at day-band BAND (see *GROUND-BAND-TINTS*)."
   (%band-color-for base band *ground-band-tints* *default-ground*))
 
+(defun dim-rgb (rgb brightness)
+  "RGB — an (R G B) of 0-255 components — scaled by BRIGHTNESS, a
+rational 0..1 (see LIGHT-BRIGHTNESS): 1 hands the colour back as it is,
+0 is black, and the steps between sink it toward black the way the
+night band sinks the sky.  The front-end runs a pack's pens through
+this while the party's light gutters underground."
+  (if (= brightness 1)
+      (copy-list rgb)
+      (%blend-rgb rgb '(0 0 0) (- 1 brightness))))
+
 (defun fixed-pen-role (pen)
   "A short human-readable role for PEN — what the palette.gpl and the
 tile manifest call it."

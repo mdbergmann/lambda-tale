@@ -186,7 +186,8 @@ pack without variants renders every style the same."
                                       (flanks (%draw-flanks)))
   "List of VIEW-SLICEs visible from (X,Y) looking FACING, nearest first.
 Stops at a solid or door front wall, an off-map edge, or DEPTH cells
-\(default +VIEW-DEPTH+; darkness passes 1 — see GAME-VIEW-DEPTH).
+\(default +VIEW-DEPTH+; darkness passes fewer, pitch darkness 0 — no
+slice at all — see GAME-VIEW-DEPTH).
 FLANKS is how many cells outward each slice's flank runs walk
 \(LEFT-FRONTS/RIGHT-FRONTS) — it defaults to the *DRAW-FLANKS*
 rendering knob and bounds only those lists; the scalar side fields
