@@ -92,6 +92,10 @@
    ;; cell specials
    #:trigger-special #:run-special #:teleport-party
    #:trap-disarmed-flag
+   ;; the question a cell may put (the ASK op): a page both front-ends
+   ;; draw over the play page until it is answered
+   #:game-question #:question-text #:question-ops
+   #:ask-question #:answer-question #:question-lines #:question-act
    ;; named destinations (a homing spell's places)
    #:define-destination #:find-destination #:destinations
    #:travel-to-destination

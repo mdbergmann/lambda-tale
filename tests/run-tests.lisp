@@ -9363,7 +9363,10 @@ height" d)
 
 ;; The committed fixture world carries its story layer: the keep is a
 ;; city whose shoppe and stairs are data, the crypt a dark dungeon
-;; whose ladder travels back up.
+;; whose ladder travels back up — after asking (the ASK op, see its
+;; own section): the two stairs between them keep both manners alive,
+;; the keep's carrying the party down on the step that finds them,
+;; the crypt's waiting for a yes.
 (let ((m (load-map-file "tests/world/keep.map")))
   (check "keep is a city zone" :city (dungeon-map-kind m))
   (check "keep title" "Testhold" (map-title m))
@@ -9379,9 +9382,12 @@ height" d)
 (let ((m (load-map-file "tests/world/crypt.map")))
   (check "crypt is a dungeon zone" :dungeon (dungeon-map-kind m))
   (check-true "crypt is dark" (dungeon-map-dark m))
-  (check-true "crypt ladder leads back to the keep"
-              (find-if (lambda (op) (string-equal (first op) "TRAVEL"))
-                       (cell-special m 2 0))))
+  (check "crypt ladder asks before it is climbed" "ASK"
+         (symbol-name (first (first (cell-special m 2 0)))))
+  (check-true "crypt ladder leads back to the keep on a yes"
+              (find-if (lambda (op) (and (consp op)
+                                         (string-equal (first op) "TRAVEL")))
+                       (rest (first (cell-special m 2 0))))))
 
 ;; Zone tile packs: (zone :gfx DIR) names the zone's pack, and
 ;; ZONE-GFX-DIR resolves it in two steps — relative to the map file's
@@ -9537,8 +9543,14 @@ height" d)
   (check-true "the crypt is dark" (game-dark-p g))
   (check "crypt arrival at its start" '(0 0)
          (list (game-x g) (game-y g)))
-  ;; the ladder back up: teleport to the crypt's < cell and step on it
+  ;; the ladder back up: teleport to the crypt's < cell — which asks
+  ;; first (the ASK op), so the party is still in the crypt until it
+  ;; says yes
   (teleport-party g 2 0)
+  (check "the ladder asks before it is climbed" "the crypt"
+         (map-title (game-map g)))
+  (check-true "the question stands" (game-question g))
+  (check "yes climbs it" :yes (question-act g #\y))
   (check "ladder returns to the keep" "Testhold"
          (map-title (game-map g)))
   (check "ladder lands between shoppe and tavern" '(2 0)
@@ -9988,6 +10000,216 @@ height" d)
     (trigger-special g)))
 (delete-file "tests/tmp-loop-a.map")
 (delete-file "tests/tmp-loop-b.map")
+
+;;; ---------------------------------------------------------------------
+;;; The question a cell may put: (ask TEXT... OP...).  Stairs that
+;;; carry the party down on the step that finds them are a footfall; a
+;;; stair that asks first is a decision.  The op holds the question open
+;;; (GAME-QUESTION) as a page both front-ends draw over the play page,
+;;; and the ops run on a yes, drop on a no.
+
+;; The op's shape is checked at the asking, not on the first yes.
+(let ((g (new-game (parse-map *art*))))
+  (check-error "ask needs its question first"
+    (run-special g '((ask (travel "x.map")))))
+  (check-error "ask needs ops to run on a yes"
+    (run-special g '((ask "Take them?"))))
+  (check-error "ask's ops must have an op's shape"
+    (run-special g '((ask "Take them?" "travel"))))
+  (check "a malformed ask leaves no question standing" nil
+         (game-question g)))
+
+;; The stair that asks: a three-cell corridor whose east end is the
+;; stair down, the test dungeon below it.  The zone table is certain
+;; fire so the wandering roll can be listened for on the one step that
+;; matters — every other step runs with the dial off.
+(with-open-file (s "tests/tmp-ask.map" :direction :output
+                   :if-exists :supersede)
+  (write-string "+-+-+-+
+|@   >|
++-+-+-+
+
+(zone :kind :city :title \"Askton\" :start-facing :east
+      :encounters ((\"test rat\" 1)) :encounter-chance 100)
+(special (2 0)
+  (message \"Worn steps lead down.\")
+  (ask \"Steps lead down into the dark, {leader}.\" \"Take them?\"
+       (message \"Down you go.\")
+       (travel \"tmp-dung.map\"))
+  (set-flag :after-ask))
+" s))
+
+(let* ((m (load-map-file "tests/tmp-ask.map"))
+       (hero (%combat-hero))
+       (g (new-game m :party (list hero)))
+       (msgs (watch-messages g))
+       (asked '())
+       (*encounter-rate* nil))
+  (on-event g :question (lambda (game q) (declare (ignore game))
+                          (push (question-text q) asked)))
+  (setf (hero-name hero) "Ulf")
+  (check "nothing asked on the start cell" nil (game-question g))
+  (check "no page with no question" nil (question-lines g))
+  (check "answering with no question is harmless" nil
+         (answer-question g t))
+  (move-party g)
+  ;; the step onto the stair: the cell speaks, asks, and carries on —
+  ;; the party is still on it, and certain-fire rats rolled nothing
+  (let ((*encounter-rate* 1)
+        (*rng* (lambda (n) (declare (ignore n)) (error "rolled ~D" n))))
+    (check "the step lands on the stair" :moved (move-party g)))
+  (check "the party stands on the stair" '(2 0) (list (game-x g) (game-y g)))
+  (check "and has not gone down" "Askton" (map-title (game-map g)))
+  (check-true "the question stands" (game-question g))
+  (check ":question was emitted with the text, {leader} named"
+         '(("Steps lead down into the dark, Ulf." "Take them?"))
+         asked)
+  (check "the ops after the ask ran at once" t (flag g :after-ask))
+  (check-true "the message before the ask ran"
+              (find "Worn steps lead down." (funcall msgs) :test #'equal))
+  (check-true "the message inside the ask did not"
+              (not (find "Down you go." (funcall msgs) :test #'equal)))
+  (check "a step ending on a question drew no wandering roll" nil
+         (game-combat g))
+  ;; the page: the question's text — each string wrapped to the
+  ;; narrowest column — a blank, then two option rows that click
+  (let ((lines (question-lines g)))
+    (check "the page opens on the question, wrapped to the column"
+           '("Steps lead down into the" "dark, Ulf." "Take them?" "")
+           (menu-texts (subseq lines 0 4)))
+    (check-true "every text line fits the narrowest column"
+                (every (lambda (line)
+                         (<= (length (menu-line-text line))
+                             +takeover-columns+))
+                       lines))
+    (check "yes is picked by Y" #\y
+           (menu-line-key (find "Yes" lines :key #'menu-line-text
+                                            :test #'equal)))
+    (check "no is picked by N" #\n
+           (menu-line-key (find "No" lines :key #'menu-line-text
+                                           :test #'equal))))
+  ;; every other key is eaten — not even a step gets through
+  (check "a step key is swallowed" nil (question-act g #\w))
+  (check "a digit is swallowed" nil (question-act g #\1))
+  (check "Q is not the page's to answer" nil (question-act g #\q))
+  (check-true "and the question still stands" (game-question g))
+  ;; no: the question drops, the party stays where it stood
+  (check "N declines" :no (question-act g #\n))
+  (check "the question is gone" nil (game-question g))
+  (check "the party still stands on the stair" '(2 0)
+         (list (game-x g) (game-y g)))
+  (check "in the zone it was in" "Askton" (map-title (game-map g)))
+  ;; the cell asks again on the next visit — off and back on
+  (move-party g :back)
+  (move-party g)
+  (check-true "re-entering the stair asks again" (game-question g))
+  (check "Esc declines as the character" :no (question-act g #\Escape))
+  (move-party g :back)
+  (move-party g)
+  (check "Esc declines as the front-end's keyword" :no
+         (question-act g :esc))
+  (move-party g :back)
+  (move-party g)
+  (check "shift makes no difference" :yes (question-act g #\Y))
+  ;; yes: the ops run in order, the travel lands the party below, and
+  ;; the question is gone before it does
+  (check "the question is answered" nil (game-question g))
+  (check-true "the message inside the ask spoke"
+              (find "Down you go." (funcall msgs) :test #'equal))
+  (check "and the stair was taken" "Testpit" (map-title (game-map g)))
+  (check "landing at the dungeon's start" '(0 0)
+         (list (game-x g) (game-y g))))
+
+;; A question stands until it is answered — the engine keeps it through
+;; anything short of that — but a fight on the cell cannot take the
+;; answer: the ops would be skipped, and a yes that did nothing would
+;; pass quietly.
+(let* ((m (load-map-file "tests/tmp-ask.map"))
+       (g (new-game m :party (list (%combat-hero))))
+       (*encounter-rate* nil))
+  (move-party g) (move-party g)
+  (check-true "asked" (game-question g))
+  (start-combat g '(("test rat" 1)))
+  (check-error "no answering mid-combat" (answer-question g t))
+  (check-true "the question outlasts the refusal" (game-question g))
+  (setf (game-combat g) nil)
+  (check "and takes its answer after the fight" :no (question-act g #\n)))
+
+;; A once belongs inside the ask: there, a no leaves the one time
+;; unspent, and the yes that follows spends it.
+(with-open-file (s "tests/tmp-ask-once.map" :direction :output
+                   :if-exists :supersede)
+  (write-string "+-+-+
+|@  |
++-+-+
+
+(zone :start-facing :east)
+(special (1 0)
+  (ask \"A lever.  Pull it?\"
+       (once (set-flag :pulled) (message \"Clunk.\"))))
+" s))
+(let* ((g (new-game (load-map-file "tests/tmp-ask-once.map")))
+       (msgs (watch-messages g)))
+  (move-party g)
+  (check "no spends nothing" :no (question-act g #\n))
+  (check "the lever is unpulled" nil (flag g :pulled))
+  (move-party g :back) (move-party g)
+  (check "yes runs the once" :yes (question-act g #\y))
+  (check "the lever is pulled" t (flag g :pulled))
+  (check "once" 1 (count "Clunk." (funcall msgs) :test #'equal))
+  (move-party g :back) (move-party g)
+  (check-true "the cell asks again -- the ask is not the once"
+              (game-question g))
+  (check "a second yes" :yes (question-act g #\y))
+  (check "finds the once spent" 1
+         (count "Clunk." (funcall msgs) :test #'equal)))
+(delete-file "tests/tmp-ask-once.map")
+
+;; The step that asked is the step the ops run under: a LOCATION behind
+;; an ASK records the door it was entered by, so leaving still steps
+;; back out through it (the Bard's Tale exit), however long the player
+;; took to say yes.
+(with-open-file (s "tests/tmp-ask-loc.map" :direction :output
+                   :if-exists :supersede)
+  (write-string "+-+-+
+|@D |
++-+-+
+
+(zone :start-facing :east)
+(special (1 0)
+  (ask \"The door stands ajar.  Go in?\"
+       (location \"The Quiet House\" :shrine)))
+" s))
+(let* ((g (new-game (load-map-file "tests/tmp-ask-loc.map"))))
+  (check "the door step lands on the cell" :door (move-party g))
+  (check "asked, not yet inside" nil (game-location g))
+  (check "a second thought: back on the street" :no (question-act g #\n))
+  (move-party g :back)
+  (move-party g)
+  (check "yes walks in" :yes (question-act g #\y))
+  (check "inside now" "The Quiet House"
+         (location-title (game-location g)))
+  (check "the location knows the door it was entered by" +east+
+         (location-entry-dir (game-location g)))
+  (leave-location g)
+  (check "and leaving steps back out through it" '(0 0)
+         (list (game-x g) (game-y g)))
+  (check "facing away from the door" +west+ (game-facing g)))
+(delete-file "tests/tmp-ask-loc.map")
+
+;; A scripted caller may put a question of its own — the op's
+;; mechanism is open — and a newer question replaces an older one.
+(let* ((g (new-game (load-map-file "tests/tmp-ask.map"))))
+  (ask-question g '("First?") '((set-flag :first)))
+  (ask-question g '("Second?") '((set-flag :second)))
+  (check "the newer question has the floor" '("Second?")
+         (question-text (game-question g)))
+  (check "a yes" :yes (question-act g #\y))
+  (check "runs the newer question's ops" t (flag g :second))
+  (check "and never the replaced one's" nil (flag g :first)))
+(delete-file "tests/tmp-ask.map")
+(when (probe-file "tests/tmp-ask.mapc")
+  (delete-file "tests/tmp-ask.mapc"))
 
 ;; A step that lands on a TRAVEL cell, whose destination cell is itself
 ;; a LOCATION, must not carry the step's direction into the location:
@@ -13637,6 +13859,28 @@ line.  Returns the text the session painted."
          (turn-dir start 1) turned)
   (check "seam: a consumed key never reaches the page" start held))
 
+;; The question a cell puts (the ASK op) through the real host
+;; front-end: the fixture crypt's ladder asks before it is climbed.
+;; d turns east, w w walks onto the ladder and the page comes up; n
+;; declines (the party stays), s steps back, w walks on again and y
+;; climbs — into the keep, at the ladder's own landing — and q/y ends
+;; the session there.  The keep is the zone that proves the yes: the
+;; crypt has no other way out.
+#-amigaos
+(let ((text (let ((*encounter-rate* nil))
+              (setf *game* nil)
+              (%play-scripted "tests/world/crypt.map" "dwwnswyqy"))))
+  (check-true "host ui: the question's page was drawn"
+              (search "Climb it?" text))
+  (check-true "host ui: with its option rows"
+              (and (search "Yes" text) (search "No" text)))
+  (check "host ui: declined, then climbed: the party is in the keep"
+         "Testhold" (map-title (game-map *game*)))
+  (check "host ui: at the ladder's landing" '(2 0)
+         (list (game-x *game*) (game-y *game*)))
+  (check "host ui: the question did not outlive its answer" nil
+         (game-question *game*)))
+
 ;; *autoplay* drives a full unattended PLAY-AMIGA session: scripted keys
 ;; are fed one per INTUITICK (~10/s), ending in #\q #\y — q raises the
 ;; quit confirmation and y answers it — so the event loop exits on its
@@ -13669,6 +13913,26 @@ line.  Returns the text the session painted."
                                #\s #\q #\y)))   ; asked again, answered
          (play-amiga "tests/world/crypt.map" :display :window)
          :done))
+
+;; The crypt ladder's question (the ASK op) through the real Amiga
+;; event loop: d turns east, w w walks onto the ladder and the box
+;; draws over the play page (%AMIGA-DRAW-CONFIRM with the question's
+;; own lines — it is modal for the mouse too, so the click at the far
+;; left lands on the page-wide "no" behind the box and declines), s
+;; steps back, w walks on again and y climbs — a zone change under
+;; the box, repainted whole by the answer's redraw.  Checked on where
+;; the party lands: the keep's (2,0) is a cell only the climb reaches.
+#+amigaos
+(check "amiga-ui autoplay answers the crypt ladder's question"
+       '("Testhold" 2 0)
+       (let ((*autoplay* (list #\d #\w #\w
+                               '(:click 15 136)     ; beside the box: no
+                               #\s #\w #\y
+                               #\q #\y)))
+         (setf *game* nil)
+         (play-amiga "tests/world/crypt.map" :display :screen)
+         (list (map-title (game-map *game*))
+               (game-x *game*) (game-y *game*))))
 
 ;;; The tooling seams through the real Amiga event loop: the key hook
 ;;; ahead of the front-end's own dispatch, and the heartbeat hook that a

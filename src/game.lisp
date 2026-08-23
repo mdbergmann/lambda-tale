@@ -19,6 +19,11 @@
   combat              ; active COMBAT or NIL
   effects             ; active EFFECT records (shield, light, ...), see below
   location            ; active LOCATION (shop, ...) or NIL, see locations.lisp
+  question            ; a QUESTION awaiting the player's yes or no, or
+                      ; NIL — the ASK op's (see specials.lisp); a page
+                      ; both front-ends draw over the play page, not
+                      ; saved (it stands on the cell, and the cell asks
+                      ; again)
   ;; Idle game-minutes accrued toward the next wandering-monster roll
   ;; under the living-world clock (see MAYBE-IDLE-ENCOUNTER); not saved
   ;; — a loaded game starts a fresh vigil.
@@ -784,7 +789,12 @@ combat — there is no walking away from a fight (see ATTEMPT-FLEE)."
                   ;; The cell's own story has had its say; now the
                   ;; zone's wandering monsters may find the party —
                   ;; unless a TRAVEL op just switched zones (the roll
-                  ;; belongs to the map the step was taken on).
-                  (when (eq map (game-map game))
+                  ;; belongs to the map the step was taken on), or an
+                  ;; ASK op left a question standing: the step ends
+                  ;; on the stair, deciding, and the next one rolls
+                  ;; again (a fight under the box would have to wait
+                  ;; for an answer the box cannot take mid-combat).
+                  (when (and (eq map (game-map game))
+                             (null (game-question game)))
                     (maybe-wandering-encounter game)))
                 (if (eq wall :door) :door :moved)))))))

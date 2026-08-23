@@ -59,6 +59,19 @@
 ;;;   (encounter (MONSTER COUNT)...)  start combat; ops after this one
 ;;;                              are skipped (combat interrupts)
 ;;;   (event TOPIC ARG...)       emit a story event for subscribers
+;;;   (ask TEXT... OP...)        put a yes/no question to the player
+;;;                              before OP... runs: TEXT... (one or
+;;;                              more strings, {leader} and all) is
+;;;                              the question, and OP... runs only on
+;;;                              a yes — stairs the party may decline
+;;;                              to take, a lever it need not pull.
+;;;                              The cell's ops after the ASK run on
+;;;                              at once; the question stands
+;;;                              (GAME-QUESTION) until the front-end
+;;;                              answers it (QUESTION-ACT), and a no
+;;;                              simply drops it.  Put a ONCE inside
+;;;                              the ASK, not around it: around it, a
+;;;                              no would burn the one time
 
 (in-package :tale)
 
@@ -220,10 +233,115 @@ to the cell the party just left."
        (run-special game (cddr op))))
     (encounter (start-combat game (rest op)))
     (event (apply #'emit game (rest op)))
+    (ask (run-ask-op game (rest op)))
     (t (error "Unknown special op ~S in cell (~D,~D) of ~A"
               (first op) (game-x game) (game-y game)
               (dungeon-map-name (game-map game)))))
   (values))
+
+;;; ---------------------------------------------------------------------
+;;; The question a cell may put.
+;;;
+;;; Every other op acts the moment the party's foot lands: stairs carry
+;;; the party down on the step that finds them.  Bard's Tale asked first
+;;; — "Stairs down.  Take them?" — and a party exploring a dungeon wants
+;;; the asking: the stair cell is a cell like any other to walk across,
+;;; and a descent is a decision, not a footfall.  The ASK op is that
+;;; pause, and it is the mechanism, not a stair: the cell says what it
+;;; asks and what a yes does, and the engine only holds the question
+;;; open.  A question is modal the way the quit confirmation is — a
+;;; LINES generator both front-ends draw as a box over the play page,
+;;; an ACT that reads the key — and, like that box, it eats every key
+;;; but the answer, so nothing leaks into the game while it waits.
+
+(defstruct (question (:constructor %make-question))
+  text          ; the question: a list of strings, {tokens} expanded
+  ops           ; the ops a yes runs (RUN-SPECIAL)
+  step-dir)     ; *STEP-DIR* when asked — rebound while the ops run
+
+(defun ask-question (game text ops)
+  "Put the yes/no question TEXT (a list of strings, read through
+SPECIAL-TEXT) to the player, OPS to run on a yes — the ASK op's
+mechanism, also open to a scripted caller.  Sets GAME-QUESTION and
+emits :QUESTION; a question already standing is replaced, the newer
+cell having the floor.  Returns the question."
+  (let ((q (%make-question
+            :text (mapcar (lambda (s) (special-text game s)) text)
+            :ops ops
+            :step-dir *step-dir*)))
+    (setf (game-question game) q)
+    (emit game :question q)
+    q))
+
+(defun run-ask-op (game args)
+  "The ASK op: ARGS is (TEXT... OP...) — the leading strings are the
+question, the lists after them the ops a yes runs.  Both parts are
+required, and every op must have an op's shape: a question with no
+text has nothing to show, one with no ops nothing to offer, and
+either is a typo in map data, loud at the asking rather than on the
+first yes."
+  (let ((text (loop while (and args (stringp (first args)))
+                    collect (pop args))))
+    (unless text
+      (error "The ask op needs its question first: (ask TEXT... OP...)"))
+    (unless args
+      (error "The ask op ~S needs ops to run on a yes: (ask TEXT... OP...)"
+             (first text)))
+    (dolist (op args)
+      (unless (and (consp op) (symbolp (first op)))
+        (error "Invalid op ~S in (ask ~S ...) (must be a list starting ~
+                with an op name)"
+               op (first text))))
+    (ask-question game text args)))
+
+(defun question-lines (game)
+  "The pending question as menu lines for a front-end to draw: its
+text, each string wrapped to the narrowest page column
+(+TAKEOVER-COLUMNS+) so map prose needs no line breaks of its own, a
+blank, then the two option rows, each picked by the key its first
+letter names — the QUIT-CONFIRM-LINES shape, drawn the same way.  NIL
+with no question standing."
+  (let ((q (game-question game)))
+    (when q
+      (append (loop for s in (question-text q)
+                    append (wrap-text s +takeover-columns+))
+              (list ""
+                    (menu-option #\y "Yes")
+                    (menu-option #\n "No"))))))
+
+(defun answer-question (game yes)
+  "Answer the pending question: YES true runs its ops — under the step
+that asked it (*STEP-DIR*), so a LOCATION behind an ASK still knows the
+door it was entered by — and either answer drops the question first,
+so an ASK among the ops may stand in its turn.  No question standing
+is not an error (a front-end answering late is harmless); answering
+mid-combat is — RUN-SPECIAL stops for a fight, and a yes that quietly
+did nothing would be a lie.  Returns the question answered, or NIL."
+  (let ((q (game-question game)))
+    (when q
+      (when (game-combat game)
+        (error "answer-question: the party is in combat"))
+      (setf (game-question game) nil)
+      (when yes
+        (let ((*step-dir* (question-step-dir q)))
+          (run-special game (question-ops q))))
+      q)))
+
+(defun question-act (game key)
+  "KEY answered on the question page: :YES when it takes the offer (Y —
+the ops run, see ANSWER-QUESTION), :NO when it declines (N or Esc —
+the question drops), NIL when the page ignores it.  The page eats
+every other key, so nothing leaks through to the game while it waits
+— the quit confirmation's manners (QUIT-CONFIRM-ACT); the front-ends
+let Q through to that confirmation themselves, as on every page."
+  (let ((c (if (characterp key) (char-downcase key) key)))
+    (cond ((eql c #\y)
+           (answer-question game t)
+           :yes)
+          ((or (eql c #\n) (eql c #\Escape) (eq c :esc))
+           (answer-question game nil)
+           :no)
+          (t nil))))
 
 (defun trap-disarmed-flag (map x y)
   "The story-flag key marking the trap on cell (X,Y) of MAP disarmed

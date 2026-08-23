@@ -259,6 +259,13 @@ engine has no default world; the game names its starting map."
                      ((game-combat game)
                       ;; a round is playing out (paced transcript)
                       (format t "~A~%" (%combat-pane game)))
+                     ((game-question game)
+                      ;; a cell's question (the ASK op) stands where
+                      ;; the key hints would — the view stays up, the
+                      ;; box below owns the keys until it is answered
+                      (terpri)
+                      (dolist (line (question-lines game))
+                        (format t "~A~%" (menu-line-text line))))
                      ((game-location game))
                      (t
                       (format t "[w]=forward [s]=back [a]=left [d]=right ~
@@ -598,6 +605,13 @@ engine has no default world; the game names its starting map."
                      (use (use-menu-act c))
                      (sing (sing-menu-act c))
                      ((game-combat game) (combat-act c))
+                     ((game-question game)
+                      ;; a cell's question (the ASK op): the shared
+                      ;; model eats every key but Q — Y takes the
+                      ;; offer and its ops run, N or Esc declines
+                      (if (member c '(#\q #\Q))
+                          :quit
+                          (progn (question-act game c) nil)))
                      ((game-location game)
                       ;; the location's model may hand back an
                       ;; instruction: the guild's Save/Load game rows

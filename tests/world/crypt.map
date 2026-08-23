@@ -5,5 +5,5 @@
 (zone :kind :dungeon :title "the crypt" :dark t)
 
 (special (2 0)
-  (message "A ladder leads back up.")
-  (travel "keep.map" 2 0 :east))
+  (ask "A ladder leads back up.  Climb it?"
+       (travel "keep.map" 2 0 :east)))

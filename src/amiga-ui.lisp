@@ -2586,10 +2586,17 @@ combat round owns the keys."
                           (redraw))
                         (leave-help ()
                           (fresh-play help-prior-mode))
+                        (question-up-p ()
+                          ;; a cell's question (the ASK op) is waiting
+                          ;; for its yes or no — once any fight on the
+                          ;; cell is over, the fight comes first
+                          (and (game-question game)
+                               (not (game-combat game))))
                         (menus-idle-p ()
-                          ;; no menu model — and no confirmation — is
-                          ;; eating the keys
+                          ;; no menu model — and no confirmation, no
+                          ;; question — is eating the keys
                           (not (or quitting
+                                   (question-up-p)
                                    savem castv usev singv equipv tradev
                                    (game-location game))))
                         (%roster-picking-p ()
@@ -2820,6 +2827,21 @@ combat round owns the keys."
                                                     (%roster-picking-p))
                                                 (not (game-combat game))
                                                 (not over)))))
+                          ;; a cell's question (the ASK op) floats over
+                          ;; the play page the way the quit confirmation
+                          ;; does below — its own rows on top of a
+                          ;; page-wide catch-all that reads as "no", so
+                          ;; a click beside the box declines the way Esc
+                          ;; does — and nothing animates behind it
+                          (when (question-up-p)
+                            (setf *anim-blits* '()
+                                  *hotspots* '())
+                            (%hotspot #\n
+                                      (ui-layout-bx l) (ui-layout-by l)
+                                      (ui-layout-right l)
+                                      (ui-layout-bottom l))
+                            (%amiga-draw-confirm rp (question-lines game) l
+                                                 log-lines))
                           ;; the quit confirmation floats over whatever
                           ;; page is up and owns the frame's click
                           ;; targets while it waits: the box's own rows
@@ -3387,6 +3409,21 @@ means the player asked to leave (ACT confirms it)."
                                                     game (second r)))))
                                                (t (redraw)))
                                          nil)))
+                                  ((question-up-p)
+                                   ;; a cell's question (the ASK op):
+                                   ;; the shared model eats every key
+                                   ;; but Q — Y takes the offer and its
+                                   ;; ops run, N or Esc declines.  The
+                                   ;; box came down either way, so the
+                                   ;; page under it is repainted whole
+                                   ;; (a yes may have travelled: REDRAW's
+                                   ;; zone-dirty swaps the pack)
+                                   (if (eql lc #\q)
+                                       :quit
+                                       (progn
+                                         (when (question-act game c)
+                                           (fresh-play mode))
+                                         nil)))
                                   ((game-location game)
                                    ;; inside a shop: the shared model
                                    ;; handles the keys (Esc backs out /
@@ -3505,8 +3542,17 @@ means the player asked to leave (ACT confirms it)."
                            (let ((action (menu-pick-action
                                           (amiga.intuition:msg-code msg))))
                              (case action
-                               (:save (open-saves :save))
-                               (:load (open-saves :load))
+                               ;; the pickers open over a location's
+                               ;; page on purpose (the shop's Save),
+                               ;; but never under a box that is
+                               ;; waiting for its answer — the quit
+                               ;; confirmation or a cell's question
+                               ;; owns the keys, and a picker opened
+                               ;; beneath it would sit there unreachable
+                               (:save (unless (or quitting (question-up-p))
+                                        (open-saves :save)))
+                               (:load (unless (or quitting (question-up-p))
+                                        (open-saves :load)))
                                ;; Quit asks the same question the Q
                                ;; key does — see REQUEST-QUIT
                                (:quit (when (eq (request-quit) :quit)
