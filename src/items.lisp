@@ -949,13 +949,16 @@ key (see MENU-NUMBERED)."
                                 (length (usable-items h)))))
                    (game-party game)))))
        ((null item)
-        (append
-         (list (format nil "~A uses." (hero-name hero)) "")
-         (menu-scrolled-lines
-          (usable-items hero) (use-view-top view)
-          (lambda (i name)
-            (menu-numbered
-             i (format nil "~D) ~A" i (item-title name)))))))
+        ;; rows first, then a head that can carry the window's range
+        (let ((rows (menu-scrolled-lines
+                     (usable-items hero) (use-view-top view)
+                     (lambda (i name)
+                       (menu-numbered
+                        i (format nil "~D) ~A" i (item-title name)))))))
+          (append
+           (menu-scroll-head (format nil "~A uses." (hero-name hero)))
+           (list "")
+           rows)))
        ((eq (item-target-kind item) :destination)
         (destination-rows (format nil "~A -- where to?" (item-title item))))
        (t                              ; a mending item picks its target

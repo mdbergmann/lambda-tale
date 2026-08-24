@@ -589,20 +589,25 @@ key (see MENU-NUMBERED)."
                                         (hero-sp h) (hero-max-sp h))))))
                    (game-party game)))))
        ((null spell)
-        (append
-         (list (format nil "~A casts.  SP ~D/~D"
-                       (hero-name hero) (hero-sp hero) (hero-max-sp hero))
-               "")
-         (menu-scrolled-lines
-          (spells-for-hero hero) (cast-view-top view)
-          (lambda (i name)
-            (menu-numbered
-             i (format nil "~D) ~A  ~D sp~:[  (no sp)~;~]"
-                       i (spell-title name)
-                       (spell-type-cost (find-spell-type name))
-                       (>= (hero-sp hero)
-                           (spell-type-cost
-                            (find-spell-type name)))))))))
+        ;; the rows first, so the head can carry the window's range
+        ;; (MENU-SCROLL-HEAD): the numbers are the keys and restart in
+        ;; every window, so a scrolled book needs telling apart
+        (let ((rows (menu-scrolled-lines
+                     (spells-for-hero hero) (cast-view-top view)
+                     (lambda (i name)
+                       (menu-numbered
+                        i (format nil "~D) ~A  ~D sp~:[  (no sp)~;~]"
+                                  i (spell-title name)
+                                  (spell-type-cost (find-spell-type name))
+                                  (>= (hero-sp hero)
+                                      (spell-type-cost
+                                       (find-spell-type name)))))))))
+          (append
+           (menu-scroll-head
+            (format nil "~A casts.  SP ~D/~D"
+                    (hero-name hero) (hero-sp hero) (hero-max-sp hero)))
+           (list "")
+           rows)))
        ((eq (spell-target-kind spell) :offset)
         (if (null (cast-view-dir view))  ; the heading first, then the count
             (list (format nil "~A -- which way?" (spell-title spell))

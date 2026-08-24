@@ -276,15 +276,18 @@ key (see MENU-NUMBERED)."
                                          i (hero-name h)
                                          (hero-tunes-text h))))))
                     (game-party game))))
-         (append
-          (list (format nil "~A plays.  ~A"
-                        (hero-name hero) (hero-tunes-text hero))
-                "")
-          (menu-scrolled-lines
-           (songs-for-hero hero) (sing-view-top view)
-           (lambda (i name)
-             (menu-numbered
-              i (format nil "~D) ~A" i (song-title name))))))))))
+         ;; rows first, then a head that can carry the window's range
+         (let ((rows (menu-scrolled-lines
+                      (songs-for-hero hero) (sing-view-top view)
+                      (lambda (i name)
+                        (menu-numbered
+                         i (format nil "~D) ~A" i (song-title name)))))))
+           (append
+            (menu-scroll-head
+             (format nil "~A plays.  ~A"
+                     (hero-name hero) (hero-tunes-text hero)))
+            (list "")
+            rows))))))
 
 (defun sing-act (game view char)
   "Apply key CHAR to the sing menu.  Returns :DONE when a song

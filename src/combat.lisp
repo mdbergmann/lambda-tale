@@ -967,21 +967,76 @@ orders view asks anew — see COMBAT-ORDERS-ENGAGED)."
          "Fight"
          "Run")))
 
+(defun %wrap-order (label room)
+  "One hero's order broken into rows of at most ROOM cells: WRAP-TEXT,
+except that an order naming a target — \"cast Mending Word on
+Bram\" — would rather break BEFORE the \"on\" than inside the clause.
+A row trailing off in a dangling \"on\", with the name it points at
+standing alone underneath, reads as two orders rather than one.
+
+The clause only gets its way when it costs nothing, though: where
+keeping it whole would take a row more than the plain wrap, the plain
+wrap stands.  A row is the scarcer thing on a page that has to hold a
+whole party's orders and still ask its question underneath them."
+  (let ((plain (wrap-text label room))
+        (at (search " on " label :from-end t)))
+    (if (null at)
+        plain
+        (let ((clause (append (wrap-text (subseq label 0 at) room)
+                              (wrap-text (subseq label (1+ at)) room))))
+          (if (<= (length clause) (length plain)) clause plain)))))
+
+(defun %orders-review-rows (pairs width)
+  "The review's order table, wrapped here rather than by the page: one
+row per hero — the name in a column as wide as the party's longest
+name asks (a cap keeps the orders their share of a narrow page), then
+the order — and an order too long for what is left of the row hangs
+on to the next, indented under the order column so it still reads as
+that hero's.
+
+Wrapping it here is what keeps the table square.  Left to the page's
+own wrapper, an over-wide row breaks at the widest gap in it — the
+name column's own padding — and the hero lands alone on one row with
+its order flush against the page's left edge, out of the column every
+short order above lines up in.  A party where some attack and some
+cast then reads as two interleaved lists instead of one table."
+  (let* ((names (mapcar (lambda (pair) (hero-name (car pair))) pairs))
+         ;; two spaces of gutter after the longest name, and never more
+         ;; than half the page: a hero named at length must not squeeze
+         ;; every order on the page into a ribbon
+         (col (min (+ 2 (reduce #'max names :key #'length :initial-value 0))
+                   (max 6 (floor width 2))))
+         (room (max 4 (- width col))))
+    (loop for pair in pairs
+          for name in names
+          append (let ((rows (%wrap-order (%orders-action-label (cdr pair))
+                                          room))
+                       ;; a name wider than the capped column is cut to
+                       ;; keep its gutter — the row must not push the
+                       ;; order off the page's right edge
+                       (label (if (< (length name) col)
+                                  name
+                                  (string-right-trim
+                                   " " (subseq name 0 (1- col))))))
+                   (loop for row in rows
+                         for first = t then nil
+                         collect (format nil "~vA~A" col
+                                         (if first label "") row))))))
+
 (defun %orders-review-lines (game view)
   "The review page: every hero with the order it gave, and the
 question the round waits on.  It does not repeat the enemy block —
 every hero's page just showed it, and the rows the list needs are the
-rows a full party's orders take.  +/- still answers here (see
-%ORDERS-REVIEW-ACT); the page names the two keys the question is
-about."
+rows a full party's orders take.  The orders themselves come as a
+wrapped table (%ORDERS-REVIEW-ROWS) so a cast's long order — spell and
+target both — stays in the column the plain ones stand in.  +/- still
+answers here (see %ORDERS-REVIEW-ACT); the page names the two keys the
+question is about."
   (append
    (list (format nil "*** Round ~D orders ***"
                  (1+ (combat-round-no (game-combat game))))
          "")
-   (mapcar (lambda (pair)
-             (format nil "  ~12A ~A" (hero-name (car pair))
-                     (%orders-action-label (cdr pair))))
-           (combat-orders-chosen view))
+   (%orders-review-rows (combat-orders-chosen view) +takeover-columns+)
    (list ""
          "Is this OK?"
          "Yes fight  No redo")))

@@ -93,20 +93,31 @@ pick key (see MENU-NUMBERED)."
               ""
               "Type a name; Return saves"))
        (t
-        (append
-         (if slots
-             (menu-scrolled-lines
-              slots (save-menu-top view)
-              (lambda (i name)
-                (menu-numbered
-                 i (format nil "~D) ~A" i name))))
-             (list (if (eq mode :save) "No saved games yet." "No saved games.")))
-         (if err (list "" err) nil)
-         ;; New name is this page's own key (first letter picks); a
-         ;; digit pick and Esc are common knowledge (the help screen
-         ;; carries them)
-         (when (eq mode :save)
-           (list "" (menu-option #\n "New name")))))))))
+        (let ((rows (if slots
+                        (menu-scrolled-lines
+                         slots (save-menu-top view)
+                         (lambda (i name)
+                           (menu-numbered
+                            i (format nil "~D) ~A" i name))))
+                        (list (if (eq mode :save)
+                                  "No saved games yet."
+                                  "No saved games.")))))
+          (append
+           ;; a windowed slot list says which slots it is looking at:
+           ;; the row numbers are the keys, so they count from 1 again
+           ;; in every window and one window reads much like another.
+           ;; The banner above is already 17 cells of the lores
+           ;; column's 27, too long to share, so the marker stands on
+           ;; the row under it
+           (let ((marker (and slots (menu-scroll-marker))))
+             (when marker (list marker)))
+           rows
+           (if err (list "" err) nil)
+           ;; New name is this page's own key (first letter picks); a
+           ;; digit pick and Esc are common knowledge (the help screen
+           ;; carries them)
+           (when (eq mode :save)
+             (list "" (menu-option #\n "New name"))))))))))
 
 (defun save-menu-act (game view char)
   "Apply key CHAR to the save/load menu.  Returns NIL (stay open),

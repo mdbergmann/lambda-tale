@@ -739,7 +739,21 @@ casting key.  Either way the carousel's NEXT row has the last word."
                      (unless (eq (car entry) kind)
                        (setf kind (car entry))
                        (when (> i 1) (push "" rows))
-                       (push (if (eq kind :spell) "Spells:" "Songs:") rows))
+                       ;; the FIRST head in the window carries the
+                       ;; range marker ("Spells:      9-16 of 24"):
+                       ;; the row numbers are the keys and so start
+                       ;; from 1 in every window, and without the
+                       ;; range a scrolled book reads as the same
+                       ;; eight entries over again.  A window that
+                       ;; straddles both kinds says the book's range
+                       ;; once, over the kind it opens on
+                       (dolist (row (if (> i 1)
+                                        (list (if (eq kind :spell)
+                                                  "Spells:" "Songs:"))
+                                        (menu-scroll-head
+                                         (if (eq kind :spell)
+                                             "Spells:" "Songs:"))))
+                         (push row rows)))
                      (push (menu-numbered
                             i (format nil "~D) ~A" i
                                       (%magic-entry-title entry)))

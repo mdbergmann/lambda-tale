@@ -91,6 +91,7 @@
    ;; menu scrolling (long lists window with u/d + the scrollbar)
    #:+menu-page-size+ #:+book-page-size+ #:menu-window #:menu-window-pick
    #:menu-scroll #:menu-scrolled-lines #:*menu-scroll*
+   #:menu-scroll-marker #:menu-scroll-head
    ;; cell specials
    #:trigger-special #:run-special #:teleport-party
    #:trap-disarmed-flag

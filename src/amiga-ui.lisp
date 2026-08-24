@@ -1147,6 +1147,28 @@ every record's changed rectangle in place."
                (amiga.gfx:blt-bitmap-rastport (car f) 0 0 rp x y w h))
            (amiga.gfx:set-a-pen rp 1)))))))
 
+(defun %anim-sleep (rp seconds)
+  "Linger SECONDS with the page's animations still running.
+
+A plain SLEEP freezes them.  The heartbeat that drives
+%ANIM-BLIT-STEP is the event loop's INTUITICKS, and those only arrive
+while the loop is idling at its port — but every linger the game takes
+happens deep inside a key handler, with the loop parked: a paced
+combat message, the beat on a won fight's spoils, a location's notice.
+So the wait is spent in animation-step slices instead, each one
+advancing the frame counter and re-blitting what stands on screen.
+With nothing registered to animate this is a plain sleep, so a page
+that animates nothing — a map, a modal box — waits just as still as
+it did before."
+  (let ((slice (/ +anim-ticks-per-step+ 10.0))
+        (left seconds))
+    (loop while (plusp left)
+          do (let ((this (min left slice)))
+               (sleep this)
+               (decf left this)
+               (when *anim-blits*
+                 (%anim-blit-step rp))))))
+
 (defun %amiga-draw-picture (rp images path l log)
   "Draw the ILBM at PATH in the view slot — black backdrop, the image
 centered (center-cropped when it overhangs the viewport).  Returns T,
@@ -2988,13 +3010,21 @@ combat round owns the keys."
                         (pace ()
                           ;; one combat-transcript beat: show the round's
                           ;; own page and the roster (hp/sp move as the
-                          ;; round plays), then linger on it
+                          ;; round plays), then linger on it.  The
+                          ;; linger keeps the effect band's icons
+                          ;; running (%ANIM-SLEEP): the transcript and
+                          ;; the roster are the only things this beat
+                          ;; repaints, so the band, the enemy portrait
+                          ;; and every animation registered under them
+                          ;; stand exactly where the last redraw left
+                          ;; them — a plain sleep here froze the light
+                          ;; icon for the whole round
                           (if round-base
                               (%amiga-draw-transcript rp log l round-base
                                                       log-lines)
                               (%amiga-draw-log rp log l log-lines))
                           (%amiga-party rp game l nil)
-                          (sleep (combat-message-delay)))
+                          (%anim-sleep rp (combat-message-delay)))
                         (show-spoils ()
                           ;; the won fight's treasure: the campaign's
                           ;; chest picture takes the view column from
@@ -3040,7 +3070,7 @@ combat round owns the keys."
                                                           round-base
                                                           log-lines)
                                   (%amiga-party rp game l nil)
-                                  (sleep *victory-linger*)
+                                  (%anim-sleep rp *victory-linger*)
                                   (setf spoils nil))
                                 ;; combat over: the enemy portrait gives
                                 ;; the view column back to the walls, so
@@ -3613,7 +3643,8 @@ means the player asked to leave (ACT confirms it)."
                                             ;; reads nothing — it must
                                             ;; not wait either
                                             (unless *autoplay*
-                                              (sleep *notice-linger*))
+                                              (%anim-sleep rp
+                                                           *notice-linger*))
                                             (redraw))
                                            ;; the location lives in
                                            ;; the panes too — leaving

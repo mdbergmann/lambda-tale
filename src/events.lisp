@@ -532,6 +532,42 @@ scroll geometry through *MENU-SCROLL* for the front-ends' scrollbars."
                 (funcall render i item))
               (subseq items start end)))))
 
+(defun menu-scroll-marker (&optional (geometry *menu-scroll*))
+  "The \"9-16 of 24\" range marker for the window GEOMETRY describes —
+(START END N) in the shape *MENU-SCROLL* carries, END exclusive — or
+NIL when there is no window at all because the list fit its page
+whole."
+  (when geometry
+    (destructuring-bind (start end n) geometry
+      (format nil "~D-~D of ~D" (1+ start) end n))))
+
+(defun menu-scroll-head (head &optional (geometry *menu-scroll*))
+  "The rows to draw in place of HEAD — the row standing over a windowed
+list — with that window's range marker along its right edge:
+\"Spells:\" becoming \"Spells:          9-16 of 24\".  A list that fit
+its page whole gets HEAD back untouched.
+
+The marker earns its place because the numbers down the left edge are
+the KEYS, not positions in the list: a digit picks the window's own
+first, second, third row (MENU-WINDOW-PICK), so every window counts
+from 1 again and two windows of one long book look like the same
+short book.  True numbering cannot fix that — past nine there is no
+single digit left to press — so the page says which entries it is
+looking at instead.
+
+It rides the head where the lores column has room to hold both, and
+takes a row of its own only where the head is too long to share:
+a prompt that wrapped to buy the marker would cost the page the row
+anyway, and read worse for it.  Call this AFTER generating the rows,
+so *MENU-SCROLL* is the geometry of the list it stands over."
+  (let ((marker (menu-scroll-marker geometry)))
+    (cond ((null marker) (list head))
+          ((<= (+ (length head) 2 (length marker)) +takeover-columns+)
+           (list (format nil "~vA~A"
+                         (- +takeover-columns+ (length marker))
+                         head marker)))
+          (t (list head marker)))))
+
 (defun %menu-token-key (token)
   "The key a footer bracket token names: a single character stands for
 itself, \"Esc\" and \"Return\" for those keys; range tokens (\"1-9\")

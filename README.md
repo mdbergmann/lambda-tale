@@ -329,7 +329,12 @@ page's right edge — a click above the thumb is a window up, below it
 down) move the window and digits pick within it, so
 every item stays reachable with single-digit keys (`menu-window` in
 `src/events.lisp`; the scroll walks live in the model tests in
-`tests/run-tests.lisp`).  The pointer is an **open hand** that
+`tests/run-tests.lisp`).  Because those digits are the keys, they
+count from `1` again in every window — so a scrolled list says which
+entries it is showing, `Spells:          9-16 of 24`, on the head
+standing over it where the column can hold both and on a row of its
+own where it cannot (`menu-scroll-head`).  Without it the second
+window of a long book reads as the same eight entries over again.  The pointer is an **open hand** that
 turns into a **pointing finger** whenever it rests on something
 clickable; over the first-person view's walk zones it becomes the
 **arrow of the move a click would make** — left/right turn arrows on

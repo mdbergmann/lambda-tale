@@ -19,13 +19,13 @@
 ;;; The engine's version
 
 (defconstant +engine-version-major+ 0)
-(defconstant +engine-version-minor+ 48)
+(defconstant +engine-version-minor+ 49)
 (defconstant +engine-version-patch+ 0)
 
 (defparameter *engine-name* "Lambda's Tale"
   "Display name of the engine itself.")
 
-(defparameter *engine-version-date* "23.08.2026"
+(defparameter *engine-version-date* "24.08.2026"
   "Date of this engine version, DD.MM.YYYY.")
 
 (defun engine-version ()

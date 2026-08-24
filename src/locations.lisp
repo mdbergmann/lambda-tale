@@ -366,60 +366,70 @@ the inspect page — the same stock, a digit showing that item's card
               (list (format nil "Who is shopping?  (1~@[-~D~])"
                             (when (> n 1) n)))))
            ((member (shop-view-mode view) '(:buy :inspect))
-            (append
-             ;; the two-space gap before Gold: is where a page too
-             ;; narrow for the one-liner breaks it (WRAP-MENU-LINE),
-             ;; name and purse each keeping a whole row
-             (list (format nil "~A ~A.  Gold: ~D gp"
-                           (hero-name hero)
-                           (if (eq (shop-view-mode view) :buy)
-                               "buys" "browses")
-                           (hero-gold hero))
-                   "")
-             (menu-scrolled-lines
-              (shop-stock loc) (shop-view-top view)
-              (lambda (i name)
-                (menu-numbered i (format nil "~D) ~A~A~A  ~D gp"
-                                         i (item-title name)
-                                         (item-hand-marker name)
-                                         (item-fit-marker hero name)
-                                         (item-price name)))))
-             ;; the page-specific keys stay (first letter picks, and
-             ;; the option row clicks as its key); the digit pick and
-             ;; Esc are common knowledge — the help screen's business.
-             ;; They ride the first window only: a scrolled window
-             ;; gives its rows to the stock (the keys keep working,
-             ;; and u brings their rows back)
-             (when (and (eq (shop-view-mode view) :buy)
-                        (zerop (shop-view-top view)))
-               (list ""
-                     (menu-option #\s "Sell")
-                     (menu-option #\i "Inspect")
-                     (menu-option #\p "Pool gold")))))
+            ;; the stock rows first, so the head can carry the window's
+            ;; range (MENU-SCROLL-HEAD) — the row numbers are the keys
+            ;; and count from 1 again in every window
+            (let ((rows (menu-scrolled-lines
+                         (shop-stock loc) (shop-view-top view)
+                         (lambda (i name)
+                           (menu-numbered
+                            i (format nil "~D) ~A~A~A  ~D gp"
+                                      i (item-title name)
+                                      (item-hand-marker name)
+                                      (item-fit-marker hero name)
+                                      (item-price name)))))))
+              (append
+               ;; the two-space gap before Gold: is where a page too
+               ;; narrow for the one-liner breaks it (WRAP-MENU-LINE),
+               ;; name and purse each keeping a whole row
+               (menu-scroll-head
+                (format nil "~A ~A.  Gold: ~D gp"
+                        (hero-name hero)
+                        (if (eq (shop-view-mode view) :buy)
+                            "buys" "browses")
+                        (hero-gold hero)))
+               (list "")
+               rows
+               ;; the page-specific keys stay (first letter picks, and
+               ;; the option row clicks as its key); the digit pick and
+               ;; Esc are common knowledge — the help screen's business.
+               ;; They ride the first window only: a scrolled window
+               ;; gives its rows to the stock (the keys keep working,
+               ;; and u brings their rows back)
+               (when (and (eq (shop-view-mode view) :buy)
+                          (zerop (shop-view-top view)))
+                 (list ""
+                       (menu-option #\s "Sell")
+                       (menu-option #\i "Inspect")
+                       (menu-option #\p "Pool gold"))))))
            (t
-            (append
-             (list (format nil "~A sells.  Gold: ~D gp"
-                           (hero-name hero) (hero-gold hero))
-                   "")
-             ;; the gear, never the quest pieces: no shop buys the way
-             ;; forward (PACK-GEAR, whose pairs carry the pack position
-             ;; the star needs — the star marks the worn COPY, not the
-             ;; worn name, so with a duplicate in the pack only one row
-             ;; wears it, the same rule as the pack page)
-             (menu-scrolled-lines
-              (pack-gear hero) (shop-view-top view)
-              (lambda (i pair)
-                (menu-numbered i (format nil "~D) ~A~:[~;*~]~A~A  ~D gp"
-                                         i (item-title (cdr pair))
-                                         (equipped-instance-p
-                                          hero (cdr pair) (car pair))
-                                         (item-hand-marker (cdr pair))
-                                         (item-fit-marker hero (cdr pair))
-                                         (item-sell-price (cdr pair))))))
-             (when (zerop (shop-view-top view))
-               (list ""
-                     (menu-option #\b "Buy")
-                     (menu-option #\p "Pool gold"))))))))))
+            ;; the gear, never the quest pieces: no shop buys the way
+            ;; forward (PACK-GEAR, whose pairs carry the pack position
+            ;; the star needs — the star marks the worn COPY, not the
+            ;; worn name, so with a duplicate in the pack only one row
+            ;; wears it, the same rule as the pack page).  Rows first,
+            ;; then a head that can carry the window's range
+            (let ((rows (menu-scrolled-lines
+                         (pack-gear hero) (shop-view-top view)
+                         (lambda (i pair)
+                           (menu-numbered
+                            i (format nil "~D) ~A~:[~;*~]~A~A  ~D gp"
+                                      i (item-title (cdr pair))
+                                      (equipped-instance-p
+                                       hero (cdr pair) (car pair))
+                                      (item-hand-marker (cdr pair))
+                                      (item-fit-marker hero (cdr pair))
+                                      (item-sell-price (cdr pair))))))))
+              (append
+               (menu-scroll-head
+                (format nil "~A sells.  Gold: ~D gp"
+                        (hero-name hero) (hero-gold hero)))
+               (list "")
+               rows
+               (when (zerop (shop-view-top view))
+                 (list ""
+                       (menu-option #\b "Buy")
+                       (menu-option #\p "Pool gold")))))))))))
 
 (defun shop-act (game view char)
   "Apply key CHAR to the shop interaction.  Digits pick within the
@@ -1165,11 +1175,12 @@ view's NOTE is the last line."
                ;; out to the street, not know the Esc convention
                (menu-option #\Escape "Leave the guild"))))
        (:add
-        (cons "Who joins the party?"
-              (menu-scrolled-lines (game-roster game)
-                                   (guild-view-top view)
-                                   #'%guild-roster-row
-                                   +book-page-size+)))
+        ;; rows first, then a prompt that can carry the window's range
+        (let ((rows (menu-scrolled-lines (game-roster game)
+                                         (guild-view-top view)
+                                         #'%guild-roster-row
+                                         +book-page-size+)))
+          (append (menu-scroll-head "Who joins the party?") rows)))
        (:remove
         (cons "Who stays behind?"
               (let ((i 0))
@@ -1179,11 +1190,11 @@ view's NOTE is the last line."
                                                    i (hero-name h))))
                         (game-party game)))))
        (:delete
-        (cons "Whose name is struck?"
-              (menu-scrolled-lines (game-roster game)
-                                   (guild-view-top view)
-                                   #'%guild-roster-row
-                                   +book-page-size+)))
+        (let ((rows (menu-scrolled-lines (game-roster game)
+                                         (guild-view-top view)
+                                         #'%guild-roster-row
+                                         +book-page-size+)))
+          (append (menu-scroll-head "Whose name is struck?") rows)))
        (:confirm-delete
         (list (format nil "Strike ~A from the roster?"
                       (hero-name (guild-view-pending view)))
@@ -1196,24 +1207,24 @@ view's NOTE is the last line."
        ;; book: with the banner on one row, the eight startable
        ;; classes of the fullest race stand on the page whole
        (:race
-        (cons "Choose a race:"
-              (menu-scrolled-lines (races) (guild-view-top view)
-                                   (lambda (i race)
-                                     (menu-numbered
-                                      i (format nil "~D) ~A"
-                                               i (race-title race))))
-                                   +book-page-size+)))
+        (let ((rows (menu-scrolled-lines (races) (guild-view-top view)
+                                         (lambda (i race)
+                                           (menu-numbered
+                                            i (format nil "~D) ~A"
+                                                      i (race-title race))))
+                                         +book-page-size+)))
+          (append (menu-scroll-head "Choose a race:") rows)))
        (:class
-        (cons "Choose a class:"
-              (menu-scrolled-lines
-               (guild-startable-classes (guild-view-race view))
-               (guild-view-top view)
-               (lambda (i class)
-                 (menu-numbered
-                  i (format nil "~D) ~A" i
-                            (string-capitalize
-                             (substitute #\Space #\- (string class))))))
-               +book-page-size+)))
+        (let ((rows (menu-scrolled-lines
+                     (guild-startable-classes (guild-view-race view))
+                     (guild-view-top view)
+                     (lambda (i class)
+                       (menu-numbered
+                        i (format nil "~D) ~A" i
+                                  (string-capitalize
+                                   (substitute #\Space #\- (string class))))))
+                     +book-page-size+)))
+          (append (menu-scroll-head "Choose a class:") rows)))
        (:sex
         ;; a class with two portraits asks whose face this is
         (list "Man or woman?"

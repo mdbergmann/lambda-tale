@@ -1939,6 +1939,37 @@ height" d)
                       (menu-numbered i (format nil "~D) ~A" i x))))))
 (check "a short list reports no scroll geometry" nil *menu-scroll*)
 
+;; The range marker.  The numbers down a windowed list are its KEYS —
+;; digit 1 is always the window's first visible row — so they count
+;; from 1 again in every window and one window of a long list reads
+;; like another.  True numbering cannot fix that: past nine there is
+;; no single digit left to press.  So a windowed page says which
+;; entries it is looking at instead, on the head that stands over the
+;; list where the lores column can hold both.
+(check "no window, no marker" nil (menu-scroll-marker nil))
+(check "the marker counts entries, not offsets" "1-7 of 9"
+       (menu-scroll-marker '(0 7 9)))
+(check "the second window says where it is" "8-14 of 20"
+       (menu-scroll-marker '(7 14 20)))
+(check "a list that fits keeps its head alone" '("Spells:")
+       (menu-scroll-head "Spells:" nil))
+(let ((row (first (menu-scroll-head "Spells:" '(8 16 24)))))
+  (check "a short head carries the marker on its own row"
+         "Spells:          9-16 of 24" row)
+  (check-true "and the row fills the lores column exactly"
+              (= (length row) +takeover-columns+)))
+;; a head too long to share does not wrap to buy the marker — wrapping
+;; would cost the page the row anyway, and read worse for it
+(check "a long head gives the marker a row of its own"
+       '("Who joins the party?" "9-16 of 24")
+       (menu-scroll-head "Who joins the party?" '(8 16 24)))
+;; the widest head that still shares: head + two spaces + marker must
+;; fit the column whole
+(check "the widest shareable head still shares" 1
+       (length (menu-scroll-head "123456789012345" '(8 16 24))))
+(check "one cell wider and the marker stands alone" 2
+       (length (menu-scroll-head "1234567890123456" '(8 16 24))))
+
 ;; Compass-rose geometry (the UI's facing indicator).
 (destructuring-bind (needle letters) (compass-points +north+ 100 50 20)
   (check "compass needle points north" '(100 50 100 38) needle)
@@ -8324,6 +8355,79 @@ height" d)
                   (combat-orders-review view))
       (fits "review page"))))
 
+;; A cast's order is the long one — verb, spell and target all three —
+;; and at 27 columns it cannot share its hero's row whole.  It must
+;; still wrap INTO the order column: the hero named on the first row
+;; with as much of its order as fits, the rest hanging under that
+;; column.  Before this the review left the break to the page's own
+;; wrapper, which broke the row at the widest gap in it — the name
+;; column's own padding — putting the hero alone on one row and its
+;; order flush against the page's left edge.  A party where some
+;; attacked and some cast then read as two interleaved lists rather
+;; than one table.
+(define-spell 'test-mending-word :cost 1 :level 1 :classes '(:t-mage)
+  :heal "1d8")
+
+(let* ((m (parse-map *art* :name "test"))
+       (grunt (%combat-hero))
+       (mage (%combat-mage))
+       (g (new-game m :party (list grunt mage)))
+       (view (make-combat-orders)))
+  (start-combat g '(("test rat" 1)))
+  ;; the picks a round of Cast would leave behind
+  (setf (combat-orders-engaged view) t
+        (combat-orders-chosen view)
+        (list (cons grunt :attack)
+              (cons mage (list :cast 'test-mending-word mage)))
+        (combat-orders-review view) t)
+  (let* ((lines (menu-texts (combat-orders-lines g view)))
+         (grunt-row (find-if (lambda (s) (search "Alva" s)) lines))
+         (mage-row (find-if (lambda (s) (search "Zzgo" s)) lines))
+         (cont (second (member mage-row lines :test #'equal))))
+    (check "no review row overruns the lores column" nil
+           (remove-if (lambda (s) (<= (length s) +takeover-columns+)) lines))
+    (check "the attacker's name and order share a row"
+           "Alva  attack" grunt-row)
+    (check "the caster's name and the head of its order share a row too"
+           "Zzgo  cast test mending" mage-row)
+    (check "no row carries a hero's name alone" nil
+           (find "Zzgo" lines :test #'equal))
+    (check "the order runs on into the next row"
+           "      word on Zzgo" cont)
+    (check-true "hanging under the order column, not the page's edge"
+                (= (search "cast" mage-row)
+                   (position-if-not (lambda (ch) (char= ch #\Space))
+                                    cont)))))
+
+;; The name column follows the party: it is as wide as the longest
+;; name asks, so a short-named party spends no row width on padding —
+;; and a name long enough to crowd the orders off the page is capped
+;; (and cut) rather than allowed to squeeze every order into a ribbon.
+;; %WRAP-ORDER's bargain, both ways round.
+(check "an order that fits keeps its row whole"
+       '("cast Mending Word on Ann") (%wrap-order "cast Mending Word on Ann" 24))
+(check "one too wide breaks before the on, clause whole"
+       '("cast Mending Word" "on Bram")
+       (%wrap-order "cast Mending Word on Bram" 17))
+(check "but not when keeping it whole would cost a row"
+       '("cast Small" "Mending on Bram")
+       (%wrap-order "cast Small Mending on Bram" 17))
+(check "an order with no target wraps plainly"
+       '("play The Ballad of" "Long Names") (%wrap-order "play The Ballad of Long Names" 18))
+
+(check "a short name keeps a two-space gutter, no more"
+       '("Bo  attack")
+       (%orders-review-rows (list (cons (%combat-hero "Bo") :attack))
+                            +takeover-columns+))
+
+(let ((rows (%orders-review-rows
+             (list (cons (%combat-hero "Bartholomew Fitzwilliam") :defend))
+             +takeover-columns+)))
+  (check "an over-long name is cut to the capped column"
+         '("Bartholomew  defend") rows)
+  (check-true "and its row still fits the lores column"
+              (<= (length (first rows)) +takeover-columns+)))
+
 ;; The spells/songs page for singers: the songbook under its own head
 ;; (a singer is a HERO-MAGIC-P hero too), its card offering the tune
 ;; instead of a cast.  A hero who both casts and sings runs the two
@@ -8389,13 +8493,22 @@ height" d)
          (progn (magic-act g av #\d) (magic-view-top av)))
   ;; the head is re-emitted at the top of a scrolled window — the
   ;; section began above it, and a page with no head at all would not
-  ;; say what it is looking at — and the digits number the WINDOW
-  (check "a scrolled window still names its section"
-         '("Spells:" "1) test adept glow" "2) test adept mend"
+  ;; say what it is looking at — and the digits number the WINDOW.
+  ;; Because they do, the head also carries the window's RANGE: the
+  ;; numbers are the keys, so they count from 1 again on every window
+  ;; and the second window of a long book would otherwise read as the
+  ;; same book over again (MENU-SCROLL-HEAD).  A window straddling
+  ;; both kinds says the range once, over the kind it opens on.
+  (check "a scrolled window names its section and its range"
+         '("Spells:            2-9 of 9" "1) test adept glow"
+           "2) test adept mend"
            "3) test adept ward" "4) test adept seal" ""
            "Songs:" "5) test march" "6) test gleam" "7) test dirge"
            "8) test road")
          (menu-texts (butlast (magic-lines g av) 2)))
+  (check-true "the marked head still fits the lores column"
+              (<= (length (first (menu-texts (magic-lines g av))))
+                  +takeover-columns+))
   (check "and the window's first row is its digit 1" '(:spell . test-adept-glow)
          (progn (magic-act g av #\1)
                 (prog1 (magic-view-pending av)
@@ -8449,11 +8562,15 @@ height" d)
   (combat-orders-act g view #\2)        ; test-mend: heal, pick a target
   (check "the heal pick completes the orders" nil
          (combat-orders-act g view #\1))        ; on the grunt
-  (check-true "the review shows the heal with its target"
-              (find-if (lambda (s) (and (search "Zzgo" s)
-                                        (search "cast test mend" s)
-                                        (search "on Alva" s)))
-                       (menu-texts (combat-orders-lines g view))))
+  ;; the order is wider than the column, so it hangs onto a second row
+  ;; — and it breaks BEFORE the "on" (%WRAP-ORDER), which here costs no
+  ;; row over the plain wrap, so the target clause stays whole
+  (let* ((lines (menu-texts (combat-orders-lines g view)))
+         (row (find-if (lambda (s) (search "Zzgo" s)) lines)))
+    (check "the review shows the heal under the caster"
+           "Zzgo  cast test mend" row)
+    (check "with its target whole on the row under it"
+           "      on Alva" (second (member row lines :test #'equal))))
   (check "the reviewed orders carry the target"
          (list :fight (list :attack (list :cast 'test-mend grunt)))
          (combat-orders-act g view #\y)))
@@ -10959,7 +11076,14 @@ height" d)
     (check "deep stock: the eighth is over the window's edge" nil
            (find-if (lambda (s) (search "Tscr 8" s)) texts))
     (check "deep stock: the geometry reaches the scrollbar"
-           '(0 7 9) *menu-scroll*))
+           '(0 7 9) *menu-scroll*)
+    ;; ... and the range marker reaches the PLAYER, who has no
+    ;; scrollbar on the host: the row numbers are the pick keys, so
+    ;; they count from 1 again in every window.  The shop's head row
+    ;; ("Alva buys.  Gold: 100 gp") is too long to share the lores
+    ;; column, so the marker takes the row under it
+    (check-true "deep stock: the page says which items it shows"
+                (member "1-7 of 9" texts :test #'equal)))
   (check-true "the head window carries the footer keys"
               (member (menu-option #\p "Pool gold")
                       (shop-lines g view) :test #'equal))
@@ -10969,7 +11093,11 @@ height" d)
     (check-true "scrolled stock: row 1 is the third item"
                 (find-if (lambda (s) (search "1) Tscr 3" s)) texts))
     (check "scrolled stock: the geometry follows"
-           '(2 9 9) *menu-scroll*))
+           '(2 9 9) *menu-scroll*)
+    ;; the marker is what tells this window from the one above it —
+    ;; both count 1..7 down the left edge
+    (check-true "scrolled stock: the marker moved with the window"
+                (member "3-9 of 9" texts :test #'equal)))
   ;; the footer keys ride the first window only — a scrolled window
   ;; gives its rows to the stock, and the keys themselves keep working
   (check "the scrolled window sheds the footer keys" nil
@@ -10991,6 +11119,9 @@ height" d)
   (check "the page flip resets the offset" 0 (shop-view-top view))
   (check "a full pack scrolls on the sell page"
          '(0 7 8) (progn (shop-lines g view) *menu-scroll*))
+  (check-true "the sell page says which items it shows"
+              (member "1-7 of 8" (menu-texts (shop-lines g view))
+                      :test #'equal))
   (shop-act g view #\d)
   (check "the pack window clamps to its tail" 1 (shop-view-top view))
   (check "the scrolled sell window sheds its footer too" nil
@@ -11048,6 +11179,9 @@ height" d)
            :slots '("s1" "s2" "s3" "s4" "s5" "s6" "s7" "s8" "s9"))))
   (check "nine slots scroll in the picker"
          '(0 7 9) (progn (save-menu-lines g v) *menu-scroll*))
+  (check-true "the picker says which slots it shows"
+              (member "1-7 of 9" (menu-texts (save-menu-lines g v))
+                      :test #'equal))
   (check "d scrolls the slots" nil (save-menu-act g v #\d))
   (check "the slot window scrolled" 2 (save-menu-top v))
   (check "a windowed digit loads the right slot"
