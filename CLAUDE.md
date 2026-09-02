@@ -97,8 +97,14 @@ only when the save-file format actually changes.
   paths, not just the happy path.
 - All Lisp must conform to the **HyperSpec** — this code is also a
   conformance probe for clamiga itself.
-- Keep `README.md` current with the code, user-facing and high-level;
-  no changelog notes or internal detail (cl-amiga's rule, unchanged).
+- Keep the docs current with the code.  `README.md` is the short
+  front page; the **manual** is `docs/` — one chapter per audience
+  (getting started, playing, worlds, campaigns, art and sound, tuning
+  and tooling), user-facing, with reference tables for every
+  `define-*` form, the zone form, the cell ops and the keys.  A new
+  keyword, op, key or dial goes into its table.  No changelog notes
+  or internal detail in either (cl-amiga's rule, unchanged); the
+  reasoning behind a choice goes to `specs/design-notes.md`.
 - Test artifacts belong under `tests/` and in `.gitignore` — the suite
   must leave a clean `git status`.
 
