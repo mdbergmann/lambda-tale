@@ -18,9 +18,11 @@
 (defconstant +view-depth+ 4)    ; cells visible ahead, including standing cell
 
 ;; Lateral cells per open side the flank runs can ever cover (see
-;; COMPUTE-VIEW): at the deepest plane one cell is ~6% of the viewport
-;; width and half the viewport is 50%, so eight cells reach the edge —
-;; a longer run could only draw off-screen.
+;; COMPUTE-VIEW): at the deepest plane a lateral run crosses the
+;; viewport edge once LATERAL*cell exceeds qx0, which comes out to
+;; four cells at both display profiles — eight is a safe bound (it was
+;; exact under the old, farther plane table); a longer run could only
+;; draw off-screen.
 (defconstant +view-flanks+ 8)
 
 ;;; The first-person viewport size shared by the Amiga front-end, the
@@ -271,7 +273,19 @@ automap records never depend on a machine's draw settings."
 
 ;; Inset fraction of the viewport per depth boundary; +view-depth+ cells
 ;; need (1+ +view-depth+) planes.
-(defparameter *plane-fractions* #(0 1/5 33/100 42/100 47/100))
+;;
+;; The table is the game's eye: how close the party stands to the wall
+;; in front of it.  Bard's Tale put that wall over nearly the whole
+;; view — the own cell's side walls a sliver at each edge, a thin band
+;; of roof above and of floor below — and the wall two cells on at
+;; under half of it.  These insets reproduce that: the nearest wall
+;; fills 84% of the width, the next 45%, then 25% and 13%.  (Until
+;; engine 0.50 the first inset was 1/5, a nearest wall of 60% that
+;; read as standing a cell back from everything, and the far walls
+;; came out too small to carry any art.)  It is also the art's friend:
+;; the nearer the front slot is to the painting's own size, the less
+;; the piece cutter has to resample — see tools/gen-pack-from-art.lisp.
+(defparameter *plane-fractions* #(0 8/100 28/100 38/100 44/100))
 
 (defun view-planes (width height)
   "Vector of plane rectangles (x0 y0 x1 y1) for a WIDTH x HEIGHT viewport,

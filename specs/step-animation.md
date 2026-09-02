@@ -56,12 +56,12 @@ If it reads as a smear rather than a step, go on to stage 2.
 ## Stage 2 — half-step planes
 
 Sample the inset curve at half-cell offsets.  Interpolating the
-existing `*plane-fractions*` `#(0 1/5 33/100 42/100 47/100)` at the
+existing `*plane-fractions*` `#(0 8/100 28/100 38/100 44/100)` at the
 midpoints, and extrapolating linearly below zero:
 
 ```lisp
 ;; plane k of the half-step frame carries the inset f(k - 1/2)
-(defparameter *plane-fractions-half* #(-1/10 1/10 53/200 3/8 89/200))
+(defparameter *plane-fractions-half* #(-1/25 1/25 9/50 33/100 41/100))
 ```
 
 The negative plane 0 is the whole point: at half a cell in, the

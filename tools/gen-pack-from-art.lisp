@@ -15,9 +15,21 @@
 ;;; What you provide is one IFF ILBM of the wall, front-on.  Any size
 ;;; (it is resampled) and any depth: an indexed ILBM is expanded
 ;;; through its CMAP, a 24/32-bit "deep" ILBM — what modern paint
-;;; programs export — is read directly.  The natural size is the
-;;; viewport (120x112 lores, 240x130 hires), which is exactly one wall
-;;; cell at the nearest plane, so every piece is a downscale.
+;;; programs export — is read directly.
+;;;
+;;; Two ways to resample it, *ART-SAMPLER* (or :SAMPLER on the entry
+;;; points): :BOX, the default, averages the source pixels a screen
+;;; pixel covers — soft, and it keeps thin lines from dropping out;
+;;; :POINT takes the one source pixel under the screen pixel's centre —
+;;; hard-edged, the way a hand-cut pack looks, and lossless wherever
+;;; the ratio is 1:1.  Under :BOX the natural size is the viewport
+;;; (120x100 lores, 240x130 hires), one wall cell at the nearest
+;;; plane, so every piece is a downscale.  Under :POINT paint at the
+;;; nearest FRONT slot instead — (WALL-PIECE-RECT planes '(:front 0)),
+;;; 100x84 lores and 202x110 hires — so the wall the party stands
+;;; before is the painting pixel for pixel and only the far pieces are
+;;; sampled (the near side walls stretch it by a fifth, which point
+;;; sampling meets by doubling a row here and there).
 ;;;
 ;;; Palette.  A pack is one shared Amiga CMAP and the loader only
 ;;; applies pens 4 and up, so the art cannot bring its own colors per
@@ -308,10 +320,32 @@ the name, so a .ppm that is really an ILBM still loads correctly."
          (= (read-byte s nil 0) 54))))
 
 ;;; ---------------------------------------------------------------------
-;;; Resampling.  Every piece is smaller than its source, so a box
-;;; filter over the covered source rect is both correct and cheap —
-;;; and it keeps the thin timber/mortar lines in the art from
-;;; disappearing the way point sampling drops them.
+;;; Resampling.  A screen pixel of a piece covers a rectangle of the
+;;; source, and *ART-SAMPLER* says what to make of it.
+;;;
+;;; :BOX averages the rectangle.  Every piece was smaller than its
+;;; source when this tool was written, and a box filter over the
+;;; covered rect is both correct and cheap for a downscale — it keeps
+;;; the thin timber/mortar lines in the art from disappearing the way
+;;; point sampling drops them.  Its cost is a blend along every edge:
+;;; a joint beside a face averages into a tone the painting never had,
+;;; which the quantizer then snaps to whatever pen is nearest.  On a
+;;; painting of a few flat tones that is a soft, one-pixel halo on
+;;; every edge at every depth — the walls read as blurred.
+;;;
+;;; :POINT takes the pixel under the rectangle's centre.  Nothing is
+;;; blended, so a piece is made of the painting's own pixels and its
+;;; edges stay hard; a line thinner than the sampling stride can drop
+;;; out, so the art has to be drawn with that stride in mind (joints
+;;; two or three pixels wide, or the painting at the slot's own size,
+;;; where the stride is one and nothing is lost).
+
+(defparameter *art-sampler* :box
+  "How a piece samples its source: :BOX averages the source pixels a
+screen pixel covers, :POINT takes the one under its centre.  Bound by
+GENERATE-PACK-FROM-ART and ART-WALL-PIECE from their :SAMPLER argument;
+the default is the box filter every pack was cut with before it was a
+choice.")
 
 (defun %rgb-box (img x0 y0 x1 y1)
   "Average of IMG over the source rect [X0,X1) x [Y0,Y1), clamped to
@@ -330,18 +364,36 @@ the image and never empty; returns (R G B)."
                         (incf r pr) (incf g pg) (incf b pb))))
     (list (round r n) (round g n) (round b n))))
 
+(defun %rgb-point (img x0 y0 x1 y1)
+  "The pixel of IMG at the centre of the source rect [X0,X1) x [Y0,Y1)
+— the lower-left of the two middle pixels when the rect is even —
+clamped to the image; returns (R G B)."
+  (let* ((w (rgb-image-width img))
+         (h (rgb-image-height img))
+         (x (max 0 (min (1- w) (floor (+ x0 (max x0 (1- x1))) 2))))
+         (y (max 0 (min (1- h) (floor (+ y0 (max y0 (1- y1))) 2)))))
+    (multiple-value-bind (r g b) (rgb-ref img x y)
+      (list r g b))))
+
+(defun %rgb-sample (img x0 y0 x1 y1)
+  "The (R G B) a screen pixel covering the source rect [X0,X1) x
+[Y0,Y1) of IMG shows, per *ART-SAMPLER*."
+  (ecase *art-sampler*
+    (:box (%rgb-box img x0 y0 x1 y1))
+    (:point (%rgb-point img x0 y0 x1 y1))))
+
 (defun %rgb-scale (img w h)
-  "IMG box-filtered to W x H."
+  "IMG resampled to W x H (per *ART-SAMPLER*)."
   (let ((sw (rgb-image-width img))
         (sh (rgb-image-height img))
         (out (%make-rgb w h)))
     (dotimes (y h out)
       (dotimes (x w)
         (setf (rgb-ref out x y)
-              (%rgb-box img
-                        (floor (* x sw) w) (floor (* y sh) h)
-                        (ceiling (* (1+ x) sw) w)
-                        (ceiling (* (1+ y) sh) h)))))))
+              (%rgb-sample img
+                           (floor (* x sw) w) (floor (* y sh) h)
+                           (ceiling (* (1+ x) sw) w)
+                           (ceiling (* (1+ y) sh) h)))))))
 
 (defun %rgb-crop (img x0 w)
   "Columns [X0, X0+W) of IMG (full height)."
@@ -691,35 +743,38 @@ a pixel at every slot this engine has."
           (loop for y from top to bot
                 do (setf (pixel-ref img x y)
                          (funcall mapper
-                                  (%rgb-box src u0
-                                            (floor (* (- y top) sh) span)
-                                            u1
-                                            (ceiling (* (1+ (- y top)) sh)
-                                                     span))))))))
+                                  (%rgb-sample src u0
+                                               (floor (* (- y top) sh) span)
+                                               u1
+                                               (ceiling (* (1+ (- y top)) sh)
+                                                        span))))))))
     (if (eq side :r) (%img-mirror-x img) img)))
 
-(defun art-wall-piece (piece planes src palette depth mapper)
+(defun art-wall-piece (piece planes src palette depth mapper
+                       &key (sampler *art-sampler*))
   "PIECE drawn at its slot size from the RGB source SRC — the
-art-driven twin of DRAW-WALL-PIECE."
-  (destructuring-bind (kind depth-index &optional side) piece
-    (destructuring-bind (px0 py0 px1 py1) (aref planes depth-index)
-      (declare (ignore px0 px1 py1))
-      (destructuring-bind (qx0 qy0 qx1 qy1) (aref planes (1+ depth-index))
-        (declare (ignore qx0 qx1))
-        (destructuring-bind (x y w h) (wall-piece-rect planes piece)
-          (declare (ignore x y))
-          (ecase kind
-            ((:front :front-door)
-             (quantize-image (%art-front src w h) palette depth mapper))
-            ((:flank :flank-door)
-             (destructuring-bind (fx fy fw fh)
-                 (wall-piece-rect planes (list :front depth-index))
-               (declare (ignore fx fy fh))
-               (quantize-image (%art-flank src fw w h side)
-                               palette depth mapper)))
-            ((:side :side-door)
-             (%art-side src w h (- qy0 py0) (- qy1 py0) side
-                        palette depth mapper))))))))
+art-driven twin of DRAW-WALL-PIECE.  SAMPLER is how the piece samples
+SRC, :BOX or :POINT (see *ART-SAMPLER*)."
+  (let ((*art-sampler* sampler))
+    (destructuring-bind (kind depth-index &optional side) piece
+      (destructuring-bind (px0 py0 px1 py1) (aref planes depth-index)
+        (declare (ignore px0 px1 py1))
+        (destructuring-bind (qx0 qy0 qx1 qy1) (aref planes (1+ depth-index))
+          (declare (ignore qx0 qx1))
+          (destructuring-bind (x y w h) (wall-piece-rect planes piece)
+            (declare (ignore x y))
+            (ecase kind
+              ((:front :front-door)
+               (quantize-image (%art-front src w h) palette depth mapper))
+              ((:flank :flank-door)
+               (destructuring-bind (fx fy fw fh)
+                   (wall-piece-rect planes (list :front depth-index))
+                 (declare (ignore fx fy fh))
+                 (quantize-image (%art-flank src fw w h side)
+                                 palette depth mapper)))
+              ((:side :side-door)
+               (%art-side src w h (- qy0 py0) (- qy1 py0) side
+                          palette depth mapper)))))))))
 
 ;;; ---------------------------------------------------------------------
 ;;; The generator
@@ -735,13 +790,15 @@ art-driven twin of DRAW-WALL-PIECE."
                                            palette-source
                                            (profile *display-profile*)
                                            (sky *default-sky*)
-                                           (ground *default-ground*))
+                                           (ground *default-ground*)
+                                           (sampler *art-sampler*))
   "Write a complete tile pack derived from the facade art in SOURCE.
 
 SOURCE is a picture of the wall, front-on, at any size and in any
 format READ-ART understands.  DOOR-SOURCE, when given, is the same wall
 with a door and feeds the -door- pieces; without it both twins come
-from SOURCE, so every wall segment shows whatever SOURCE has.
+from SOURCE, so every wall segment shows whatever SOURCE has.  SAMPLER
+is how the pieces sample the art, :BOX or :POINT (see *ART-SAMPLER*).
 
 VARIANTS is a list of further wall pictures, each a whole extra look:
 they are written as the -v1, -v2, ... files the engine deals out **per
@@ -769,7 +826,8 @@ the (R G B) of pens 5 and 6, i.e. of ceiling.iff and floor.iff.
 
 Returns the number of files written."
   (with-display-profile (profile)
-    (let* ((dir (or out *gfx-dir*))
+    (let* ((*art-sampler* sampler)
+           (dir (or out *gfx-dir*))
            (depth (display-profile-screen-depth *display-profile*))
            (planes (view-planes *fp-view-width* *fp-view-height*))
            (looks (mapcar #'read-art (cons source variants)))

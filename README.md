@@ -246,7 +246,7 @@ still shortens the view further when it is the tighter of the two.
 Each display profile carries a default, since a profile describes a
 screen while draw distance tracks the CPU: `:lores` draws the full 4,
 `:hires` draws 3 — it blits roughly twice the pixel area per frame,
-and the deepest level spends a blit on an 8x8 far wall.  `:draw-depth`
+and the deepest level spends a blit on a 30x16 far wall.  `:draw-depth`
 overrides the default either way (`:draw-depth 4` buys the last level
 back on a hires machine that can afford it).
 
@@ -556,13 +556,31 @@ The format is sniffed, not guessed from the name.  `write-deep-ilbm`
 turns any of them back into a 24-bit IFF, so art that arrived as a PNG
 becomes a source you can keep editing in DPaint.
 
-The natural size is the viewport (120×100 at `:lores`, 240×130 at
-`:hires`), which is exactly one wall cell at the nearest plane, so
-every piece comes out of a downscale.  The perspective is pure
-geometry: front and flank slots are rectangles cut at the front slot's
-scale, side slots are the trapezoid between two perspective planes with
-the wall compressed into each column's visible span and the
-ceiling/floor corners left transparent.
+The perspective is pure geometry: front and flank slots are rectangles
+cut at the front slot's scale, side slots are the trapezoid between two
+perspective planes with the wall compressed into each column's visible
+span and the ceiling/floor corners left transparent.  How a piece
+samples the painting is the `:sampler` argument (`tale:*art-sampler*`
+for the piece-level entry points):
+
+- **`:box`** (the default) averages the source pixels each screen pixel
+  covers.  Soft, and it keeps thin lines from dropping out — right for
+  a painting richer than the slots, where every piece is a downscale.
+  Its natural source size is the viewport (120×100 at `:lores`, 240×130
+  at `:hires`), exactly one wall cell at the nearest plane.
+- **`:point`** takes the one source pixel under each screen pixel's
+  centre.  Hard-edged, the way a hand-cut pack looks: every pixel of a
+  piece is a pixel of the painting, never a blend snapped to whatever
+  pen was nearest.  Paint at the nearest **front** slot for it —
+  `(wall-piece-rect planes '(:front 0))`, 100×84 at `:lores` and
+  202×110 at `:hires` — and the wall the party stands before is the
+  painting pixel for pixel; only the far pieces are sampled, and the
+  near side walls stretch it by a fifth.
+
+The nearest wall fills 84% of the view (Bard's Tale's eye: the own
+cell's side walls a sliver at each edge, a thin band of roof above and
+floor below), the next 45%, then 25% and 13% — `tale:*plane-fractions*`
+in `src/view.lisp`.
 
 **More than one house.**  `:variants` takes further wall pictures, each
 a whole extra look, written as the `-v1`, `-v2`, … files the view deals

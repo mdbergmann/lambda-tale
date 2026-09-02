@@ -395,7 +395,7 @@ messages so far (oldest first)."
   (check "wrap corridor capped at view depth"
          +view-depth+ (length (compute-view m 0 0 :north))))
 
-(check "view-planes plane 1" '(6 3 26 13) (aref (view-planes 33 17) 1))
+(check "view-planes plane 1" '(3 1 29 15) (aref (view-planes 33 17) 1))
 (check "view-planes plane 0 is viewport" '(0 0 32 16)
        (aref (view-planes 33 17) 0))
 
@@ -406,16 +406,22 @@ messages so far (oldest first)."
        (* +view-depth+ 10) (length (wall-piece-names)))
 
 (let ((planes (view-planes 240 130)))
-  ;; the fixed slots at the game's FP viewport size
-  (check "front slot at depth 0" '(48 26 144 78)
+  ;; the fixed slots at the game's FP viewport size: the nearest wall
+  ;; fills 84% of the view (the Bard's Tale eye — see *PLANE-FRACTIONS*),
+  ;; the own cell's side walls the 8% at each edge
+  (check "front slot at depth 0" '(19 10 202 110)
          (wall-piece-rect planes '(:front 0)))
   (check "front-door shares the front slot"
          (wall-piece-rect planes '(:front 0))
          (wall-piece-rect planes '(:front-door 0)))
-  (check "left side slot spans the full column" '(0 0 49 130)
+  (check "left side slot spans the full column" '(0 0 20 130)
          (wall-piece-rect planes '(:side 0 :l)))
-  (check "left flank slot is the side band at wall height" '(0 26 49 78)
+  (check "left flank slot is the side band at wall height" '(0 10 20 110)
          (wall-piece-rect planes '(:flank 0 :l)))
+  ;; the far walls stay big enough to carry art: the deepest front is
+  ;; 30x16, not the 16x8 of the old table
+  (check "the deepest front slot" '(105 57 30 16)
+         (wall-piece-rect planes '(:front 3)))
   ;; left/right slots mirror around the viewport center
   (let ((l (wall-piece-rect planes '(:side 1 :l)))
         (r (wall-piece-rect planes '(:side 1 :r))))
@@ -435,14 +441,16 @@ messages so far (oldest first)."
 ;; 320px screen's content span goes to the view, 3/5 to the log; the
 ;; 100px height is what keeps the whole layout inside NTSC's 200 lines)
 (let ((planes (view-planes 120 100)))
-  (check "lores view-planes plane 1" '(24 20 95 79) (aref planes 1))
-  (check "lores front slot at depth 0" '(24 20 72 60)
+  (check "lores view-planes plane 1" '(10 8 109 91) (aref planes 1))
+  (check "lores front slot at depth 0" '(10 8 100 84)
          (wall-piece-rect planes '(:front 0)))
-  (check "lores left side slot spans the full column" '(0 0 25 100)
+  (check "lores left side slot spans the full column" '(0 0 11 100)
          (wall-piece-rect planes '(:side 0 :l)))
   (check "lores left flank slot is the side band at wall height"
-         '(0 20 25 60)
+         '(0 8 11 84)
          (wall-piece-rect planes '(:flank 0 :l)))
+  (check "lores deepest front slot" '(52 44 16 12)
+         (wall-piece-rect planes '(:front 3)))
   (check "lores piece slots lie inside the viewport" nil
          (remove-if (lambda (piece)
                       (destructuring-bind (x y w h)
@@ -491,7 +499,7 @@ messages so far (oldest first)."
 (let ((planes (view-planes 120 100)))
   ;; depth 0: a whole cell is wider than the viewport edge allows, so
   ;; the slot stays the side band — the old geometry, unchanged
-  (check "lores flank slot at depth 0 fills the side band" '(0 20 25 60)
+  (check "lores flank slot at depth 0 fills the side band" '(0 8 11 84)
          (wall-piece-rect planes '(:flank 0 :l)))
   ;; deeper in, the slot is one cell wide at the wall's own distance
   (dotimes (d +view-depth+)
@@ -636,15 +644,18 @@ height" d)
                  (view-slice-left-front none))))
   ;; the blit list deals the run out as repeated flank pieces, the
   ;; outermost first, each shifted one cell width and cut at the
-  ;; viewport edge (SX mapping the cut into the piece bitmap)
+  ;; viewport edge.  At this plane table a cell two deep is 57 px of
+  ;; the 240, so the row holds the door, its neighbour to the left,
+  ;; and to the right one whole house plus 35 px of the next cut at
+  ;; the edge; the lone west house stands off-screen and is not dealt
+  ;; (the SX cut into a piece bitmap is covered by the flank-left case
+  ;; above).
   (let ((planes (view-planes 240 130)))
     (check "row: the run fills the horizon"
-           (list (list '(:flank 2 :l) a 0 54 23 22 17)
-                 (list '(:flank 2 :l) b 61 54 40 22 0)
-                 (list '(:flank 2 :r) b 217 54 23 22 0)
-                 (list '(:flank 2 :r) b 178 54 40 22 0)
-                 (list '(:flank-door 2 :r) b 139 54 40 22 0)
-                 (list '(:front 2) b 100 54 40 22 0))
+           (list (list '(:flank 2 :l) b 34 49 58 32 0)
+                 (list '(:flank 2 :r) b 205 49 35 32 0)
+                 (list '(:flank-door 2 :r) b 148 49 58 32 0)
+                 (list '(:front 2) b 91 49 58 32 0))
            (view-blit-list v planes))
     ;; the default knob is the classic single neighbor — the same
     ;; three-house skyline as before the runs existed
@@ -1310,14 +1321,19 @@ height" d)
 ;;; First-person ASCII renderer
 
 ;; Facing north at the start of *art*: solid left wall (trapezoid), open
-;; right side showing the neighbor's front wall, solid front at plane 1.
+;; right side showing the neighbor's front wall, solid front at plane 1
+;; — which at this plane table is one row and three columns in from the
+;; viewport edge (the nearest wall fills 84% of the view), so its top
+;; edge is line 1, with the neighbour's wall closing the last columns.
 (let* ((m (parse-map *art* :name "test"))
        (g (new-game m))
        (lines (%split-lines (render-first-person g))))
   (check "fp viewport height" 17 (length lines))
   (check "fp front wall and right opening line"
-         "|     +-------------------+-----+"
-         (nth 3 lines))
+         "| \\+-------------------------+--+"
+         (nth 1 lines))
+  (check "fp front wall verticals" "|  |                         |  |"
+         (nth 8 lines))
   (check-true "fp left wall receding edge" (find #\\ (nth 1 lines))))
 
 ;; A door straight ahead renders a 'D' marker centered on the front wall.
@@ -12203,6 +12219,128 @@ height" d)
                                                '(:front 0)))))
                      'list)))))
 
+;;; ---------------------------------------------------------------------
+;;; Art-driven packs (tools/gen-pack-from-art.lisp): how a piece
+;;; samples its painting.  :BOX averages the source pixels a screen
+;;; pixel covers — a downscale of a two-tone painting grows a third,
+;;; blended tone along every edge; :POINT takes the pixel under the
+;;; centre, so a piece is made of the painting's own pixels and no
+;;; others, and at 1:1 it IS the painting.
+
+(load "tools/gen-pack-from-art.lisp")
+
+(check "the sampler defaults to the box filter" :box *art-sampler*)
+
+;; a 4x4 source: a white square with a black 1-px left column, so the
+;; two halves of a 2x2 downscale straddle the edge
+(let ((src (%make-rgb 4 4)))
+  (dotimes (y 4)
+    (dotimes (x 4)
+      (setf (rgb-ref src x y) (if (zerop x) '(0 0 0) '(255 255 255)))))
+  ;; box: the left column of the result averages one black and one
+  ;; white source column
+  (let ((*art-sampler* :box))
+    (check "box sampling blends the edge" '(128 128 128)
+           (multiple-value-list (rgb-ref (%rgb-scale src 2 2) 0 0)))
+    (check "box sampling keeps a solid area solid" '(255 255 255)
+           (multiple-value-list (rgb-ref (%rgb-scale src 2 2) 1 1))))
+  ;; point: the centre of the 2x2 source rect [0,2) is column 0 — the
+  ;; black one, kept whole; the right half is white
+  (let ((*art-sampler* :point))
+    (check "point sampling keeps the edge pixel whole" '(0 0 0)
+           (multiple-value-list (rgb-ref (%rgb-scale src 2 2) 0 0)))
+    (check "point sampling never invents a tone" '(255 255 255)
+           (multiple-value-list (rgb-ref (%rgb-scale src 2 2) 1 0)))
+    ;; at 1:1 the result is the source, pixel for pixel
+    (let ((same (%rgb-scale src 4 4)))
+      (check "point sampling at 1:1 is the painting" nil
+             (loop for y below 4
+                   append (loop for x below 4
+                                unless (equal (multiple-value-list
+                                               (rgb-ref src x y))
+                                              (multiple-value-list
+                                               (rgb-ref same x y)))
+                                  collect (list x y))))))
+  (let ((*art-sampler* :nearest))
+    (check-error "an unknown sampler is an error" (%rgb-scale src 2 2))))
+
+;; %RGB-POINT's centre: the lower of the two middle pixels of an even
+;; rect, clamped to the image
+(let ((src (%make-rgb 3 1)))
+  (setf (rgb-ref src 0 0) '(10 0 0)
+        (rgb-ref src 1 0) '(20 0 0)
+        (rgb-ref src 2 0) '(30 0 0))
+  (check "point: odd rect takes its middle" '(20 0 0) (%rgb-point src 0 0 3 1))
+  (check "point: even rect takes the lower middle" '(10 0 0)
+         (%rgb-point src 0 0 2 1))
+  (check "point: a rect past the edge clamps" '(30 0 0)
+         (%rgb-point src 2 0 9 1))
+  (check "point: an empty rect is its own pixel" '(20 0 0)
+         (%rgb-point src 1 0 1 1)))
+
+;; The pieces: a two-tone painting cut to the lores slots under each
+;; sampler.  A front piece is a straight downscale, a side piece a
+;; squeeze into its trapezoid; under :POINT neither may show a pen the
+;; painting does not ink, under :BOX the front's edge does.
+(with-display-profile ((find :lores *display-profiles*
+                             :key #'display-profile-name))
+  (let* ((planes (view-planes *fp-view-width* *fp-view-height*))
+         ;; the painting's white and black are the UI's white and the
+         ;; opaque black, which every pack carries; the one art pen is
+         ;; the mid grey a box blend of the two lands on
+         (palette (art-pack-palette '((128 128 128)) 5))
+         (mapper (%make-pen-mapper palette 5))
+         (white +pen-ui-white+)
+         (black +pen-opaque-black+)
+         (art (%make-rgb 120 100)))
+    ;; white, with a black vertical joint down the middle three columns
+    (dotimes (y 100)
+      (dotimes (x 120)
+        (setf (rgb-ref art x y) (if (<= 59 x 61) '(0 0 0) '(255 255 255)))))
+    (flet ((pens (img)
+             ;; every pen the piece inks, the transparent corners aside
+             (let ((seen '()))
+               (dotimes (y (image-height img))
+                 (dotimes (x (image-width img))
+                   (pushnew (pixel-ref img x y) seen)))
+               (sort (remove +pen-transparent+ seen) #'<))))
+      (let ((point-front (pens (art-wall-piece '(:front 1) planes art palette
+                                               5 mapper :sampler :point)))
+            (box-front (pens (art-wall-piece '(:front 1) planes art palette
+                                             5 mapper :sampler :box)))
+            (point-side (pens (art-wall-piece '(:side 0 :l) planes art
+                                              palette 5 mapper
+                                              :sampler :point))))
+        (check "point: the front piece inks only the painting's pens"
+               (list white black) point-front)
+        (check-true "box: the same front piece blends a tone along the joint"
+                    (set-difference box-front (list white black)))
+        (check "point: a squeezed side piece inks only the painting's pens"
+               (list white black) point-side)
+        ;; the keyword binds the special for the piece and no longer
+        (art-wall-piece '(:front 0) planes art palette 5 mapper
+                        :sampler :point)
+        (check "the piece's sampler does not outlive the call" :box
+               *art-sampler*)
+        ;; the nearest front slot at 1:1: a painting the slot's size
+        ;; comes through untouched under :POINT
+        (destructuring-bind (x y w h) (wall-piece-rect planes '(:front 0))
+          (declare (ignore x y))
+          (let ((exact (%make-rgb w h)))
+            (dotimes (yy h)
+              (dotimes (xx w)
+                (setf (rgb-ref exact xx yy)
+                      (if (evenp (+ xx yy)) '(255 255 255) '(0 0 0)))))
+            (let ((piece (art-wall-piece '(:front 0) planes exact palette 5
+                                         mapper :sampler :point)))
+              (check "point at the slot's own size is the painting" nil
+                     (loop for yy below h
+                           append (loop for xx below w
+                                        unless (= (pixel-ref piece xx yy)
+                                                  (if (evenp (+ xx yy))
+                                                      white black))
+                                          collect (list xx yy)))))))))))
+
 ;; Flank pieces are the same flat wall as the front piece at their
 ;; depth, continued through the open side — their mortar joints must
 ;; land on the FRONT slot's brick grid (bond offsets 0 / brick/2),
@@ -12224,10 +12362,14 @@ height" d)
             ;; white edge highlight)
             (dotimes (x w)
               (when (= 4 (pixel-ref img x 2)) (push x joints)))
+            ;; a flank narrower than a brick — the depth-0 sliver beside
+            ;; the party — may hold no joint at all in a course (the
+            ;; grid's columns fall on its edge highlights); a wider one
+            ;; must show some, and every one on the front's grid
             (check-true
              (format nil "depth-~D ~A flank joints sit on the front ~
 brick grid" d side)
-             (and joints
+             (and (or (< w brick) joints)
                   (every (lambda (x)
                            (member (mod (+ x0 x) brick)
                                    (list 0 (floor brick 2))))
